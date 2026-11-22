@@ -485,19 +485,24 @@ export class HudController {
     this.renderChatLogs();
   }
 
+  private appendChatUnique(msg: ChatMessage) {
+    if (this.chatMessages.some((m) => m.id === msg.id)) return;
+    this.chatMessages.push(msg);
+    if (this.chatMessages.length > 60) this.chatMessages.shift();
+    this.renderChatLogs();
+  }
+
   private sendChatMessage(text: string) {
     const col = PLAYER_COLORS[this.localColorIndex % PLAYER_COLORS.length].hex;
     const msg: ChatMessage = {
-      id: `m_${Date.now()}_${Math.random()}`,
+      id: `m_${this.mpTransport?.localId || 'loc'}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       senderNick: this.localNick,
       senderColor: col,
       text,
       ts: Date.now()
     };
-    this.chatMessages.push(msg);
-    if (this.chatMessages.length > 60) this.chatMessages.shift();
+    this.appendChatUnique(msg);
     this.mpTransport?.send({ type: 'chat', msg });
-    this.renderChatLogs();
   }
 
   private renderChatLogs() {
@@ -863,9 +868,11 @@ export class HudController {
         if (this.inLobbyRoom) this.renderLobbyRoomScreen();
       },
       onMessage: (msg) => this.handleGuestMessage(msg),
-      onPeerDisconnected: () => {
-        this.showToast('Хост закрыл лобби');
-        this.pushSystemChat('Соединение с хостом потеряно.');
+      onPeerDisconnected: (_peerId, wasHost) => {
+        if (wasHost) {
+          this.showToast('Хост закрыл лобби');
+          this.pushSystemChat('Хост закрыл лобби.');
+        }
       }
     });
 
@@ -948,9 +955,7 @@ export class HudController {
     }
 
     if (msg.type === 'chat') {
-      this.chatMessages.push(msg.msg);
-      if (this.chatMessages.length > 60) this.chatMessages.shift();
-      this.renderChatLogs();
+      this.appendChatUnique(msg.msg);
       return;
     }
 
@@ -976,9 +981,7 @@ export class HudController {
       return;
     }
     if (msg.type === 'chat') {
-      this.chatMessages.push(msg.msg);
-      if (this.chatMessages.length > 60) this.chatMessages.shift();
-      this.renderChatLogs();
+      this.appendChatUnique(msg.msg);
       return;
     }
     if (msg.type === 'start') {
@@ -1223,6 +1226,34 @@ export class HudController {
         });
       });
       actions.appendChild(startBtn);
+    } else {
+      // Guest: Force-Join button so mobile players NEVER get stuck in lobby!
+      const forceBtn = document.createElement('button');
+      forceBtn.className = 'action-btn primary';
+      forceBtn.textContent = '⚡ Войти принудительно';
+      forceBtn.addEventListener('click', () => {
+        if (!this.mpTransport) return;
+        const me = this.makeLocalPlayerInfo(this.mpTransport.localId, false);
+        // Re-ping host for late_sync AND enter the room match directly!
+        this.mpTransport.send({ type: 'hello', player: me, password: '' });
+        const fallbackSeed = hashRoomCode(this.mpTransport.roomCode);
+        const mapDims = computeCoopMapSize(Math.max(5, this.lobbyPlayers.length), this.lobbyMpMode, this.lobbyMapSize);
+        const roster = this.lobbyPlayers.some((p) => p.id === me.id)
+          ? this.lobbyPlayers
+          : [...this.lobbyPlayers, me];
+        this.enterMultiplayerMatch({
+          seed: fallbackSeed,
+          levelId: this.lobbyLevelId,
+          mpMode: this.lobbyMpMode,
+          vsBot: false,
+          localPlayerId: me.id,
+          players: roster,
+          width: mapDims.width,
+          height: mapDims.height,
+          transport: this.mpTransport
+        });
+      });
+      actions.appendChild(forceBtn);
     }
 
     this.modalBodyEl.appendChild(actions);
@@ -2012,4 +2043,13 @@ export class HudController {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function hashRoomCode(code: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < code.length; i++) {
+    h ^= code.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) % 1_000_000;
 }

@@ -25,14 +25,15 @@ class OnlineDirectory {
 
   private onlineLobbies = new Map<string, LobbyListing>();
   private lobbyListeners = new Set<() => void>();
+  private connectListeners = new Set<() => void>();
   private activeRoomCode: string | null = null;
   private roomHandler: ((env: RoomEnvelope) => void) | null = null;
-  private hostedLobbyCode: string | null = null;
+  private hostedLobbyEntry: LobbyListing | null = null;
 
   constructor() {
     window.addEventListener('beforeunload', () => {
-      if (this.hostedLobbyCode) {
-        this.unpublishLobby(this.hostedLobbyCode);
+      if (this.hostedLobbyEntry) {
+        this.unpublishLobby(this.hostedLobbyEntry.code);
       }
     });
   }
@@ -63,9 +64,9 @@ class OnlineDirectory {
       const client = mqtt.connect(url, {
         clientId: `sa_${Math.random().toString(36).slice(2, 10)}`,
         clean: true,
-        connectTimeout: 6000,
-        reconnectPeriod: 4000,
-        keepalive: 30
+        connectTimeout: 8000,
+        reconnectPeriod: 2500,
+        keepalive: 45
       });
 
       this.client = client;
@@ -77,7 +78,17 @@ class OnlineDirectory {
         if (this.activeRoomCode) {
           client.subscribe(`${ROOM_PREFIX}${this.activeRoomCode}`, { qos: 0 });
         }
+        // Immediately re-publish hosted lobby on reconnect so it never vanishes!
+        if (this.hostedLobbyEntry) {
+          const fresh = { ...this.hostedLobbyEntry, updatedAt: Date.now() };
+          this.hostedLobbyEntry = fresh;
+          client.publish(`${LOBBY_PREFIX}${fresh.code}`, JSON.stringify(fresh), {
+            retain: true,
+            qos: 0
+          });
+        }
         this.notifyLobbyListeners();
+        for (const fn of this.connectListeners) fn();
       });
 
       client.on('message', (topic, payload) => {
@@ -85,6 +96,7 @@ class OnlineDirectory {
           typeof payload === 'string'
             ? payload
             : textDecoder.decode(payload as Uint8Array);
+
         if (topic.startsWith(LOBBY_PREFIX)) {
           const code = topic.slice(LOBBY_PREFIX.length);
           if (!text) {
@@ -99,7 +111,7 @@ class OnlineDirectory {
               this.notifyLobbyListeners();
             }
           } catch {
-            // Ignore malformed message
+            // Ignore malformed
           }
         } else if (topic.startsWith(ROOM_PREFIX) && this.roomHandler) {
           try {
@@ -128,6 +140,13 @@ class OnlineDirectory {
     }
   }
 
+  onConnected(fn: () => void): () => void {
+    this.connectListeners.add(fn);
+    return () => {
+      this.connectListeners.delete(fn);
+    };
+  }
+
   onLobbiesUpdated(fn: () => void): () => void {
     this.lobbyListeners.add(fn);
     this.ensureConnected();
@@ -143,8 +162,9 @@ class OnlineDirectory {
   getOnlineLobbies(): LobbyListing[] {
     const now = Date.now();
     const fresh: LobbyListing[] = [];
+    // Generous 90-second TTL so mobile backgrounding or brief reconnects never drop lobbies!
     for (const [code, entry] of this.onlineLobbies.entries()) {
-      if (now - entry.updatedAt < 28000) {
+      if (now - entry.updatedAt < 90000) {
         fresh.push(entry);
       } else {
         this.onlineLobbies.delete(code);
@@ -156,7 +176,7 @@ class OnlineDirectory {
 
   publishLobby(entry: LobbyListing) {
     this.ensureConnected();
-    this.hostedLobbyCode = entry.code;
+    this.hostedLobbyEntry = entry;
     this.onlineLobbies.set(entry.code, entry);
     if (this.client && this.connected) {
       this.client.publish(`${LOBBY_PREFIX}${entry.code}`, JSON.stringify(entry), {
@@ -168,7 +188,7 @@ class OnlineDirectory {
   }
 
   unpublishLobby(code: string) {
-    if (this.hostedLobbyCode === code) this.hostedLobbyCode = null;
+    if (this.hostedLobbyEntry?.code === code) this.hostedLobbyEntry = null;
     this.onlineLobbies.delete(code);
     if (this.client && this.connected) {
       this.client.publish(`${LOBBY_PREFIX}${code}`, '', { retain: true, qos: 0 });

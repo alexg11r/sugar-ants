@@ -55,7 +55,7 @@ export type MpMessage =
   | { type: 'spawn'; playerId: string; antType: PlayableAntId; x: number; y: number; angle: number }
   | { type: 'dig'; playerId: string; x: number; y: number; radius: number; damage: number }
   | { type: 'cells_clear'; indices: number[]; ownerId: string }
-  | { type: 'ants_sync'; ants: [number, string, number, number, number, number][] }
+  | { type: 'ants_sync'; ownerId: string; ants: [number, number, number, number, number][] }
   | { type: 'ping'; playerId: string; nick: string; colorHex: string; x: number; y: number }
   | { type: 'sugar_win'; winnerId: string; winnerNick: string }
   | { type: 'vote_start'; reason: string; options: string[] }
@@ -73,12 +73,12 @@ export type MpMessage =
       seed: number;
     }
   | { type: 'next_level'; seed: number; levelId: string; players: MpPlayerInfo[]; width: number; height: number }
-  | { type: 'leave'; playerId: string };
+  | { type: 'leave'; playerId: string; isHost: boolean };
 
 export interface MpTransportCallbacks {
   onStatus: (status: string) => void;
   onMessage: (msg: MpMessage, fromPeerId: string) => void;
-  onPeerDisconnected: (peerId: string) => void;
+  onPeerDisconnected: (peerId: string, wasHost: boolean) => void;
 }
 
 const LOBBY_STORAGE_KEY = 'sugar_ants_open_lobbies_v1';
@@ -135,6 +135,7 @@ export class MpTransport {
   private bc: BroadcastChannel | null = null;
   private heartbeatTimer: number | null = null;
   private joinRetryTimer: number | null = null;
+  private unsubConnect: (() => void) | null = null;
   private seenMsgIds = new Set<string>();
   private msgSeq = 0;
   private callbacks: MpTransportCallbacks;
@@ -172,7 +173,7 @@ export class MpTransport {
     }
 
     if (env.msg.type === 'leave') {
-      this.callbacks.onPeerDisconnected(env.msg.playerId);
+      this.callbacks.onPeerDisconnected(env.msg.playerId, env.msg.isHost);
       return;
     }
 
@@ -270,13 +271,22 @@ export class MpTransport {
       if (this.connected) return;
       this.send(hello);
     };
-    sendHello();
 
-    // Retry hello every 1.2s until host responds with lobby_state / late_sync
+    // Immediately send hello as soon as MQTT finishes connecting (crucial on mobile!)
+    this.unsubConnect = onlineDirectory.onConnected(() => {
+      if (!this.connected) {
+        onlineDirectory.joinRoomChannel(code, (env) => this.handleEnvelope(env));
+        setTimeout(sendHello, 250);
+      }
+    });
+
+    setTimeout(sendHello, 200);
+
+    // Retry hello every 1.4s until host responds
     let attempts = 0;
     this.joinRetryTimer = window.setInterval(() => {
       attempts++;
-      if (this.connected || attempts > 8) {
+      if (this.connected || attempts > 15) {
         if (this.joinRetryTimer !== null) {
           window.clearInterval(this.joinRetryTimer);
           this.joinRetryTimer = null;
@@ -284,7 +294,7 @@ export class MpTransport {
         return;
       }
       sendHello();
-    }, 1200);
+    }, 1400);
   }
 
   send(msg: MpMessage, _excludePeerId?: string) {
@@ -312,9 +322,13 @@ export class MpTransport {
   }
 
   close() {
+    if (this.unsubConnect) {
+      this.unsubConnect();
+      this.unsubConnect = null;
+    }
     if (this.roomCode) {
       if (this.connected) {
-        this.send({ type: 'leave', playerId: this.localId });
+        this.send({ type: 'leave', playerId: this.localId, isHost: this.isHost });
       }
       if (this.isHost) {
         removeLocalLobby(this.roomCode);

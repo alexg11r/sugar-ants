@@ -601,8 +601,8 @@ export class MultiplayerEngine {
     } else if (msg.type === 'cells_clear') {
       this.applyRemoteCellsClear(msg.indices, msg.ownerId);
     } else if (msg.type === 'ants_sync') {
-      if (!this.transport?.isHost) {
-        this.applyRemoteAntsSync(msg.ants);
+      if (msg.ownerId !== this.state.localPlayerId) {
+        this.applyRemoteAntsSync(msg.ownerId, msg.ants);
       }
     } else if (msg.type === 'ping') {
       this.pings.push({
@@ -1110,8 +1110,10 @@ export class MultiplayerEngine {
         if (ant.biteTimer <= 0) {
           ant.biteTimer = cfg.baseBiteInterval / speedMult;
           ant.biteFlash = 1;
-          const shouldBroadcast = !this.transport || this.transport.isHost;
-          if (shouldBroadcast) {
+          // Every player's own ants dig immediately & broadcast exact cleared cells!
+          // Host also simulates bot ants.
+          const isBotOwned = ant.ownerId.startsWith('bot_') && (!this.transport || this.transport.isHost);
+          if (isLocal || isBotOwned) {
             this.digInternal(nx, ny, radius, dmg, ant.ownerId, true);
           }
           if (ant.type === 'scout') {
@@ -1136,20 +1138,21 @@ export class MultiplayerEngine {
       });
     }
 
-    // Host broadcasts authoritative ant positions (~5Hz) so all ants stay perfectly synced across screens!
-    if (this.transport?.isHost) {
+    // Each player broadcasts ONLY their own ants (~4Hz) so every player's ants stay synced & never overwrite each other!
+    if (this.transport) {
       this.antsSyncAccum += dt;
-      if (this.antsSyncAccum >= 0.2) {
+      if (this.antsSyncAccum >= 0.25) {
         this.antsSyncAccum = 0;
-        const snapshot: [number, string, number, number, number, number][] = this.ants.map((a) => [
+        const myId = this.state.localPlayerId;
+        const myAnts = this.ants.filter((a) => a.ownerId === myId);
+        const snapshot: [number, number, number, number, number][] = myAnts.map((a) => [
           a.id,
-          a.ownerId,
           Math.max(0, SYNC_ANT_TYPES.indexOf(a.type)),
           Math.round(a.x * 10) / 10,
           Math.round(a.y * 10) / 10,
           Math.round(a.angle * 100) / 100
         ]);
-        this.transport.send({ type: 'ants_sync', ants: snapshot });
+        this.transport.send({ type: 'ants_sync', ownerId: myId, ants: snapshot });
       }
     }
 
@@ -1340,24 +1343,28 @@ export class MultiplayerEngine {
     }
   }
 
-  private applyRemoteAntsSync(snapshot: [number, string, number, number, number, number][]) {
+  /** Updates ONLY the remote owner's ants — never touches local player's ants! */
+  private applyRemoteAntsSync(ownerId: string, snapshot: [number, number, number, number, number][]) {
     const existingById = new Map<number, MpAnt>();
-    for (const a of this.ants) existingById.set(a.id, a);
+    const keptOtherAnts: MpAnt[] = [];
 
-    const synced: MpAnt[] = [];
-    for (const [id, ownerId, typeIdx, x, y, angle] of snapshot) {
+    for (const a of this.ants) {
+      if (a.ownerId === ownerId) existingById.set(a.id, a);
+      else keptOtherAnts.push(a);
+    }
+
+    for (const [id, typeIdx, x, y, angle] of snapshot) {
       const prev = existingById.get(id);
       if (prev) {
-        // Snap/blend smoothly to Host's authoritative position & angle
         prev.x = prev.x + (x - prev.x) * 0.72;
         prev.y = prev.y + (y - prev.y) * 0.72;
         prev.angle = angle;
         prev.fixedAngle = angle;
-        synced.push(prev);
+        keptOtherAnts.push(prev);
       } else {
         const type = SYNC_ANT_TYPES[typeIdx] || 'worker';
         const cfg = ANT_TYPES[type];
-        synced.push({
+        keptOtherAnts.push({
           id,
           ownerId,
           type,
@@ -1376,7 +1383,7 @@ export class MultiplayerEngine {
         });
       }
     }
-    this.ants = synced;
+    this.ants = keptOtherAnts;
   }
 
   private isNearAnyBase(x: number, y: number, safeRadius: number): boolean {
