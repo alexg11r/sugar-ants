@@ -13,7 +13,7 @@ import {
 } from '../core/types';
 import { BLOCK_HP } from '../core/world';
 import { ColonyStats, SKILL_NODES } from '../game/skillTree';
-import { MpMessage, MpMode, MpPlayerInfo, MpTransport } from './mpTransport';
+import { MpMapSizePreset, MpMessage, MpMode, MpPlayerInfo, MpTransport } from './mpTransport';
 
 interface MpAnt extends Ant {
   ownerId: string;
@@ -41,8 +41,10 @@ interface CoopWorm {
 export interface MpVoteState {
   active: boolean;
   reason: string;
-  votes: Record<string, boolean>;
-  myVote: boolean | null;
+  /** Map IDs to vote for (plus 'stay' to remain on current map) */
+  options: string[];
+  votes: Record<string, string>; // playerId -> levelId | 'stay'
+  myChoice: string | null;
 }
 
 export interface MpMatchState {
@@ -85,9 +87,16 @@ function mulberry32(seed: number) {
   };
 }
 
-export function computeCoopMapSize(playerCount: number, mpMode: MpMode): { width: number; height: number } {
+export function computeCoopMapSize(
+  playerCount: number,
+  mpMode: MpMode,
+  preset: MpMapSizePreset = 'auto'
+): { width: number; height: number } {
   if (mpMode === 'versus') return { width: 400, height: 250 };
-  // Default minimum size is for 5 players (490x310), scaling proportionally up to 10 players (640x400)!
+  if (preset === 'compact') return { width: 400, height: 250 };
+  if (preset === 'large') return { width: 520, height: 330 };
+  if (preset === 'huge') return { width: 640, height: 400 };
+  // Default 'auto': minimum size for 5 players (490x310), scaling up to 10 players (640x400)
   const effective = Math.max(5, Math.min(10, playerCount));
   return {
     width: Math.min(640, 340 + effective * 30),
@@ -206,7 +215,7 @@ export class MultiplayerEngine {
       totalBreakable: 1,
       dugBreakable: 0,
       allCleared: false,
-      vote: { active: false, reason: '', votes: {}, myVote: null },
+      vote: { active: false, reason: '', options: [], votes: {}, myChoice: null },
       pingMode: false,
       nextSpDropSec: 300
     };
@@ -475,28 +484,33 @@ export class MultiplayerEngine {
   }
 
   /* =========================================================
-     CO-OP VOTING AFTER SUGAR FOUND (RE-VOTES EVERY 2 MIN IF NO!)
+     CO-OP MAP VOTING AFTER VICTORY (RE-VOTES EVERY 2 MIN IF STAY!)
      ========================================================= */
-  startNextLevelVote(reason: string, broadcast = true) {
+  startNextLevelVote(reason: string, broadcast = true, customOptions?: string[]) {
+    // Offer 3 distinct candidate maps (excluding current level) to vote on!
+    const others = LEVELS.filter((l) => l.id !== this.state.level.id).map((l) => l.id);
+    const options = customOptions && customOptions.length > 0 ? customOptions : others.slice(0, 3);
+
     this.state.vote = {
       active: true,
       reason,
+      options,
       votes: {},
-      myVote: null
+      myChoice: null
     };
     this.revoteTimer = 0;
     if (broadcast) {
-      this.transport?.send({ type: 'vote_start', reason });
+      this.transport?.send({ type: 'vote_start', reason, options });
     }
-    this.callbacks.onSystemChat(`🗳 Голосование: ${reason}`);
+    this.callbacks.onSystemChat(`🗳 Голосование за следующую карту: ${reason}`);
     this.callbacks.onVoteUpdate();
   }
 
-  castVote(yes: boolean) {
+  castVote(choice: string) {
     if (!this.state.vote.active) return;
-    this.state.vote.myVote = yes;
-    this.state.vote.votes[this.state.localPlayerId] = yes;
-    this.transport?.send({ type: 'vote_cast', playerId: this.state.localPlayerId, yes });
+    this.state.vote.myChoice = choice;
+    this.state.vote.votes[this.state.localPlayerId] = choice;
+    this.transport?.send({ type: 'vote_cast', playerId: this.state.localPlayerId, choice });
     this.evaluateVotes();
     this.callbacks.onVoteUpdate();
   }
@@ -508,31 +522,44 @@ export class MultiplayerEngine {
     const entries = Object.values(v.votes);
     if (entries.length < totalPlayers) return;
 
-    const yesCount = entries.filter(Boolean).length;
-    const noCount = entries.length - yesCount;
+    // Count votes per choice ('stay' or levelId)
+    const counts = new Map<string, number>();
+    for (const ch of entries) {
+      counts.set(ch, (counts.get(ch) || 0) + 1);
+    }
 
-    if (yesCount > noCount) {
-      // Majority voted YES -> move to next map!
+    const stayVotes = counts.get('stay') || 0;
+    let bestMapId = v.options[0] || LEVELS[0].id;
+    let bestMapVotes = 0;
+    for (const opt of v.options) {
+      const c = counts.get(opt) || 0;
+      if (c > bestMapVotes) {
+        bestMapVotes = c;
+        bestMapId = opt;
+      }
+    }
+
+    if (bestMapVotes > stayVotes) {
       v.active = false;
       this.callbacks.onVoteUpdate();
       if (!this.transport || this.transport.isHost) {
-        this.advanceToNextCoopLevel();
+        this.advanceToNextCoopLevel(bestMapId);
       }
     } else {
-      // Voted NO -> keep digging until 100%, repeat vote in 2 minutes (120s)!
       v.active = false;
       this.revoteTimer = 120;
-      this.callbacks.onSystemChat('Продолжаем копать! Повторное голосование через 2 минуты.');
+      this.callbacks.onSystemChat('Игроки решили остаться! Повторное голосование через 2 минуты.');
       this.callbacks.onToast('Продолжаем открывать карту! Повтор голосования через 2 мин.');
       this.callbacks.onVoteUpdate();
     }
   }
 
-  advanceToNextCoopLevel() {
+  advanceToNextCoopLevel(targetLevelId?: string) {
     const curIdx = LEVELS.findIndex((l) => l.id === this.state.level.id);
-    const nextLvl = LEVELS[(curIdx + 1) % LEVELS.length];
+    const nextLvl =
+      (targetLevelId && LEVELS.find((l) => l.id === targetLevelId)) ||
+      LEVELS[(curIdx + 1) % LEVELS.length];
     const nextSeed = Math.floor(Math.random() * 1_000_000);
-    const dims = computeCoopMapSize(this.state.players.length, this.state.mpMode);
     const resetPlayers = this.state.players.map((p) => ({ ...p, dug: 0 }));
 
     this.transport?.send({
@@ -540,8 +567,8 @@ export class MultiplayerEngine {
       seed: nextSeed,
       levelId: nextLvl.id,
       players: resetPlayers,
-      width: dims.width,
-      height: dims.height
+      width: this.width,
+      height: this.height
     });
 
     this.startMatch({
@@ -551,8 +578,8 @@ export class MultiplayerEngine {
       vsBot: this.state.vsBot,
       localPlayerId: this.state.localPlayerId,
       players: resetPlayers,
-      width: dims.width,
-      height: dims.height,
+      width: this.width,
+      height: this.height,
       transport: this.transport
     });
   }
@@ -581,9 +608,9 @@ export class MultiplayerEngine {
         this.callbacks.onVersusEnd(msg.winnerNick, msg.winnerId === this.state.localPlayerId);
       }
     } else if (msg.type === 'vote_start') {
-      this.startNextLevelVote(msg.reason, false);
+      this.startNextLevelVote(msg.reason, false, msg.options);
     } else if (msg.type === 'vote_cast') {
-      this.state.vote.votes[msg.playerId] = msg.yes;
+      this.state.vote.votes[msg.playerId] = msg.choice;
       this.evaluateVotes();
       this.callbacks.onVoteUpdate();
     } else if (msg.type === 'coop_event') {

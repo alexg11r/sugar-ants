@@ -2,6 +2,7 @@ import Peer, { DataConnection } from 'peerjs';
 import { AntSkinId, PlayableAntId } from '../core/types';
 
 export type MpMode = 'versus' | 'coop';
+export type MpMapSizePreset = 'auto' | 'compact' | 'large' | 'huge';
 
 export interface MpPlayerInfo {
   id: string;
@@ -38,7 +39,15 @@ export interface LobbyListing {
 export type MpMessage =
   | { type: 'hello'; player: MpPlayerInfo; password?: string }
   | { type: 'reject'; reason: string }
-  | { type: 'lobby_state'; players: MpPlayerInfo[]; mpMode: MpMode; levelId: string; inGame: boolean; code: string }
+  | {
+      type: 'lobby_state';
+      players: MpPlayerInfo[];
+      mpMode: MpMode;
+      levelId: string;
+      mapSizePreset: MpMapSizePreset;
+      inGame: boolean;
+      code: string;
+    }
   | { type: 'update_profile'; playerId: string; nick: string; colorIndex: number; skin: AntSkinId }
   | { type: 'chat'; msg: ChatMessage }
   | { type: 'start'; seed: number; levelId: string; mpMode: MpMode; players: MpPlayerInfo[]; width: number; height: number }
@@ -47,8 +56,8 @@ export type MpMessage =
   | { type: 'dig'; playerId: string; x: number; y: number; radius: number; damage: number }
   | { type: 'ping'; playerId: string; nick: string; colorHex: string; x: number; y: number }
   | { type: 'sugar_win'; winnerId: string; winnerNick: string }
-  | { type: 'vote_start'; reason: string }
-  | { type: 'vote_cast'; playerId: string; yes: boolean }
+  | { type: 'vote_start'; reason: string; options: string[] }
+  | { type: 'vote_cast'; playerId: string; choice: string }
   | {
       type: 'coop_event';
       eventId:

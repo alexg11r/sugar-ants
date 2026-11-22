@@ -16,6 +16,7 @@ import { computeCoopMapSize, MultiplayerEngine } from '../multiplayer/mpEngine';
 import {
   ChatMessage,
   listOpenLobbies,
+  MpMapSizePreset,
   MpMessage,
   MpMode,
   MpPlayerInfo,
@@ -158,8 +159,7 @@ export class HudController {
   // Multiplayer Vote & Chat elements
   private mpVoteBannerEl = document.getElementById('mp-vote-banner')!;
   private mpVoteTextEl = document.getElementById('mp-vote-text')!;
-  private mpVoteYesBtn = document.getElementById('mp-vote-yes') as HTMLButtonElement;
-  private mpVoteNoBtn = document.getElementById('mp-vote-no') as HTMLButtonElement;
+  private mpVoteActionsEl = document.getElementById('mp-vote-actions')!;
   private mpVoteTallyEl = document.getElementById('mp-vote-tally')!;
   private mpChatBoxEl = document.getElementById('mp-chat-box')!;
   private mpChatLogEl = document.getElementById('mp-chat-log')!;
@@ -196,6 +196,7 @@ export class HudController {
   private localSkin: AntSkinId = 'classic';
   private lobbyMpMode: MpMode = 'coop';
   private lobbyLevelId: string = LEVELS[0].id;
+  private lobbyMapSize: MpMapSizePreset = 'auto';
   private lobbyPlayers: MpPlayerInfo[] = [];
   private lobbyStatus = '';
   private inLobbyRoom = false;
@@ -277,10 +278,6 @@ export class HudController {
     document.getElementById('mp-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('mp-btn-reset-cam')!.addEventListener('click', () => this.mp.resetCamera());
     document.getElementById('mp-btn-skills')!.addEventListener('click', () => this.openSkillTree());
-
-    // Vote buttons
-    this.mpVoteYesBtn.addEventListener('click', () => this.mp.castVote(true));
-    this.mpVoteNoBtn.addEventListener('click', () => this.mp.castVote(false));
 
     // In-game chat form & emoji buttons
     this.mpChatFormEl.addEventListener('submit', (e) => {
@@ -869,6 +866,7 @@ export class HudController {
       players: this.lobbyPlayers,
       mpMode: this.lobbyMpMode,
       levelId: this.lobbyLevelId,
+      mapSizePreset: this.lobbyMapSize,
       inGame: this.mode === 'mp',
       code: this.mpTransport.roomCode
     });
@@ -955,6 +953,7 @@ export class HudController {
       this.lobbyPlayers = msg.players;
       this.lobbyMpMode = msg.mpMode;
       this.lobbyLevelId = msg.levelId;
+      this.lobbyMapSize = msg.mapSizePreset || 'auto';
       const me = msg.players.find((p) => p.id === this.mpTransport?.localId);
       if (me) this.localColorIndex = me.colorIndex;
       if (this.inLobbyRoom) this.renderLobbyRoomScreen();
@@ -1004,7 +1003,7 @@ export class HudController {
     if (!this.mpTransport) return;
     const isHost = this.mpTransport.isHost;
     const maxP = this.lobbyMpMode === 'coop' ? 10 : 2;
-    const dims = computeCoopMapSize(this.lobbyPlayers.length, this.lobbyMpMode);
+    const dims = computeCoopMapSize(this.lobbyPlayers.length, this.lobbyMpMode, this.lobbyMapSize);
 
     this.modalTitleEl.textContent = `🌐 Лобби • ${this.mpTransport.roomCode}`;
     this.modalBodyEl.innerHTML = '';
@@ -1019,6 +1018,62 @@ export class HudController {
       this.showToast(`Код ${this.mpTransport!.roomCode} скопирован!`);
     });
     this.modalBodyEl.appendChild(codeBox);
+
+    // Map & Map Size selector INSIDE the created lobby!
+    const settingsRow = document.createElement('div');
+    settingsRow.className = 'card-row';
+    settingsRow.style.flexWrap = 'wrap';
+    if (isHost) {
+      const mapSel = document.createElement('select');
+      mapSel.className = 'mp-input';
+      mapSel.style.textTransform = 'none';
+      mapSel.style.letterSpacing = '0';
+      mapSel.style.minWidth = '150px';
+      for (const lvl of LEVELS) {
+        const opt = document.createElement('option');
+        opt.value = lvl.id;
+        opt.textContent = `Карта: ${lvl.name}`;
+        if (lvl.id === this.lobbyLevelId) opt.selected = true;
+        mapSel.appendChild(opt);
+      }
+      mapSel.addEventListener('change', () => {
+        this.lobbyLevelId = mapSel.value;
+        this.broadcastLobbyState();
+        this.renderLobbyRoomScreen();
+      });
+      settingsRow.appendChild(mapSel);
+
+      if (this.lobbyMpMode === 'coop') {
+        const sizeSel = document.createElement('select');
+        sizeSel.className = 'mp-input';
+        sizeSel.style.textTransform = 'none';
+        sizeSel.style.letterSpacing = '0';
+        sizeSel.style.minWidth = '175px';
+        const presets: { id: MpMapSizePreset; label: string }[] = [
+          { id: 'auto', label: 'Размер: Авто (от 5 игр.)' },
+          { id: 'compact', label: 'Размер: Компактная (400×250)' },
+          { id: 'large', label: 'Размер: Большая (520×330)' },
+          { id: 'huge', label: 'Размер: Гигантская (640×400)' }
+        ];
+        for (const pr of presets) {
+          const opt = document.createElement('option');
+          opt.value = pr.id;
+          opt.textContent = pr.label;
+          if (pr.id === this.lobbyMapSize) opt.selected = true;
+          sizeSel.appendChild(opt);
+        }
+        sizeSel.addEventListener('change', () => {
+          this.lobbyMapSize = sizeSel.value as MpMapSizePreset;
+          this.broadcastLobbyState();
+          this.renderLobbyRoomScreen();
+        });
+        settingsRow.appendChild(sizeSel);
+      }
+    } else {
+      const lvlName = LEVELS.find((l) => l.id === this.lobbyLevelId)?.name || this.lobbyLevelId;
+      settingsRow.innerHTML = `<div class="card-row-desc">Карта: <strong>${lvlName}</strong> • Размер: <strong>${dims.width}×${dims.height}</strong></div>`;
+    }
+    this.modalBodyEl.appendChild(settingsRow);
 
     if (this.lobbyStatus) {
       const st = document.createElement('div');
@@ -1129,7 +1184,7 @@ export class HudController {
       startBtn.textContent = '▶ Начать игру';
       startBtn.addEventListener('click', () => {
         const seed = Math.floor(Math.random() * 1_000_000);
-        const mapDims = computeCoopMapSize(this.lobbyPlayers.length, this.lobbyMpMode);
+        const mapDims = computeCoopMapSize(this.lobbyPlayers.length, this.lobbyMpMode, this.lobbyMapSize);
         this.mpTransport!.send({
           type: 'start',
           seed,
@@ -1216,12 +1271,35 @@ export class HudController {
     }
     this.mpVoteBannerEl.classList.remove('hidden');
     this.mpVoteTextEl.textContent = v.reason;
+    this.mpVoteActionsEl.innerHTML = '';
+
+    const countFor = (ch: string) => Object.values(v.votes).filter((x) => x === ch).length;
+
+    // Buttons for each candidate next map!
+    for (const mapId of v.options) {
+      const lvl = LEVELS.find((l) => l.id === mapId);
+      if (!lvl) continue;
+      const cnt = countFor(mapId);
+      const btn = document.createElement('button');
+      btn.className = `action-btn${v.myChoice === mapId ? ' primary' : ''}`;
+      btn.disabled = v.myChoice !== null;
+      btn.textContent = `${lvl.name}${cnt > 0 ? ` (${cnt})` : ''}`;
+      btn.addEventListener('click', () => this.mp.castVote(mapId));
+      this.mpVoteActionsEl.appendChild(btn);
+    }
+
+    // Stay & keep digging button
+    const stayCnt = countFor('stay');
+    const stayBtn = document.createElement('button');
+    stayBtn.className = `action-btn${v.myChoice === 'stay' ? ' primary' : ''}`;
+    stayBtn.disabled = v.myChoice !== null;
+    stayBtn.textContent = `✕ Остаться${stayCnt > 0 ? ` (${stayCnt})` : ''}`;
+    stayBtn.addEventListener('click', () => this.mp.castVote('stay'));
+    this.mpVoteActionsEl.appendChild(stayBtn);
+
     const totalHumans = Math.max(1, this.mp.state.players.filter((p) => !p.id.startsWith('bot_')).length);
     const castCount = Object.keys(v.votes).length;
-    const yesCount = Object.values(v.votes).filter(Boolean).length;
-    this.mpVoteTallyEl.textContent = `За: ${yesCount} • Проголосовало: ${castCount}/${totalHumans}`;
-    this.mpVoteYesBtn.disabled = v.myVote !== null;
-    this.mpVoteNoBtn.disabled = v.myVote !== null;
+    this.mpVoteTallyEl.textContent = `Проголосовало: ${castCount}/${totalHumans}`;
   }
 
   openMpVersusEndModal(winnerNick: string, iWon: boolean) {
