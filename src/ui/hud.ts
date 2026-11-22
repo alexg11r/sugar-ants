@@ -1283,14 +1283,23 @@ export class HudController {
     for (const id of PLAYABLE_ANTS) {
       const cfg = ANT_TYPES[id];
       const unlocked = this.mp.isAntUnlocked(id);
-      let sub = unlocked ? 'Готов' : '🔒';
-      if (id === 'compass' && st.compassCd > 0) {
-        const s = Math.ceil(st.compassCd);
-        sub = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      const activeCount = this.mp.countAnts(st.localPlayerId, id);
+      const maxCount = this.mp.getCap(id);
+
+      let sub = unlocked ? `${activeCount}/${maxCount}` : '—';
+      let onCooldown = false;
+      if (id === 'compass') {
+        if (st.compassCd > 0) {
+          onCooldown = true;
+          const s = Math.ceil(st.compassCd);
+          sub = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+        } else {
+          sub = 'Готов';
+        }
       }
 
       const btn = document.createElement('button');
-      btn.className = `ant-btn${st.selectedAnt === id && unlocked ? ' active' : ''}${unlocked ? '' : ' locked'}`;
+      btn.className = `ant-btn${st.selectedAnt === id && unlocked ? ' active' : ''}${!unlocked || onCooldown ? ' locked' : ''}`;
       btn.style.setProperty('--ant-color', cfg.color);
       const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
       btn.innerHTML = `

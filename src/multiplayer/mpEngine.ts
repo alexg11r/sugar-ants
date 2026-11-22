@@ -861,13 +861,13 @@ export class MultiplayerEngine {
   /* =========================================================
      SPAWNING & SIMULATION
      ========================================================= */
-  private countAnts(ownerId: string, type: PlayableAntId): number {
+  countAnts(ownerId: string, type: PlayableAntId): number {
     let n = 0;
     for (const a of this.ants) if (a.ownerId === ownerId && a.type === type) n++;
     return n;
   }
 
-  private getCap(type: PlayableAntId): number {
+  getCap(type: PlayableAntId): number {
     const st = this.getLocalColonyStats();
     if (type === 'worker') return st.worker.maxActive;
     if (type === 'scout') return st.scout.maxActive;
