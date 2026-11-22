@@ -28,6 +28,16 @@ interface MapPing {
   maxLife: number;
 }
 
+interface CoopWorm {
+  x: number;
+  y: number;
+  angle: number;
+  age: number;
+  maxAge: number;
+  speed: number;
+  segments: { x: number; y: number }[];
+}
+
 export interface MpVoteState {
   active: boolean;
   reason: string;
@@ -108,6 +118,7 @@ export class MultiplayerEngine {
 
   ants: MpAnt[] = [];
   pings: MapPing[] = [];
+  worms: CoopWorm[] = [];
   particles = new ParticleSystem();
   camera: Camera = { x: 200, y: 125, zoom: 3.2 };
   state: MpMatchState;
@@ -257,6 +268,7 @@ export class MultiplayerEngine {
 
     this.ants = [];
     this.pings = [];
+    this.worms = [];
     this.particles.particles = [];
     this.dugHistory = [];
     this.botTimer = 1.4;
@@ -921,12 +933,23 @@ export class MultiplayerEngine {
       this.coopEventTimer -= dt;
       if (this.coopEventTimer <= 0) {
         this.coopEventTimer = 105 + Math.random() * 50;
-        const pool: ('sugar_rush' | 'crystal_shower' | 'wild_swarm' | 'quake' | 'royal_blessing')[] = [
+        const pool: (
+          | 'sugar_rush'
+          | 'crystal_shower'
+          | 'wild_swarm'
+          | 'quake'
+          | 'royal_blessing'
+          | 'worm_cavein'
+          | 'rockslide'
+        )[] = [
           'sugar_rush',
           'crystal_shower',
           'wild_swarm',
           'quake',
-          'royal_blessing'
+          'royal_blessing',
+          'worm_cavein',
+          'worm_cavein', // slightly higher weight so players get to see the worm!
+          'rockslide'
         ];
         const chosen = pool[Math.floor(Math.random() * pool.length)];
         const evSeed = Math.floor(Math.random() * 1_000_000);
@@ -934,6 +957,9 @@ export class MultiplayerEngine {
         this.applyCoopEvent(chosen, evSeed);
       }
     }
+
+    // Update slithering earthworms that refill dug tunnels with fresh soil!
+    this.updateWorms(dt);
 
     // Co-op 2-minute re-vote timer after players voted NO
     if (this.revoteTimer > 0 && this.state.mpMode === 'coop' && this.state.sugarFound && !this.state.allCleared) {
@@ -1059,15 +1085,60 @@ export class MultiplayerEngine {
     }
   }
 
-  /** Rare fun Co-op random events synchronized across all players! */
+  /** Rare fun & negative Co-op random events synchronized across all players! */
   private applyCoopEvent(
-    eventId: 'sugar_rush' | 'crystal_shower' | 'wild_swarm' | 'quake' | 'royal_blessing',
+    eventId:
+      | 'sugar_rush'
+      | 'crystal_shower'
+      | 'wild_swarm'
+      | 'quake'
+      | 'royal_blessing'
+      | 'worm_cavein'
+      | 'rockslide',
     evSeed: number
   ) {
     const rng = mulberry32(evSeed);
     this.audio.playMutationSpawn();
 
     switch (eventId) {
+      case 'worm_cavein': {
+        // Spawn a slithering earthworm that crawls across dug tunnels and fills them back in!
+        const startX = this.width * (0.2 + rng() * 0.6);
+        const startY = this.height * (0.2 + rng() * 0.6);
+        const angle = rng() * Math.PI * 2;
+        const segments = Array.from({ length: 12 }, (_, idx) => ({
+          x: startX - Math.cos(angle) * idx * 2.1,
+          y: startY - Math.sin(angle) * idx * 2.1
+        }));
+        this.worms.push({
+          x: startX,
+          y: startY,
+          angle,
+          age: 0,
+          maxAge: 15,
+          speed: 22,
+          segments
+        });
+        this.callbacks.onToast('🪱 Земляной червячок! Проползает и засыпает прорытые тоннели!');
+        this.callbacks.onSystemChat('🪱 Негативное событие: Земляной червячок ползёт по карте и засыпает тоннели землёй!');
+        break;
+      }
+      case 'rockslide': {
+        // Scattered rubble falls back into open tunnels far from player bases
+        let filled = 0;
+        for (let attempt = 0; attempt < 900 && filled < 95; attempt++) {
+          const rx = Math.floor(14 + rng() * (this.width - 28));
+          const ry = Math.floor(14 + rng() * (this.height - 28));
+          if (this.cells[ry * this.width + rx] !== CellType.Empty) continue;
+          if (this.isNearAnyBase(rx, ry, 18)) continue;
+          this.refillSoilPatch(rx, ry, 2.2);
+          this.particles.spawn(rx, ry, 145, 115, 80, 3, 14, 0.8, 1.5);
+          filled += 8;
+        }
+        this.callbacks.onToast('🪨 Осыпь в тоннелях! Часть дальних ходов завалило породой!');
+        this.callbacks.onSystemChat('🪨 Негативное событие: Осыпь засыпала часть прорытых тоннелей!');
+        break;
+      }
       case 'sugar_rush': {
         this.sugarRushTimer = 25;
         for (const a of this.ants) {
@@ -1145,6 +1216,85 @@ export class MultiplayerEngine {
         this.callbacks.onSystemChat('👑 Редкое событие: Королевский визит — временная Матка у каждого игрока + ♦ 1!');
         this.callbacks.onHudSync();
         break;
+      }
+    }
+  }
+
+  private isNearAnyBase(x: number, y: number, safeRadius: number): boolean {
+    const rSq = safeRadius * safeRadius;
+    for (const pl of this.state.players) {
+      const dx = x - pl.baseX;
+      const dy = y - pl.baseY;
+      if (dx * dx + dy * dy <= rSq) return true;
+    }
+    return false;
+  }
+
+  private refillSoilPatch(cx: number, cy: number, radius: number) {
+    const rCeil = Math.ceil(radius);
+    const rSq = radius * radius;
+    const w = this.width;
+    const h = this.height;
+
+    for (let dy = -rCeil; dy <= rCeil; dy++) {
+      for (let dx = -rCeil; dx <= rCeil; dx++) {
+        if (dx * dx + dy * dy > rSq) continue;
+        const x = Math.round(cx + dx);
+        const y = Math.round(cy + dy);
+        if (x < 6 || x >= w - 6 || y < 6 || y >= h - 6) continue;
+        if (this.isNearAnyBase(x, y, 16)) continue;
+
+        const idx = y * w + x;
+        if (this.cells[idx] === CellType.Empty) {
+          this.setBlock(idx, CellType.SoftSoil);
+          this.isEdge[idx] = 1;
+          this.state.dugBreakable = Math.max(0, this.state.dugBreakable - 1);
+        }
+      }
+    }
+  }
+
+  private updateWorms(dt: number) {
+    for (let i = this.worms.length - 1; i >= 0; i--) {
+      const worm = this.worms[i];
+      worm.age += dt;
+      if (worm.age >= worm.maxAge) {
+        this.particles.spawn(worm.x, worm.y, 215, 130, 125, 10, 18, 0.9, 1.8);
+        this.worms.splice(i, 1);
+        continue;
+      }
+
+      // Sinuous slithering wave
+      worm.angle += Math.sin(worm.age * 3.8) * 1.45 * dt;
+      worm.x += Math.cos(worm.angle) * worm.speed * dt;
+      worm.y += Math.sin(worm.angle) * worm.speed * dt;
+
+      // Gently turn inward if approaching outer map perimeter
+      if (worm.x < 24 || worm.x > this.width - 24 || worm.y < 24 || worm.y > this.height - 24) {
+        worm.angle = Math.atan2(this.height * 0.5 - worm.y, this.width * 0.5 - worm.x);
+      }
+
+      // Follow-the-leader segment kinematics
+      worm.segments[0].x = worm.x;
+      worm.segments[0].y = worm.y;
+      const segSpacing = 2.1;
+      for (let s = 1; s < worm.segments.length; s++) {
+        const prev = worm.segments[s - 1];
+        const cur = worm.segments[s];
+        const dx = prev.x - cur.x;
+        const dy = prev.y - cur.y;
+        const dist = Math.hypot(dx, dy) || 0.001;
+        if (dist > segSpacing) {
+          cur.x = prev.x - (dx / dist) * segSpacing;
+          cur.y = prev.y - (dy / dist) * segSpacing;
+        }
+      }
+
+      // Refill dug tunnels behind the worm's tail!
+      const tail = worm.segments[worm.segments.length - 1];
+      this.refillSoilPatch(tail.x, tail.y, 2.3);
+      if (Math.random() < 0.35) {
+        this.particles.spawn(tail.x, tail.y, 165, 125, 92, 1, 10, 0.5, 1.3);
       }
     }
   }
@@ -1461,6 +1611,29 @@ export class MultiplayerEngine {
       ctx.fillStyle = `rgba(${pt.r}, ${pt.g}, ${pt.b}, ${alpha})`;
       ctx.beginPath();
       ctx.arc(drawX + pt.x * z, drawY + pt.y * z, Math.max(1.4, pt.size * z * 0.4), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw slithering Earthworms (negative Co-op event!)
+    for (const worm of this.worms) {
+      for (let s = worm.segments.length - 1; s >= 0; s--) {
+        const seg = worm.segments[s];
+        const sx = drawX + seg.x * z;
+        const sy = drawY + seg.y * z;
+        const segR = Math.max(2.2, z * (s === 0 ? 1.55 : s === worm.segments.length - 1 ? 0.95 : 1.35));
+        // Saddle band (clitellum) on segment 3-4, warm pink/terracotta on rest
+        ctx.fillStyle = s === 3 || s === 4 ? '#f2b8a2' : s % 2 === 0 ? '#d97a72' : '#c4645e';
+        ctx.beginPath();
+        ctx.arc(sx, sy, segR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Cute tiny eyes on worm head
+      const hx = drawX + worm.x * z;
+      const hy = drawY + worm.y * z;
+      ctx.fillStyle = '#1a0c0c';
+      ctx.beginPath();
+      ctx.arc(hx + Math.cos(worm.angle - 0.5) * z * 0.7, hy + Math.sin(worm.angle - 0.5) * z * 0.7, Math.max(0.9, z * 0.28), 0, Math.PI * 2);
+      ctx.arc(hx + Math.cos(worm.angle + 0.5) * z * 0.7, hy + Math.sin(worm.angle + 0.5) * z * 0.7, Math.max(0.9, z * 0.28), 0, Math.PI * 2);
       ctx.fill();
     }
 
