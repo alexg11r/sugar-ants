@@ -20,7 +20,8 @@ import {
   MpMessage,
   MpMode,
   MpPlayerInfo,
-  MpTransport
+  MpTransport,
+  SyncedVotePayload
 } from '../multiplayer/mpTransport';
 import { onlineDirectory } from '../multiplayer/onlineDirectory';
 import { STORY_LEVELS, StoryEngine, StoryLevelDef } from '../story/storyEngine';
@@ -154,6 +155,7 @@ export class HudController {
   private mpLocalSpEl = document.getElementById('mp-local-sp')!;
   private mpSpTimerEl = document.getElementById('mp-sp-timer')!;
   private mpBtnPingEl = document.getElementById('mp-btn-ping')!;
+  private mpBtnChatToggleEl = document.getElementById('mp-btn-chat-toggle')!;
   private mpAntBarEl = document.getElementById('mp-ant-bar')!;
   private mpSkillBadgeEl = document.getElementById('mp-skill-badge')!;
 
@@ -202,9 +204,19 @@ export class HudController {
   private lobbyStatus = '';
   private inLobbyRoom = false;
   private lobbyBrowserOpen = false;
+  private lobbyBrowserRefreshTimer: number | null = null;
   private unsubOnlineLobbies: (() => void) | null = null;
   private chatMessages: ChatMessage[] = [];
   private chatOpen = true;
+  private mpSyncedWithHost = false;
+  private forceJoinRetryTimer: number | null = null;
+  private pendingRleSync: {
+    syncId: string;
+    total: number;
+    parts: Map<number, string>;
+    payload: Extract<MpMessage, { type: 'late_sync' }>;
+    fallbackTimer: number;
+  } | null = null;
 
   constructor(engine: GameEngine, story: StoryEngine, mp: MultiplayerEngine, menuBg: MenuBackground) {
     this.engine = engine;
@@ -277,6 +289,10 @@ export class HudController {
     document.getElementById('mp-btn-chat-toggle')!.addEventListener('click', () => {
       this.chatOpen = !this.chatOpen;
       this.mpChatBoxEl.classList.toggle('hidden', !this.chatOpen);
+      if (this.chatOpen) {
+        this.mpBtnChatToggleEl.classList.remove('ping-active');
+        this.renderChatLogs();
+      }
     });
     document.getElementById('mp-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('mp-btn-reset-cam')!.addEventListener('click', () => this.mp.resetCamera());
@@ -323,9 +339,46 @@ export class HudController {
         }
       }
     });
+
+    // Auto-reconnect MQTT & resync exact map/chat/vote whenever returning from minimized window/tab!
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      onlineDirectory.ensureLiveConnection();
+      if (this.mode === 'mp' && this.mpTransport && !this.mpTransport.isHost) {
+        setTimeout(() => {
+          if (!this.mpTransport || this.mpTransport.isHost || this.mode !== 'mp') return;
+          if (this.mpSyncedWithHost) {
+            this.mpTransport.send({ type: 'resync_req', playerId: this.mpTransport.localId });
+          } else {
+            this.mpTransport.send({
+              type: 'hello',
+              player: this.makeLocalPlayerInfo(this.mpTransport.localId, false),
+              password: ''
+            });
+          }
+        }, 350);
+      }
+    });
+  }
+
+  private clearForceJoinRetry() {
+    if (this.forceJoinRetryTimer !== null) {
+      window.clearInterval(this.forceJoinRetryTimer);
+      this.forceJoinRetryTimer = null;
+    }
+  }
+
+  private clearPendingRleSync() {
+    if (this.pendingRleSync) {
+      window.clearTimeout(this.pendingRleSync.fallbackTimer);
+      this.pendingRleSync = null;
+    }
   }
 
   private leaveMultiplayerRoom() {
+    this.clearForceJoinRetry();
+    this.clearPendingRleSync();
+    this.mpSyncedWithHost = false;
     this.mpTransport?.close();
     this.mpTransport = null;
     this.inLobbyRoom = false;
@@ -419,11 +472,16 @@ export class HudController {
     width?: number;
     height?: number;
     transport: MpTransport | null;
-    lateDugEvents?: [number, number, number, number][];
+    emptyRle?: string;
+    sugarFound?: boolean;
+    activeVote?: SyncedVotePayload | null;
     startingSp?: number;
+    preserveExistingBases?: boolean;
   }) {
     this.mode = 'mp';
     this.inLobbyRoom = false;
+    this.chatOpen = true;
+    this.mpBtnChatToggleEl.classList.remove('ping-active');
     this.closeModal();
     this.closeSkillTree();
     this.engine.paused = true;
@@ -442,10 +500,11 @@ export class HudController {
     this.mpCanvasEl.classList.remove('hidden');
     this.mpHudTopEl.classList.remove('hidden');
     this.mpHudBottomEl.classList.remove('hidden');
-    this.mpChatBoxEl.classList.toggle('hidden', !this.chatOpen);
+    this.mpChatBoxEl.classList.remove('hidden');
 
     this.mp.startMatch(opts);
     this.syncMpHud();
+    this.syncMpVoteBanner();
     this.renderChatLogs();
   }
 
@@ -472,24 +531,31 @@ export class HudController {
   /* =========================================================
      MULTIPLAYER CHAT (LOBBY + IN-GAME!)
      ========================================================= */
-  pushSystemChat(text: string) {
-    this.chatMessages.push({
-      id: `sys_${Date.now()}_${Math.random()}`,
+  pushSystemChat(text: string, broadcast = false) {
+    const msg: ChatMessage = {
+      id: `sys_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       senderNick: 'Система',
       senderColor: '#88d9c4',
       text,
       system: true,
       ts: Date.now()
-    });
-    if (this.chatMessages.length > 60) this.chatMessages.shift();
-    this.renderChatLogs();
+    };
+    this.appendChatUnique(msg);
+    if (broadcast) {
+      this.mpTransport?.send({ type: 'chat', msg });
+    }
   }
 
-  private appendChatUnique(msg: ChatMessage) {
+  private appendChatUnique(msg: ChatMessage, isIncomingRemote = false) {
     if (this.chatMessages.some((m) => m.id === msg.id)) return;
     this.chatMessages.push(msg);
+    this.chatMessages.sort((a, b) => a.ts - b.ts);
     if (this.chatMessages.length > 60) this.chatMessages.shift();
     this.renderChatLogs();
+    if (isIncomingRemote && !msg.system && this.mode === 'mp' && !this.chatOpen) {
+      this.mpBtnChatToggleEl.classList.add('ping-active');
+      this.showToast(`💬 ${msg.senderNick}: ${msg.text.slice(0, 60)}`);
+    }
   }
 
   private sendChatMessage(text: string) {
@@ -553,17 +619,31 @@ export class HudController {
     this.openModal(this.inLobbyRoom ? `🌐 Лобби • ${this.mpTransport?.roomCode || ''}` : '🌐 Онлайн-лобби');
     if (this.inLobbyRoom) {
       this.lobbyBrowserOpen = false;
+      this.stopLobbyBrowserRefresh();
       this.renderLobbyRoomScreen();
     } else {
       this.lobbyBrowserOpen = true;
       if (!this.unsubOnlineLobbies) {
         this.unsubOnlineLobbies = onlineDirectory.onLobbiesUpdated(() => {
           if (this.lobbyBrowserOpen && !this.inLobbyRoom && !this.modalBackdropEl.classList.contains('hidden')) {
-            this.renderMpBrowserScreen();
+            this.refreshOpenLobbiesList();
           }
         });
       }
+      this.stopLobbyBrowserRefresh();
+      this.lobbyBrowserRefreshTimer = window.setInterval(() => {
+        if (this.lobbyBrowserOpen && !this.inLobbyRoom && !this.modalBackdropEl.classList.contains('hidden')) {
+          this.refreshOpenLobbiesList();
+        }
+      }, 5000);
       this.renderMpBrowserScreen();
+    }
+  }
+
+  private stopLobbyBrowserRefresh() {
+    if (this.lobbyBrowserRefreshTimer !== null) {
+      window.clearInterval(this.lobbyBrowserRefreshTimer);
+      this.lobbyBrowserRefreshTimer = null;
     }
   }
 
@@ -744,7 +824,39 @@ export class HudController {
     botRow.appendChild(botBtn);
     this.modalBodyEl.appendChild(botRow);
 
-    // 4. Open Online Lobbies List!
+    // 4. Open Online Lobbies List (isolated container so refreshes never steal input focus!)
+    const lobbiesWrap = document.createElement('div');
+    lobbiesWrap.id = 'mp-open-lobbies-wrap';
+    lobbiesWrap.style.display = 'flex';
+    lobbiesWrap.style.flexDirection = 'column';
+    lobbiesWrap.style.gap = '8px';
+    this.modalBodyEl.appendChild(lobbiesWrap);
+    this.refreshOpenLobbiesList();
+
+    // 5. Direct Join by Room Code
+    const joinRow = document.createElement('div');
+    joinRow.className = 'card-row';
+    const codeInput = document.createElement('input');
+    codeInput.className = 'mp-input';
+    codeInput.placeholder = 'Код комнаты (ANT-XXXX)';
+    const joinBtn = document.createElement('button');
+    joinBtn.className = 'action-btn primary';
+    joinBtn.textContent = 'Войти';
+    joinBtn.addEventListener('click', () => {
+      if (codeInput.value.trim()) {
+        this.joinExistingLobby(codeInput.value.trim(), passInput.value);
+      }
+    });
+    joinRow.appendChild(codeInput);
+    joinRow.appendChild(joinBtn);
+    this.modalBodyEl.appendChild(joinRow);
+  }
+
+  private refreshOpenLobbiesList() {
+    const wrap = document.getElementById('mp-open-lobbies-wrap');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
     const listHeader = document.createElement('div');
     listHeader.style.display = 'flex';
     listHeader.style.justifyContent = 'space-between';
@@ -756,11 +868,11 @@ export class HudController {
     refBtn.style.padding = '4px 10px';
     refBtn.textContent = '↻ Обновить';
     refBtn.addEventListener('click', () => {
-      onlineDirectory.ensureConnected();
-      this.renderMpBrowserScreen();
+      onlineDirectory.ensureLiveConnection();
+      this.refreshOpenLobbiesList();
     });
     listHeader.appendChild(refBtn);
-    this.modalBodyEl.appendChild(listHeader);
+    wrap.appendChild(listHeader);
 
     const lobbies = listOpenLobbies();
     if (lobbies.length === 0) {
@@ -769,7 +881,7 @@ export class HudController {
       empty.textContent = isOnline
         ? 'Пока нет активных онлайн-лобби — создайте своё, и оно сразу появится в списке у всех игроков!'
         : 'Подключаемся к онлайн-серверу лобби… Вы также можете создать комнату или войти по коду.';
-      this.modalBodyEl.appendChild(empty);
+      wrap.appendChild(empty);
     } else {
       for (const lob of lobbies) {
         const lvlName = LEVELS.find((l) => l.id === lob.levelId)?.name || lob.levelId;
@@ -792,27 +904,9 @@ export class HudController {
           this.joinExistingLobby(lob.code, pw);
         });
         row.appendChild(jBtn);
-        this.modalBodyEl.appendChild(row);
+        wrap.appendChild(row);
       }
     }
-
-    // 5. Direct Join by Room Code
-    const joinRow = document.createElement('div');
-    joinRow.className = 'card-row';
-    const codeInput = document.createElement('input');
-    codeInput.className = 'mp-input';
-    codeInput.placeholder = 'Код комнаты (ANT-XXXX)';
-    const joinBtn = document.createElement('button');
-    joinBtn.className = 'action-btn primary';
-    joinBtn.textContent = 'Войти';
-    joinBtn.addEventListener('click', () => {
-      if (codeInput.value.trim()) {
-        this.joinExistingLobby(codeInput.value.trim(), passInput.value);
-      }
-    });
-    joinRow.appendChild(codeInput);
-    joinRow.appendChild(joinBtn);
-    this.modalBodyEl.appendChild(joinRow);
   }
 
   private createHostLobby(password = '') {
@@ -893,48 +987,117 @@ export class HudController {
       levelId: this.lobbyLevelId,
       mapSizePreset: this.lobbyMapSize,
       inGame: this.mode === 'mp',
-      code: this.mpTransport.roomCode
+      code: this.mpTransport.roomCode,
+      chatHistory: this.chatMessages.slice(-30)
     });
+  }
+
+  /** Sends compact pixel-exact RLE map + active vote + chat history to a late-joining or resyncing guest! */
+  private sendLateSyncTo(peerId: string) {
+    if (!this.mpTransport || !this.mpTransport.isHost || this.mode !== 'mp') return;
+    const rle = this.mp.encodeEmptyRle();
+    const activeVote = this.mp.getActiveVotePayload();
+    const chatHistory = this.chatMessages.slice(-30);
+
+    if (rle.length <= 8000) {
+      this.mpTransport.sendTo(peerId, {
+        type: 'late_sync',
+        seed: this.mp.seed,
+        levelId: this.mp.state.level.id,
+        mpMode: this.mp.state.mpMode,
+        players: this.mp.state.players,
+        width: this.mp.width,
+        height: this.mp.height,
+        emptyRle: rle,
+        sugarFound: this.mp.state.sugarFound,
+        activeVote,
+        chatHistory
+      });
+    } else {
+      const chunkSize = 7500;
+      const syncId = `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const total = Math.ceil(rle.length / chunkSize);
+      this.mpTransport.sendTo(peerId, {
+        type: 'late_sync',
+        syncId,
+        seed: this.mp.seed,
+        levelId: this.mp.state.level.id,
+        mpMode: this.mp.state.mpMode,
+        players: this.mp.state.players,
+        width: this.mp.width,
+        height: this.mp.height,
+        emptyRle: '',
+        rleChunksTotal: total,
+        sugarFound: this.mp.state.sugarFound,
+        activeVote,
+        chatHistory
+      });
+      for (let i = 0; i < total; i++) {
+        this.mpTransport.sendTo(peerId, {
+          type: 'rle_chunk',
+          syncId,
+          index: i,
+          total,
+          data: rle.slice(i * chunkSize, (i + 1) * chunkSize)
+        });
+      }
+    }
   }
 
   private handleHostMessage(msg: MpMessage, fromPeerId: string) {
     if (!this.mpTransport) return;
+
+    if (msg.type === 'resync_req') {
+      if (this.mode === 'mp') {
+        this.sendLateSyncTo(fromPeerId);
+      }
+      return;
+    }
 
     if (msg.type === 'hello') {
       if (this.mpTransport.password && msg.password !== this.mpTransport.password) {
         this.mpTransport.sendTo(fromPeerId, { type: 'reject', reason: 'Неверный пароль лобби!' });
         return;
       }
-      const maxP = this.lobbyMpMode === 'coop' ? 10 : 2;
-      const activeList = this.mode === 'mp' ? this.mp.state.players : this.lobbyPlayers;
-      if (activeList.length >= maxP) {
-        this.mpTransport.sendTo(fromPeerId, { type: 'reject', reason: `Лобби заполнено (${maxP}/${maxP})` });
-        return;
-      }
-
-      const assignedColor = this.pickFreeColorIndex(activeList, msg.player.colorIndex);
-      const joined: MpPlayerInfo = { ...msg.player, colorIndex: assignedColor, isHost: false };
 
       if (this.mode === 'mp') {
-        // MID-GAME LATE JOIN! Carve their base & send full state sync!
+        const existing = this.mp.state.players.find((p) => p.id === msg.player.id);
+        if (existing) {
+          // Returning or retrying guest -> immediately resend fresh pixel-exact snapshot!
+          this.sendLateSyncTo(fromPeerId);
+          return;
+        }
+        const maxP = this.lobbyMpMode === 'coop' ? 10 : 2;
+        if (this.mp.state.players.length >= maxP) {
+          this.mpTransport.sendTo(fromPeerId, { type: 'reject', reason: `Лобби заполнено (${maxP}/${maxP})` });
+          return;
+        }
+
+        const assignedColor = this.pickFreeColorIndex(this.mp.state.players, msg.player.colorIndex);
+        const joined: MpPlayerInfo = { ...msg.player, colorIndex: assignedColor, isHost: false };
+
+        // MID-GAME LATE JOIN! Carve their base, notify all players & send compact RLE sync!
         const added = this.mp.addLateJoinPlayer(joined);
         this.lobbyPlayers = this.mp.state.players;
-        this.mpTransport.sendTo(fromPeerId, {
-          type: 'late_sync',
-          seed: this.mp.seed,
-          levelId: this.mp.state.level.id,
-          mpMode: this.mp.state.mpMode,
-          players: this.mp.state.players,
-          width: this.mp.width,
-          height: this.mp.height,
-          dugEvents: this.mp.dugHistory
-        });
+        this.pushSystemChat(`${added.nick} подключился к игре!`, true);
+        this.mpTransport.send({ type: 'players_update', players: this.mp.state.players });
+        this.sendLateSyncTo(fromPeerId);
         this.broadcastLobbyState();
         this.showToast(`${added.nick} вошёл в идущую игру!`);
       } else {
-        this.lobbyPlayers = this.lobbyPlayers.filter((p) => p.id !== joined.id);
-        this.lobbyPlayers.push(joined);
-        this.pushSystemChat(`${joined.nick} вошёл в лобби!`);
+        const alreadyIn = this.lobbyPlayers.some((p) => p.id === msg.player.id);
+        const maxP = this.lobbyMpMode === 'coop' ? 10 : 2;
+        if (!alreadyIn && this.lobbyPlayers.length >= maxP) {
+          this.mpTransport.sendTo(fromPeerId, { type: 'reject', reason: `Лобби заполнено (${maxP}/${maxP})` });
+          return;
+        }
+        const others = this.lobbyPlayers.filter((p) => p.id !== msg.player.id);
+        const assignedColor = this.pickFreeColorIndex(others, msg.player.colorIndex);
+        const joined: MpPlayerInfo = { ...msg.player, colorIndex: assignedColor, isHost: false };
+        this.lobbyPlayers = [...others, joined];
+        if (!alreadyIn) {
+          this.pushSystemChat(`${joined.nick} вошёл в лобби!`, true);
+        }
         this.broadcastLobbyState();
         if (this.inLobbyRoom) this.renderLobbyRoomScreen();
       }
@@ -955,12 +1118,69 @@ export class HudController {
     }
 
     if (msg.type === 'chat') {
-      this.appendChatUnique(msg.msg);
+      this.appendChatUnique(msg.msg, true);
       return;
     }
 
-    // All peers receive room pub/sub directly — apply locally without re-broadcasting!
-    this.mp.handleRemoteMessage(msg);
+    // All peers receive room pub/sub directly — apply locally only while in an active match!
+    if (this.mode === 'mp') {
+      this.mp.handleRemoteMessage(msg);
+    }
+  }
+
+  private applyIncomingLateSync(msg: Extract<MpMessage, { type: 'late_sync' }>, fullRle: string) {
+    if (!this.mpTransport) return;
+    this.mpSyncedWithHost = true;
+    this.clearForceJoinRetry();
+    this.clearPendingRleSync();
+
+    this.lobbyPlayers = msg.players;
+    this.lobbyMpMode = msg.mpMode;
+    this.lobbyLevelId = msg.levelId;
+
+    const me = msg.players.find((p) => p.id === this.mpTransport!.localId);
+    if (me) this.localColorIndex = me.colorIndex;
+
+    if (msg.chatHistory && msg.chatHistory.length > 0) {
+      for (const cm of msg.chatHistory) this.appendChatUnique(cm, false);
+    }
+
+    // If already playing the exact same map & seed (e.g. tab wake-up resync), patch in-place!
+    if (
+      this.mode === 'mp' &&
+      this.mp.active &&
+      this.mp.seed === msg.seed &&
+      this.mp.state.level.id === msg.levelId &&
+      this.mp.width === msg.width &&
+      this.mp.height === msg.height
+    ) {
+      this.mp.applyResyncSnapshot({
+        players: msg.players,
+        emptyRle: fullRle,
+        sugarFound: msg.sugarFound,
+        activeVote: msg.activeVote
+      });
+      this.renderChatLogs();
+      return;
+    }
+
+    // Otherwise load Host's exact map, seed, bases, RLE tunnels, active vote & chat history!
+    this.enterMultiplayerMatch({
+      seed: msg.seed,
+      levelId: msg.levelId,
+      mpMode: msg.mpMode,
+      vsBot: false,
+      localPlayerId: this.mpTransport.localId,
+      players: msg.players,
+      width: msg.width,
+      height: msg.height,
+      transport: this.mpTransport,
+      emptyRle: fullRle,
+      sugarFound: msg.sugarFound,
+      activeVote: msg.activeVote,
+      startingSp: 5,
+      preserveExistingBases: true
+    });
   }
 
   private handleGuestMessage(msg: MpMessage) {
@@ -977,14 +1197,19 @@ export class HudController {
       this.lobbyMapSize = msg.mapSizePreset || 'auto';
       const me = msg.players.find((p) => p.id === this.mpTransport?.localId);
       if (me) this.localColorIndex = me.colorIndex;
+      if (msg.chatHistory) {
+        for (const cm of msg.chatHistory) this.appendChatUnique(cm, false);
+      }
       if (this.inLobbyRoom) this.renderLobbyRoomScreen();
       return;
     }
     if (msg.type === 'chat') {
-      this.appendChatUnique(msg.msg);
+      this.appendChatUnique(msg.msg, true);
       return;
     }
     if (msg.type === 'start') {
+      this.mpSyncedWithHost = true;
+      this.clearForceJoinRetry();
       this.enterMultiplayerMatch({
         seed: msg.seed,
         levelId: msg.levelId,
@@ -999,23 +1224,45 @@ export class HudController {
       return;
     }
     if (msg.type === 'late_sync') {
-      this.enterMultiplayerMatch({
-        seed: msg.seed,
-        levelId: msg.levelId,
-        mpMode: msg.mpMode,
-        vsBot: false,
-        localPlayerId: this.mpTransport!.localId,
-        players: msg.players,
-        width: msg.width,
-        height: msg.height,
-        transport: this.mpTransport,
-        lateDugEvents: msg.dugEvents,
-        startingSp: 5 // Catch-up SP for late joiners!
-      });
+      if (msg.rleChunksTotal && msg.rleChunksTotal > 0 && msg.syncId) {
+        this.clearPendingRleSync();
+        const syncId = msg.syncId;
+        const fallbackTimer = window.setTimeout(() => {
+          if (this.pendingRleSync && this.pendingRleSync.syncId === syncId) {
+            const p = this.pendingRleSync;
+            this.applyIncomingLateSync(p.payload, '');
+          }
+        }, 3000);
+        this.pendingRleSync = {
+          syncId,
+          total: msg.rleChunksTotal,
+          parts: new Map(),
+          payload: msg,
+          fallbackTimer
+        };
+      } else {
+        this.applyIncomingLateSync(msg, msg.emptyRle || '');
+      }
+      return;
+    }
+    if (msg.type === 'rle_chunk') {
+      if (this.pendingRleSync && this.pendingRleSync.syncId === msg.syncId) {
+        this.pendingRleSync.parts.set(msg.index, msg.data);
+        if (this.pendingRleSync.parts.size >= this.pendingRleSync.total) {
+          let fullRle = '';
+          for (let i = 0; i < this.pendingRleSync.total; i++) {
+            fullRle += this.pendingRleSync.parts.get(i) || '';
+          }
+          const payload = this.pendingRleSync.payload;
+          this.applyIncomingLateSync(payload, fullRle);
+        }
+      }
       return;
     }
 
-    this.mp.handleRemoteMessage(msg);
+    if (this.mode === 'mp') {
+      this.mp.handleRemoteMessage(msg);
+    }
   }
 
   private renderLobbyRoomScreen() {
@@ -1234,8 +1481,21 @@ export class HudController {
       forceBtn.addEventListener('click', () => {
         if (!this.mpTransport) return;
         const me = this.makeLocalPlayerInfo(this.mpTransport.localId, false);
-        // Re-ping host for late_sync AND enter the room match directly!
+        this.mpSyncedWithHost = false;
+        this.clearForceJoinRetry();
+        // Ping host for full late_sync AND retry until Host's exact map arrives!
         this.mpTransport.send({ type: 'hello', player: me, password: '' });
+        let tries = 0;
+        this.forceJoinRetryTimer = window.setInterval(() => {
+          tries++;
+          if (this.mpSyncedWithHost || !this.mpTransport || this.mode !== 'mp' || tries > 6) {
+            this.clearForceJoinRetry();
+            return;
+          }
+          onlineDirectory.ensureLiveConnection();
+          this.mpTransport.send({ type: 'hello', player: me, password: '' });
+        }, 2500);
+
         const fallbackSeed = hashRoomCode(this.mpTransport.roomCode);
         const mapDims = computeCoopMapSize(Math.max(5, this.lobbyPlayers.length), this.lobbyMpMode, this.lobbyMapSize);
         const roster = this.lobbyPlayers.some((p) => p.id === me.id)
@@ -1355,7 +1615,8 @@ export class HudController {
 
     const totalHumans = Math.max(1, this.mp.state.players.filter((p) => !p.id.startsWith('bot_')).length);
     const castCount = Object.keys(v.votes).length;
-    this.mpVoteTallyEl.textContent = `Проголосовало: ${castCount}/${totalHumans}`;
+    const secs = Math.max(0, Math.ceil(v.timeLeft));
+    this.mpVoteTallyEl.textContent = `⏱ ${secs}с • Проголосовало: ${castCount}/${totalHumans}`;
   }
 
   openMpVersusEndModal(winnerNick: string, iWon: boolean) {
@@ -1807,6 +2068,7 @@ export class HudController {
 
   closeModal() {
     this.lobbyBrowserOpen = false;
+    this.stopLobbyBrowserRefresh();
     this.modalBackdropEl.classList.add('hidden');
   }
 

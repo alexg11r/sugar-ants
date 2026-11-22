@@ -1,5 +1,6 @@
 import { ANT_TYPES } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
+import { subscribeBackgroundTick } from '../core/bgTicker';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, drawDetailedAnt } from '../core/renderer';
 import { Ant, PlayableAntId } from '../core/types';
@@ -133,7 +134,8 @@ export class StoryEngine {
   private viewW = 1;
   private viewH = 1;
   private rafId = 0;
-  private lastTime = 0;
+  private unsubBgTick: (() => void) | null = null;
+  private lastWallMs = 0;
   private elapsed = 0;
   private nextAntId = 1;
   private hudAccum = 0;
@@ -218,16 +220,32 @@ export class StoryEngine {
     this.generateFarmWorld(lvl);
     this.resetCamera();
     this.active = true;
-    this.lastTime = performance.now();
+    this.lastWallMs = Date.now();
     this.callbacks.onHudSync();
     this.callbacks.onToast(lvl.intro);
 
+    const stepWallClock = () => {
+      const now = Date.now();
+      const rawDt = Math.max(0, (now - this.lastWallMs) / 1000);
+      this.lastWallMs = now;
+      if (!this.active || rawDt <= 0) return;
+      let rem = Math.min(rawDt, 60);
+      while (rem > 0) {
+        const step = Math.min(0.05, rem);
+        this.update(step);
+        rem -= step;
+      }
+    };
+
+    if (this.unsubBgTick) this.unsubBgTick();
+    this.unsubBgTick = subscribeBackgroundTick(() => {
+      if (this.active && document.hidden) stepWallClock();
+    });
+
     cancelAnimationFrame(this.rafId);
-    const loop = (now: number) => {
+    const loop = () => {
       if (!this.active) return;
-      const dt = Math.min(0.05, (now - this.lastTime) / 1000);
-      this.lastTime = now;
-      this.update(dt);
+      stepWallClock();
       this.render();
       this.rafId = requestAnimationFrame(loop);
     };
@@ -237,6 +255,10 @@ export class StoryEngine {
   stop() {
     this.active = false;
     cancelAnimationFrame(this.rafId);
+    if (this.unsubBgTick) {
+      this.unsubBgTick();
+      this.unsubBgTick = null;
+    }
   }
 
   resetCamera() {

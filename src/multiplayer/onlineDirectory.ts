@@ -6,8 +6,8 @@ const BROKERS = [
   'wss://broker.hivemq.com:8884/mqtt'
 ];
 
-const LOBBY_PREFIX = 'sugar-ants/v1/lobbies/';
-const ROOM_PREFIX = 'sugar-ants/v1/rooms/';
+const LOBBY_PREFIX = 'sugar-ants/v2/lobbies/';
+const ROOM_PREFIX = 'sugar-ants/v2/rooms/';
 const textDecoder = new TextDecoder();
 
 export interface RoomEnvelope {
@@ -17,18 +17,27 @@ export interface RoomEnvelope {
   msg: MpMessage;
 }
 
+interface TrackedLobby {
+  entry: LobbyListing;
+  receivedAt: number;
+  verified: boolean;
+  lastSeq: number;
+  lastUpdatedAt: number;
+}
+
 class OnlineDirectory {
   private client: MqttClient | null = null;
   private brokerIdx = 0;
   private connected = false;
   private connecting = false;
 
-  private onlineLobbies = new Map<string, LobbyListing>();
+  private onlineLobbies = new Map<string, TrackedLobby>();
   private lobbyListeners = new Set<() => void>();
   private connectListeners = new Set<() => void>();
   private activeRoomCode: string | null = null;
   private roomHandler: ((env: RoomEnvelope) => void) | null = null;
   private hostedLobbyEntry: LobbyListing | null = null;
+  private pendingPublishes: { code: string; env: RoomEnvelope; qos: 0 | 1 }[] = [];
 
   constructor() {
     window.addEventListener('beforeunload', () => {
@@ -45,6 +54,25 @@ class OnlineDirectory {
   ensureConnected() {
     if (this.connected || this.connecting) return;
     this.connectToBroker(this.brokerIdx);
+  }
+
+  ensureLiveConnection() {
+    if (this.connected) {
+      if (this.activeRoomCode && this.client) {
+        this.client.subscribe(`${ROOM_PREFIX}${this.activeRoomCode}`, { qos: 0 });
+      }
+      return;
+    }
+    if (this.client) {
+      try {
+        this.client.reconnect();
+      } catch {
+        this.connecting = false;
+        this.connectToBroker(this.brokerIdx);
+      }
+    } else {
+      this.ensureConnected();
+    }
   }
 
   private connectToBroker(idx: number) {
@@ -78,6 +106,13 @@ class OnlineDirectory {
         if (this.activeRoomCode) {
           client.subscribe(`${ROOM_PREFIX}${this.activeRoomCode}`, { qos: 0 });
         }
+        // Flush any queued messages sent before MQTT finished handshaking!
+        if (this.pendingPublishes.length > 0) {
+          const queued = this.pendingPublishes.splice(0, this.pendingPublishes.length);
+          for (const item of queued) {
+            client.publish(`${ROOM_PREFIX}${item.code}`, JSON.stringify(item.env), { qos: item.qos });
+          }
+        }
         // Immediately re-publish hosted lobby on reconnect so it never vanishes!
         if (this.hostedLobbyEntry) {
           const fresh = { ...this.hostedLobbyEntry, updatedAt: Date.now() };
@@ -107,13 +142,41 @@ class OnlineDirectory {
           try {
             const entry = JSON.parse(text) as LobbyListing;
             if (entry && entry.code) {
-              this.onlineLobbies.set(entry.code, entry);
+              const now = Date.now();
+              const skew = Math.abs(now - entry.updatedAt);
+              const prev = this.onlineLobbies.get(entry.code);
+              const seq = entry.seq ?? 0;
+              const isNewHeartbeat =
+                prev !== undefined &&
+                (entry.updatedAt !== prev.lastUpdatedAt || (seq > 0 && seq !== prev.lastSeq));
+
+              // Sweep clearly dead retained zombies (>90s old on normal clocks) off the broker
+              if (!prev && now - entry.updatedAt > 90000) {
+                client.publish(`${LOBBY_PREFIX}${code}`, '', { retain: true, qos: 0 });
+                return;
+              }
+
+              // Clock-skew immune liveness: if timestamp is fresh (within 25s of local clock) OR
+              // we observed a second live heartbeat, mark verified! Dead future-clocked zombies stay hidden.
+              const verified = skew <= 25000 || isNewHeartbeat || Boolean(prev?.verified && isNewHeartbeat);
+
+              this.onlineLobbies.set(entry.code, {
+                entry,
+                receivedAt: now,
+                verified,
+                lastSeq: seq,
+                lastUpdatedAt: entry.updatedAt
+              });
               this.notifyLobbyListeners();
             }
           } catch {
             // Ignore malformed
           }
-        } else if (topic.startsWith(ROOM_PREFIX) && this.roomHandler) {
+        } else if (
+          this.activeRoomCode &&
+          topic === `${ROOM_PREFIX}${this.activeRoomCode}` &&
+          this.roomHandler
+        ) {
           try {
             const env = JSON.parse(text) as RoomEnvelope;
             if (env && env.msg) {
@@ -162,12 +225,19 @@ class OnlineDirectory {
   getOnlineLobbies(): LobbyListing[] {
     const now = Date.now();
     const fresh: LobbyListing[] = [];
-    // Generous 90-second TTL so mobile backgrounding or brief reconnects never drop lobbies!
-    for (const [code, entry] of this.onlineLobbies.entries()) {
-      if (now - entry.updatedAt < 90000) {
-        fresh.push(entry);
-      } else {
+    // Strict 30-second heartbeat TTL measured in local receive time (immune to clock skew & zombie retained lobbies!)
+    for (const [code, tracked] of this.onlineLobbies.entries()) {
+      const ageSinceReceived = now - tracked.receivedAt;
+      if (ageSinceReceived > 30000) {
+        // No heartbeat for 30s (6 missed beats!) -> delete locally and sweep dead retained topic off broker!
+        if (this.hostedLobbyEntry?.code !== code && this.client && this.connected) {
+          this.client.publish(`${LOBBY_PREFIX}${code}`, '', { retain: true, qos: 0 });
+        }
         this.onlineLobbies.delete(code);
+        continue;
+      }
+      if (tracked.verified) {
+        fresh.push(tracked.entry);
       }
     }
     fresh.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -177,7 +247,14 @@ class OnlineDirectory {
   publishLobby(entry: LobbyListing) {
     this.ensureConnected();
     this.hostedLobbyEntry = entry;
-    this.onlineLobbies.set(entry.code, entry);
+    const now = Date.now();
+    this.onlineLobbies.set(entry.code, {
+      entry,
+      receivedAt: now,
+      verified: true,
+      lastSeq: entry.seq ?? 0,
+      lastUpdatedAt: entry.updatedAt
+    });
     if (this.client && this.connected) {
       this.client.publish(`${LOBBY_PREFIX}${entry.code}`, JSON.stringify(entry), {
         retain: true,
@@ -218,9 +295,20 @@ class OnlineDirectory {
     }
   }
 
-  publishRoom(code: string, env: RoomEnvelope) {
+  publishRoom(code: string, env: RoomEnvelope, qos: 0 | 1 = 0) {
     if (this.client && this.connected) {
-      this.client.publish(`${ROOM_PREFIX}${code}`, JSON.stringify(env), { qos: 0 });
+      this.client.publish(`${ROOM_PREFIX}${code}`, JSON.stringify(env), { qos });
+    } else {
+      this.ensureConnected();
+      // Never lose critical packets (chat, hello, late_sync, vote, start, next_level, cells_clear)
+      if (env.msg.type !== 'ants_sync') {
+        if (this.pendingPublishes.length >= 50) {
+          const dropIdx = this.pendingPublishes.findIndex((p) => p.env.msg.type === 'cells_clear');
+          if (dropIdx >= 0) this.pendingPublishes.splice(dropIdx, 1);
+          else this.pendingPublishes.shift();
+        }
+        this.pendingPublishes.push({ code, env, qos });
+      }
     }
   }
 }

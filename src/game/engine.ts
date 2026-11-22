@@ -1,5 +1,6 @@
 import { ANT_TYPES, AntManager } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
+import { subscribeBackgroundTick } from '../core/bgTicker';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, WorldRenderer } from '../core/renderer';
@@ -32,7 +33,8 @@ export class GameEngine {
   private viewW = 1;
   private viewH = 1;
   private rafId = 0;
-  private lastTime = 0;
+  private unsubBgTick: (() => void) | null = null;
+  private lastWallMs = 0;
   private elapsed = 0;
   private hudSyncAccum = 0;
   private interacted = false;
@@ -80,13 +82,35 @@ export class GameEngine {
   }
 
   start() {
-    this.lastTime = performance.now();
-    const loop = (now: number) => {
-      const dt = Math.min(0.05, (now - this.lastTime) / 1000);
-      this.lastTime = now;
-      if (!this.paused) {
-        this.update(dt);
+    this.lastWallMs = Date.now();
+    const stepWallClock = () => {
+      const now = Date.now();
+      const rawDt = Math.max(0, (now - this.lastWallMs) / 1000);
+      this.lastWallMs = now;
+      if (this.paused || rawDt <= 0) return;
+
+      // Catch up in safe 50ms sub-steps so minimized tabs NEVER freeze ants or cooldowns!
+      let rem = Math.min(rawDt, 60);
+      while (rem > 0) {
+        const step = Math.min(0.05, rem);
+        this.update(step);
+        rem -= step;
       }
+      if (rawDt > 60) {
+        this.ants.compassCooldown = Math.max(0, this.ants.compassCooldown - (rawDt - 60));
+        this.callbacks.onHudSync();
+      }
+    };
+
+    // Unthrottled Web Worker background heartbeat keeps simulation & cooldowns alive when minimized
+    if (!this.unsubBgTick) {
+      this.unsubBgTick = subscribeBackgroundTick(() => {
+        if (document.hidden && !this.paused) stepWallClock();
+      });
+    }
+
+    const loop = () => {
+      stepWallClock();
       this.render();
       this.rafId = requestAnimationFrame(loop);
     };
@@ -95,6 +119,10 @@ export class GameEngine {
 
   destroy() {
     cancelAnimationFrame(this.rafId);
+    if (this.unsubBgTick) {
+      this.unsubBgTick();
+      this.unsubBgTick = null;
+    }
   }
 
   loadLevel(levelId: string, resetSkills = true) {
