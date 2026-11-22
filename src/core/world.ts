@@ -1,0 +1,501 @@
+import { CellType, LevelDefinition, WorldStats } from './types';
+
+export interface DigResult {
+  hitSolid: boolean;
+  hitIndestructible: boolean;
+  dugCount: number;
+  damagedCount: number;
+  crystalsBroken: number;
+  sugarHit: boolean;
+  artRevealed: number;
+}
+
+export const BLOCK_HP: Record<number, number> = {
+  [CellType.Empty]: 0,
+  [CellType.SoftSoil]: 3,
+  [CellType.Clay]: 8,
+  [CellType.Stone]: 18,
+  [CellType.Obsidian]: 36,
+  [CellType.HiddenArt]: 255,
+  [CellType.SkillCrystal]: 10,
+  [CellType.Sugar]: 1
+};
+
+export class World {
+  readonly width: number;
+  readonly height: number;
+  readonly level: LevelDefinition;
+  readonly revealRadius: number;
+
+  cells: Uint8Array;
+  hp: Uint8Array;
+  maxHp: Uint8Array;
+  /** 1 if this pixel is adjacent to at least one Empty pixel (for calm rim shading) */
+  isEdge: Uint8Array;
+  /** 1 if this pixel is within tunnel vision radius (reveals SkillCrystals!) */
+  revealedMask: Uint8Array;
+  /** 1 if this HiddenArt pixel has been exposed to Empty space */
+  artExposed: Uint8Array;
+  noise: Uint8Array;
+
+  nestX: number;
+  nestY: number;
+  sugarX: number;
+  sugarY: number;
+  sugarExposed = false;
+
+  stats: WorldStats;
+
+  constructor(level: LevelDefinition, farSenseMutation = false) {
+    this.level = level;
+    this.width = level.width;
+    this.height = level.height;
+    this.revealRadius = farSenseMutation ? 36 : 22;
+
+    const size = this.width * this.height;
+    this.cells = new Uint8Array(size);
+    this.hp = new Uint8Array(size);
+    this.maxHp = new Uint8Array(size);
+    this.isEdge = new Uint8Array(size);
+    this.revealedMask = new Uint8Array(size);
+    this.artExposed = new Uint8Array(size);
+    this.noise = new Uint8Array(size);
+
+    this.nestX = Math.floor(this.width * 0.5);
+    this.nestY = Math.floor(this.height * 0.78);
+    this.sugarX = Math.floor(this.width * 0.5);
+    this.sugarY = Math.floor(this.height * 0.25);
+
+    this.stats = {
+      totalBreakable: 0,
+      dugBreakable: 0,
+      totalArt: 0,
+      revealedArt: 0,
+      sugarFound: false,
+      crystalsCollected: 0,
+      totalCrystals: 0
+    };
+
+    this.generate();
+  }
+
+  private setBlock(idx: number, type: CellType) {
+    this.cells[idx] = type;
+    const baseHp = BLOCK_HP[type] ?? 1;
+    this.hp[idx] = baseHp;
+    this.maxHp[idx] = baseHp;
+  }
+
+  /** Helper: returns true if (x, y) is safely inside the organic sanctuary interior */
+  private isInsideSanctuary(x: number, y: number): boolean {
+    const nx = (x - this.width * 0.5) / (this.width * 0.39);
+    const ny = (y - this.height * 0.5) / (this.height * 0.39);
+    return nx * nx + ny * ny < 0.92;
+  }
+
+  private generate() {
+    const { width: w, height: h } = this;
+    this.nestX = Math.floor(w * 0.5);
+    this.nestY = Math.floor(h * 0.78);
+
+    // 1. Layered geological terrain: SoftSoil -> Clay -> Stone -> Obsidian
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        const hash = ((x * 374761393 + y * 668265263) ^ (x * y * 1274126177)) >>> 0;
+        this.noise[idx] = hash & 255;
+
+        const distFromNest = Math.hypot(x - this.nestX, y - this.nestY);
+        const n1 =
+          Math.sin(x * 0.045 + Math.cos(y * 0.04) * 2.1) +
+          Math.cos(y * 0.055 - Math.sin(x * 0.035) * 2.0);
+        const n2 =
+          Math.sin(x * 0.11 - y * 0.09) * 0.65 +
+          Math.cos((x + y) * 0.07) * 0.45;
+        const hardness = n1 * 0.65 + n2 * 0.55 + (distFromNest / Math.max(w, h)) * 0.8;
+
+        if (distFromNest < 34) {
+          this.setBlock(idx, CellType.SoftSoil);
+        } else if (hardness > 1.75) {
+          this.setBlock(idx, CellType.Obsidian);
+        } else if (hardness > 1.1) {
+          this.setBlock(idx, CellType.Stone);
+        } else if (hardness > 0.35) {
+          this.setBlock(idx, CellType.Clay);
+        } else {
+          this.setBlock(idx, CellType.SoftSoil);
+        }
+      }
+    }
+
+    // 2. Carve Hidden Indestructible Art (including outer organic/geometric frame!)
+    const artMask = this.level.generateArt(w, h);
+    for (let i = 0; i < w * h; i++) {
+      if (artMask[i] === 1) {
+        this.setBlock(i, CellType.HiddenArt);
+        this.stats.totalArt++;
+      }
+    }
+
+    // 3. Starting nest clearing
+    const nestRadius = 13;
+    for (let dy = -nestRadius; dy <= nestRadius; dy++) {
+      for (let dx = -nestRadius; dx <= nestRadius; dx++) {
+        const nx = this.nestX + dx;
+        const ny = this.nestY + dy;
+        if (!this.inBounds(nx, ny)) continue;
+        const dist = Math.hypot(dx, dy);
+        const jitter = (this.noise[ny * w + nx] / 255) * 3.2;
+        if (dist + jitter < nestRadius) {
+          const idx = ny * w + nx;
+          if (this.cells[idx] !== CellType.HiddenArt) {
+            this.setBlock(idx, CellType.Empty);
+          }
+        }
+      }
+    }
+
+    // Reveal vision around initial nest
+    this.revealCircle(this.nestX, this.nestY, nestRadius + this.revealRadius);
+
+    // 4. Place the Sugar Cube inside the sanctuary (completely hidden until exposed!)
+    let placedSugar = false;
+    for (let attempt = 0; attempt < 600; attempt++) {
+      const sx = Math.floor(w * 0.16 + Math.random() * (w * 0.68));
+      const sy = Math.floor(h * 0.14 + Math.random() * (h * 0.5));
+      if (!this.isInsideSanctuary(sx, sy)) continue;
+      const distFromNest = Math.hypot(sx - this.nestX, sy - this.nestY);
+      if (distFromNest < Math.min(w, h) * 0.48) continue;
+
+      let clear = true;
+      for (let dy = -5; dy <= 5 && clear; dy++) {
+        for (let dx = -5; dx <= 5; dx++) {
+          const c = this.cells[(sy + dy) * w + (sx + dx)];
+          if (c === CellType.HiddenArt || c === CellType.Empty) {
+            clear = false;
+            break;
+          }
+        }
+      }
+      if (clear) {
+        this.sugarX = sx;
+        this.sugarY = sy;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            this.setBlock((sy + dy) * w + (sx + dx), CellType.Sugar);
+          }
+        }
+        placedSugar = true;
+        break;
+      }
+    }
+    if (!placedSugar) {
+      this.sugarX = Math.floor(w * 0.28);
+      this.sugarY = Math.floor(h * 0.28);
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
+          if (this.cells[idx] !== CellType.HiddenArt) {
+            this.setBlock(idx, CellType.Sugar);
+          }
+        }
+      }
+    }
+
+    // 5. Place Skill Point Crystals (2 nearby within initial sight so player immediately sees 1-2!)
+    let placedCrystals = 0;
+    const nearBands = [
+      { rMin: 18, rMax: 28 },
+      { rMin: 22, rMax: 32 }
+    ];
+    for (const band of nearBands) {
+      for (let attempt = 0; attempt < 150; attempt++) {
+        const ang = -Math.PI * 0.18 - Math.random() * Math.PI * 0.64;
+        const dist = band.rMin + Math.random() * (band.rMax - band.rMin);
+        const cx = Math.round(this.nestX + Math.cos(ang) * dist);
+        const cy = Math.round(this.nestY + Math.sin(ang) * dist);
+        if (this.tryPlaceCrystal(cx, cy)) {
+          placedCrystals++;
+          break;
+        }
+      }
+    }
+
+    for (let attempt = 0; attempt < 1400 && placedCrystals < this.level.crystalCount; attempt++) {
+      const cx = Math.floor(w * 0.1 + Math.random() * (w * 0.8));
+      const cy = Math.floor(h * 0.1 + Math.random() * (h * 0.8));
+      if (!this.isInsideSanctuary(cx, cy)) continue;
+      if (Math.hypot(cx - this.nestX, cy - this.nestY) < 24) continue;
+      if (Math.hypot(cx - this.sugarX, cy - this.sugarY) < 15) continue;
+      if (this.tryPlaceCrystal(cx, cy)) {
+        placedCrystals++;
+      }
+    }
+    this.stats.totalCrystals = placedCrystals;
+
+    // 6. Count breakable blocks inside sanctuary & mark initial border edges
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        const cell = this.cells[idx] as CellType;
+        if (this.isTerrain(cell) && this.isInsideSanctuary(x, y)) {
+          this.stats.totalBreakable++;
+        }
+        if (cell !== CellType.Empty && this.hasEmptyNeighbor(x, y)) {
+          this.isEdge[idx] = 1;
+          if (cell === CellType.HiddenArt && !this.artExposed[idx]) {
+            this.artExposed[idx] = 1;
+            this.stats.revealedArt++;
+          }
+        }
+      }
+    }
+  }
+
+  private tryPlaceCrystal(cx: number, cy: number): boolean {
+    const w = this.width;
+    const h = this.height;
+    if (cx < 8 || cx > w - 10 || cy < 8 || cy > h - 10) return false;
+
+    for (let dy = -3; dy <= 4; dy++) {
+      for (let dx = -3; dx <= 4; dx++) {
+        const c = this.cells[(cy + dy) * w + (cx + dx)] as CellType;
+        if (!this.isTerrain(c)) return false;
+      }
+    }
+    for (let dy = 0; dy <= 1; dy++) {
+      for (let dx = 0; dx <= 1; dx++) {
+        this.setBlock((cy + dy) * w + (cx + dx), CellType.SkillCrystal);
+      }
+    }
+    return true;
+  }
+
+  revealCircle(cx: number, cy: number, radius: number) {
+    const rCeil = Math.ceil(radius);
+    const rSq = radius * radius;
+    const innerR = radius * 0.55;
+    const w = this.width;
+    const h = this.height;
+    const x0 = Math.max(0, Math.floor(cx - rCeil));
+    const x1 = Math.min(w - 1, Math.ceil(cx + rCeil));
+    const y0 = Math.max(0, Math.floor(cy - rCeil));
+    const y1 = Math.min(h - 1, Math.ceil(cy + rCeil));
+
+    for (let y = y0; y <= y1; y++) {
+      const dy = y - cy;
+      const dySq = dy * dy;
+      const row = y * w;
+      for (let x = x0; x <= x1; x++) {
+        const dx = x - cx;
+        const dSq = dx * dx + dySq;
+        if (dSq <= rSq) {
+          const d = Math.sqrt(dSq);
+          let val = 255;
+          if (d > innerR) {
+            const t = 1 - (d - innerR) / Math.max(1, radius - innerR);
+            val = Math.round(Math.max(0, Math.min(1, t * t)) * 255);
+          }
+          const idx = row + x;
+          if (val > this.revealedMask[idx]) {
+            this.revealedMask[idx] = val;
+          }
+        }
+      }
+    }
+  }
+
+  isTerrain(cell: CellType): boolean {
+    return (
+      cell === CellType.SoftSoil ||
+      cell === CellType.Clay ||
+      cell === CellType.Stone ||
+      cell === CellType.Obsidian
+    );
+  }
+
+  inBounds(x: number, y: number): boolean {
+    return x >= 0 && x < this.width && y >= 0 && y < this.height;
+  }
+
+  getCell(x: number, y: number): CellType {
+    if (!this.inBounds(x, y)) return CellType.HiddenArt;
+    return this.cells[y * this.width + x] as CellType;
+  }
+
+  hasEmptyNeighbor(x: number, y: number): boolean {
+    const w = this.width;
+    const h = this.height;
+    if (x > 0 && this.cells[y * w + (x - 1)] === CellType.Empty) return true;
+    if (x < w - 1 && this.cells[y * w + (x + 1)] === CellType.Empty) return true;
+    if (y > 0 && this.cells[(y - 1) * w + x] === CellType.Empty) return true;
+    if (y < h - 1 && this.cells[(y + 1) * w + x] === CellType.Empty) return true;
+    return false;
+  }
+
+  dig(cx: number, cy: number, radius: number, damage: number): DigResult {
+    const result: DigResult = {
+      hitSolid: false,
+      hitIndestructible: false,
+      dugCount: 0,
+      damagedCount: 0,
+      crystalsBroken: 0,
+      sugarHit: false,
+      artRevealed: 0
+    };
+
+    const rCeil = Math.ceil(radius);
+    const rSq = radius * radius;
+    const w = this.width;
+    let revealedNewTunnel = false;
+
+    for (let dy = -rCeil; dy <= rCeil; dy++) {
+      for (let dx = -rCeil; dx <= rCeil; dx++) {
+        if (dx * dx + dy * dy > rSq) continue;
+        const x = Math.round(cx + dx);
+        const y = Math.round(cy + dy);
+        if (!this.inBounds(x, y)) {
+          result.hitIndestructible = true;
+          continue;
+        }
+
+        const idx = y * w + x;
+        const cell = this.cells[idx] as CellType;
+        if (cell === CellType.Empty) continue;
+
+        if (cell === CellType.HiddenArt) {
+          result.hitIndestructible = true;
+          if (!this.artExposed[idx]) {
+            this.artExposed[idx] = 1;
+            this.stats.revealedArt++;
+            result.artRevealed++;
+          }
+          continue;
+        }
+
+        if (cell === CellType.Sugar) {
+          this.sugarExposed = true;
+          if (!this.stats.sugarFound) {
+            this.stats.sugarFound = true;
+            result.sugarHit = true;
+          }
+          continue;
+        }
+
+        result.hitSolid = true;
+
+        if (this.hp[idx] > damage) {
+          this.hp[idx] -= damage;
+          result.damagedCount++;
+        } else {
+          revealedNewTunnel = true;
+          if (cell === CellType.SkillCrystal) {
+            this.breakCrystalCluster(x, y, result);
+          } else {
+            this.destroyCell(x, y, result);
+          }
+        }
+      }
+    }
+
+    if (revealedNewTunnel) {
+      this.revealCircle(cx, cy, this.revealRadius);
+    }
+
+    return result;
+  }
+
+  private destroyCell(x: number, y: number, result: DigResult) {
+    const idx = y * this.width + x;
+    const cell = this.cells[idx] as CellType;
+    if (cell === CellType.Empty) return;
+
+    this.cells[idx] = CellType.Empty;
+    this.hp[idx] = 0;
+    this.maxHp[idx] = 0;
+    this.isEdge[idx] = 0;
+    result.dugCount++;
+
+    if (this.isTerrain(cell)) {
+      this.stats.dugBreakable++;
+    }
+
+    this.updateNeighbors(x, y, result);
+  }
+
+  private breakCrystalCluster(sx: number, sy: number, result: DigResult) {
+    const queue: [number, number][] = [[sx, sy]];
+    let brokeAny = false;
+
+    while (queue.length > 0) {
+      const [x, y] = queue.pop()!;
+      if (!this.inBounds(x, y)) continue;
+      const idx = y * this.width + x;
+      if (this.cells[idx] !== CellType.SkillCrystal) continue;
+
+      this.cells[idx] = CellType.Empty;
+      this.hp[idx] = 0;
+      this.maxHp[idx] = 0;
+      this.isEdge[idx] = 0;
+      result.dugCount++;
+      brokeAny = true;
+
+      this.updateNeighbors(x, y, result);
+      queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+
+    if (brokeAny) {
+      this.stats.crystalsCollected++;
+      result.crystalsBroken++;
+    }
+  }
+
+  private updateNeighbors(x: number, y: number, result: DigResult) {
+    const w = this.width;
+    const h = this.height;
+    for (let ny = y - 1; ny <= y + 1; ny++) {
+      if (ny < 0 || ny >= h) continue;
+      for (let nx = x - 1; nx <= x + 1; nx++) {
+        if (nx < 0 || nx >= w || (nx === x && ny === y)) continue;
+        const nIdx = ny * w + nx;
+        const nCell = this.cells[nIdx] as CellType;
+        if (nCell === CellType.Empty) continue;
+
+        this.isEdge[nIdx] = 1;
+        if (nCell === CellType.HiddenArt) {
+          if (!this.artExposed[nIdx]) {
+            this.artExposed[nIdx] = 1;
+            this.stats.revealedArt++;
+            result.artRevealed++;
+          }
+        } else if (nCell === CellType.Sugar) {
+          this.sugarExposed = true;
+          if (!this.stats.sugarFound) {
+            this.stats.sugarFound = true;
+            result.sugarHit = true;
+          }
+        }
+      }
+    }
+  }
+
+  findNearestEmpty(tx: number, ty: number, maxRadius = 26): { x: number; y: number } | null {
+    const ix = Math.round(tx);
+    const iy = Math.round(ty);
+    if (this.inBounds(ix, iy) && this.getCell(ix, iy) === CellType.Empty) {
+      return { x: ix, y: iy };
+    }
+    for (let r = 1; r <= maxRadius; r++) {
+      const steps = r * 8;
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const x = Math.round(ix + Math.cos(a) * r);
+        const y = Math.round(iy + Math.sin(a) * r);
+        if (this.inBounds(x, y) && this.getCell(x, y) === CellType.Empty) {
+          return { x, y };
+        }
+      }
+    }
+    return null;
+  }
+}
