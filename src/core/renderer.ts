@@ -1,5 +1,5 @@
 import { ANT_TYPES } from './ants';
-import { Ant, AntTypeId, CellType } from './types';
+import { Ant, AntSkinId, AntTypeId, CellType } from './types';
 import { World } from './world';
 import { ParticleSystem } from './particles';
 
@@ -19,7 +19,7 @@ export interface AimPreview {
 /** Default background hex used for menu & initial CSS theme */
 export const UNEXPLORED_BG_HEX = '#0b1d13';
 
-/** Shared detailed articulated ant renderer (used both in-game and in Main Menu background!) */
+/** Shared detailed articulated ant renderer (supports 3 skins + optional player color tint!) */
 export function drawDetailedAnt(
   ctx: CanvasRenderingContext2D,
   type: AntTypeId,
@@ -28,11 +28,13 @@ export function drawDetailedAnt(
   angle: number,
   legPhase: number,
   biteFlash: number,
-  zoom: number
+  zoom: number,
+  skin: AntSkinId = 'classic',
+  colorOverride?: [number, number, number]
 ) {
   const cfg = ANT_TYPES[type];
   const s = Math.max(1.8, zoom * 0.65) * cfg.scale;
-  const [r, g, b] = cfg.rgb;
+  const [r, g, b] = colorOverride || cfg.rgb;
 
   ctx.save();
   ctx.translate(sx, sy);
@@ -100,15 +102,29 @@ export function drawDetailedAnt(
   ctx.ellipse(abdX, 0, abdRx, abdRy, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Subtle chitin segments on abdomen
-  ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.55)`;
-  ctx.lineWidth = Math.max(0.8, s * 0.22);
+  // Subtle chitin segments on abdomen (enhanced by skin!)
+  ctx.strokeStyle =
+    skin === 'cyber'
+      ? '#70ffff'
+      : skin === 'royal'
+        ? '#ffd966'
+        : `rgba(${r}, ${g}, ${b}, 0.55)`;
+  ctx.lineWidth = Math.max(0.8, s * (skin === 'classic' ? 0.22 : 0.28));
   for (const frac of [-0.32, 0.05, 0.38]) {
     const bx = abdX + frac * abdRx;
     const halfH = Math.sqrt(Math.max(0.05, 1 - frac * frac)) * abdRy * 0.88;
     ctx.beginPath();
     ctx.moveTo(bx, -halfH);
     ctx.lineTo(bx, halfH);
+    ctx.stroke();
+  }
+
+  // Skin-specific armor outline on abdomen
+  if (skin === 'cyber' || skin === 'royal') {
+    ctx.strokeStyle = skin === 'cyber' ? 'rgba(112, 255, 255, 0.75)' : 'rgba(255, 217, 102, 0.85)';
+    ctx.lineWidth = Math.max(0.9, s * 0.2);
+    ctx.beginPath();
+    ctx.ellipse(abdX, 0, abdRx * 1.04, abdRy * 1.04, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -156,13 +172,25 @@ export function drawDetailedAnt(
   ctx.ellipse(headX, 0, headRx, headRy, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Compound eyes
-  ctx.fillStyle = '#07100c';
-  const eyeR = Math.max(0.7, 0.22 * s);
+  // Compound eyes (glowing visor on Cyber skin!)
+  ctx.fillStyle = skin === 'cyber' ? '#00ffff' : skin === 'royal' ? '#ffe066' : '#07100c';
+  const eyeR = Math.max(0.7, (skin === 'cyber' ? 0.28 : 0.22) * s);
   ctx.beginPath();
   ctx.arc(headX + 0.25 * headRx, -0.52 * headRy, eyeR, 0, Math.PI * 2);
   ctx.arc(headX + 0.25 * headRx, 0.52 * headRy, eyeR, 0, Math.PI * 2);
   ctx.fill();
+
+  // Royal skin tiny crown crest on thorax
+  if (skin === 'royal' && type !== 'queen') {
+    ctx.fillStyle = '#ffd966';
+    ctx.beginPath();
+    ctx.moveTo(0.6 * s, 0);
+    ctx.lineTo(0.05 * s, -0.36 * s);
+    ctx.lineTo(-0.25 * s, 0);
+    ctx.lineTo(0.05 * s, 0.36 * s);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   // 6. Curved Mandibles (animated snap when biting!)
   const openAmt = biteFlash > 0 ? 0.1 : 0.42;

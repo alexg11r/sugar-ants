@@ -11,6 +11,27 @@ export const enum CellType {
 
 export type PlayableAntId = 'worker' | 'warrior' | 'scout' | 'queen' | 'compass';
 export type AntTypeId = PlayableAntId | 'brood';
+export type AntSkinId = 'classic' | 'cyber' | 'royal';
+
+export interface PlayerColorDef {
+  id: string;
+  name: string;
+  hex: string;
+  rgb: [number, number, number];
+}
+
+export const PLAYER_COLORS: PlayerColorDef[] = [
+  { id: 'emerald', name: 'Изумруд', hex: '#3ce87a', rgb: [60, 232, 122] },
+  { id: 'crimson', name: 'Алый', hex: '#ff4d6d', rgb: [255, 77, 109] },
+  { id: 'cyan', name: 'Лазурь', hex: '#35d6ff', rgb: [53, 214, 255] },
+  { id: 'violet', name: 'Фиолет', hex: '#d45cff', rgb: [212, 92, 255] },
+  { id: 'amber', name: 'Янтарь', hex: '#ff9d42', rgb: [255, 157, 66] },
+  { id: 'lime', name: 'Лайм', hex: '#a6ff4d', rgb: [166, 255, 77] },
+  { id: 'coral', name: 'Коралл', hex: '#ff7b54', rgb: [255, 123, 84] },
+  { id: 'teal', name: 'Бирюза', hex: '#2ef2c9', rgb: [46, 242, 201] },
+  { id: 'gold', name: 'Золото', hex: '#ffe066', rgb: [255, 224, 102] },
+  { id: 'pink', name: 'Розовый', hex: '#ff70c8', rgb: [255, 112, 200] }
+];
 
 export interface AntTypeConfig {
   id: AntTypeId;

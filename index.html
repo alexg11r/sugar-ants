@@ -124,6 +124,19 @@
           <div class="menu-footer-note">
             Пройдено уровней: <strong id="menu-progress-count">0/5</strong> • Мутаций: <strong id="menu-mut-count">0</strong>
           </div>
+
+          <div class="menu-credits">
+            <span class="credits-author">made by <strong>GrAx</strong></span>
+            <a
+              href="https://t.me/alexstress1"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="tg-donate-btn"
+            >
+              <span>✈</span>
+              <span>Скиньте на сижки пж</span>
+            </a>
+          </div>
         </div>
       </section>
 
@@ -165,10 +178,11 @@
       <header id="story-hud-top" class="hud-top hidden">
         <div class="hud-group hud-left">
           <button id="story-btn-menu" class="icon-btn" title="Главное меню">☰</button>
-          <div class="pill-btn" style="cursor:default;">
+          <button id="story-btn-chapters" class="pill-btn" title="Выбор главы сюжета">
             <span class="dot-accent" style="background:#f5c26b;box-shadow:0 0 8px #f5c26b;"></span>
-            <span>Забытая ферма</span>
-          </div>
+            <span id="story-chapter-name">Глава 1: Стеклянная ферма</span>
+            <span class="chevron">▾</span>
+          </button>
         </div>
 
         <div class="hud-group hud-stats">
@@ -205,35 +219,67 @@
         <div class="hud-group hud-left">
           <button id="mp-btn-menu" class="icon-btn" title="Выйти в меню">☰</button>
           <div class="pill-btn" style="cursor:default;">
-            <span id="mp-mode-label">⚔ Гонка за Сахаром</span>
+            <span id="mp-mode-label">🤝 Кооп</span>
+          </div>
+          <div class="stat-chip" title="Прогресс очистки карты">
+            <span>▦</span><span id="mp-dig-pct">0%</span>
           </div>
         </div>
 
         <div class="hud-group hud-stats">
-          <div class="stat-chip" style="border-color:rgba(60,232,122,0.45);color:#7bffac;">
-            <span>🟢</span><span id="mp-p1-score">0</span>
+          <div class="stat-chip" title="Игроки в комнате">
+            <span>👥</span><span id="mp-player-count">1</span>
           </div>
-          <div class="stat-chip" style="border-color:rgba(255,77,109,0.45);color:#ff8fa3;">
-            <span>🔴</span><span id="mp-p2-score">0</span>
+          <div class="stat-chip" title="Ваши очки навыков">
+            <span class="stat-icon icon-sp">♦</span><span id="mp-local-sp">3</span>
           </div>
-          <div class="stat-chip" title="Ваши очки навыков в матче">
-            <span class="stat-icon icon-sp">♦</span><span id="mp-local-sp">2</span>
+          <div class="stat-chip" title="До бонусных очков навыков (каждые 5 мин)">
+            <span>⏳</span><span id="mp-sp-timer">5:00</span>
           </div>
         </div>
 
         <div class="hud-group hud-right">
+          <button id="mp-btn-ping" class="icon-btn" title="Поставить маяк на карте">📍</button>
+          <button id="mp-btn-chat-toggle" class="icon-btn" title="Чат">💬</button>
           <button id="mp-btn-settings" class="icon-btn" title="Настройки и саундтрек">⚙</button>
-          <button id="mp-btn-reset-cam" class="icon-btn" title="Центрировать камеру">⌖</button>
+          <button id="mp-btn-reset-cam" class="icon-btn" title="К своей базе">⌖</button>
         </div>
       </header>
+
+      <!-- Co-op Vote Banner -->
+      <div id="mp-vote-banner" class="mp-vote-banner hidden">
+        <div id="mp-vote-text" class="mp-vote-text">Сахар найден! Перейти к новой локации?</div>
+        <div class="mp-vote-actions">
+          <button id="mp-vote-yes" class="action-btn primary">✓ Да</button>
+          <button id="mp-vote-no" class="action-btn">✕ Остаться</button>
+          <span id="mp-vote-tally" class="mp-vote-tally">0/1</span>
+        </div>
+      </div>
+
+      <!-- In-Game Multiplayer Chat Box -->
+      <div id="mp-chat-box" class="mp-chat-box hidden">
+        <div id="mp-chat-log" class="mp-chat-log"></div>
+        <div class="mp-chat-emojis">
+          <button class="emoji-btn" data-emoji="🐜">🐜</button>
+          <button class="emoji-btn" data-emoji="🧊">🧊</button>
+          <button class="emoji-btn" data-emoji="💎">💎</button>
+          <button class="emoji-btn" data-emoji="🔥">🔥</button>
+          <button class="emoji-btn" data-emoji="👍">👍</button>
+        </div>
+        <form id="mp-chat-form" class="mp-chat-form">
+          <input id="mp-chat-input" class="mp-chat-input" placeholder="Написать в чат…" maxlength="140" />
+          <button type="submit" class="action-btn primary" style="padding:6px 10px;">➤</button>
+        </form>
+      </div>
 
       <footer id="mp-hud-bottom" class="hud-bottom hidden">
         <div class="dock-inner">
           <div id="mp-ant-bar" class="ant-bar"></div>
           <div class="dock-divider"></div>
-          <button id="mp-btn-dmg" class="eco-btn" style="border-color:rgba(53,214,255,0.45);">
-            <strong>⚡ Урон</strong>
-            <small id="mp-dmg-cost">♦ 2</small>
+          <button id="mp-btn-skills" class="upgrade-btn">
+            <span class="upgrade-icon">♦</span>
+            <span class="upgrade-label">Навыки</span>
+            <span id="mp-skill-badge" class="upgrade-badge hidden">!</span>
           </button>
         </div>
       </footer>

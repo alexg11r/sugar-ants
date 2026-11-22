@@ -28,13 +28,16 @@ const engine = new GameEngine(canvas, skillTree, audio, {
 const story = new StoryEngine(storyCanvas, audio, {
   onHudSync: () => hud?.syncStoryHud(),
   onToast: (msg) => hud?.showToast(msg),
-  onVictory: () => hud?.openStoryVictoryModal()
+  onVictory: (level, hasNext) => hud?.openStoryVictoryModal(level, hasNext)
 });
 
 const mp = new MultiplayerEngine(mpCanvas, audio, {
   onHudSync: () => hud?.syncMpHud(),
   onToast: (msg) => hud?.showToast(msg),
-  onMatchEnd: (winner, isCoop) => hud?.openMpMatchEndModal(winner, isCoop)
+  onSystemChat: (text) => hud?.pushSystemChat(text),
+  onVersusEnd: (winnerNick, iWon) => hud?.openMpVersusEndModal(winnerNick, iWon),
+  onVoteUpdate: () => hud?.syncMpVoteBanner(),
+  onAllBlocksCleared: () => hud?.openMpAllClearedModal()
 });
 
 hud = new HudController(engine, story, mp, menuBg);

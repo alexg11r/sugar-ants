@@ -3,39 +3,67 @@ import { MeditativeAudio } from '../core/audio';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, drawDetailedAnt } from '../core/renderer';
-import { Ant, CellType, LevelDefinition, PlayableAntId } from '../core/types';
+import {
+  Ant,
+  CellType,
+  LevelDefinition,
+  PLAYER_COLORS,
+  PlayableAntId,
+  SkillNodeDef
+} from '../core/types';
 import { BLOCK_HP } from '../core/world';
-import { MpMessage, MpMode, MpTransport } from './mpTransport';
+import { ColonyStats, SKILL_NODES } from '../game/skillTree';
+import { MpMessage, MpMode, MpPlayerInfo, MpTransport } from './mpTransport';
 
 interface MpAnt extends Ant {
-  owner: 1 | 2;
+  ownerId: string;
+}
+
+interface MapPing {
+  x: number;
+  y: number;
+  nick: string;
+  colorHex: string;
+  life: number;
+  maxLife: number;
+}
+
+export interface MpVoteState {
+  active: boolean;
+  reason: string;
+  votes: Record<string, boolean>;
+  myVote: boolean | null;
 }
 
 export interface MpMatchState {
   mpMode: MpMode;
   vsBot: boolean;
-  localPlayer: 1 | 2;
+  localPlayerId: string;
   level: LevelDefinition;
-  p1Dug: number;
-  p2Dug: number;
-  p1Sp: number;
-  p2Sp: number;
-  winner: 0 | 1 | 2;
+  players: MpPlayerInfo[];
+  localSp: number;
+  nodeRanks: Record<string, number>;
   selectedAnt: PlayableAntId;
-  unlockedWarriors: boolean;
-  unlockedScouts: boolean;
-  unlockedQueens: boolean;
-  dmgLevel: number;
   compassCd: number;
+  sugarFound: boolean;
+  winnerId: string | null;
+  totalBreakable: number;
+  dugBreakable: number;
+  allCleared: boolean;
+  vote: MpVoteState;
+  pingMode: boolean;
+  nextSpDropSec: number;
 }
 
 export interface MpCallbacks {
   onHudSync: () => void;
   onToast: (msg: string) => void;
-  onMatchEnd: (winner: 1 | 2, isCoop: boolean) => void;
+  onSystemChat: (text: string) => void;
+  onVersusEnd: (winnerNick: string, iWon: boolean) => void;
+  onVoteUpdate: () => void;
+  onAllBlocksCleared: () => void;
 }
 
-/** Deterministic PRNG so Host & Guest generate the exact same map from `seed`! */
 function mulberry32(seed: number) {
   let a = seed >>> 0;
   return () => {
@@ -47,36 +75,45 @@ function mulberry32(seed: number) {
   };
 }
 
+export function computeCoopMapSize(playerCount: number, mpMode: MpMode): { width: number; height: number } {
+  if (mpMode === 'versus') return { width: 400, height: 250 };
+  const clamped = Math.max(1, Math.min(10, playerCount));
+  return {
+    width: Math.min(640, 340 + clamped * 30),
+    height: Math.min(400, 220 + clamped * 18)
+  };
+}
+
 export class MultiplayerEngine {
-  readonly width = 400;
-  readonly height = 250;
+  width = 400;
+  height = 250;
   readonly canvas: HTMLCanvasElement;
   readonly ctx: CanvasRenderingContext2D;
   readonly audio: MeditativeAudio;
   readonly callbacks: MpCallbacks;
 
   transport: MpTransport | null = null;
-  cells: Uint8Array;
-  hp: Uint8Array;
-  maxHp: Uint8Array;
-  isEdge: Uint8Array;
-  revealedMask: Uint8Array;
-  artExposed: Uint8Array;
-  noise: Uint8Array;
+  cells: Uint8Array = new Uint8Array(1);
+  hp: Uint8Array = new Uint8Array(1);
+  maxHp: Uint8Array = new Uint8Array(1);
+  isEdge: Uint8Array = new Uint8Array(1);
+  revealedMask: Uint8Array = new Uint8Array(1);
+  artExposed: Uint8Array = new Uint8Array(1);
+  noise: Uint8Array = new Uint8Array(1);
 
-  nest1X = 82;
-  nest1Y = 125;
-  nest2X = 318;
-  nest2Y = 125;
   sugarX = 200;
   sugarY = 125;
   sugarExposed = false;
 
   ants: MpAnt[] = [];
+  pings: MapPing[] = [];
   particles = new ParticleSystem();
   camera: Camera = { x: 200, y: 125, zoom: 3.2 };
   state: MpMatchState;
   active = false;
+  seed = 1337;
+  /** Recorded dig log for mid-game late-join synchronization */
+  dugHistory: [number, number, number, number][] = [];
 
   private offscreen: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
@@ -93,6 +130,8 @@ export class MultiplayerEngine {
   private nextAntId = 1;
   private hudAccum = 0;
   private botTimer = 0;
+  private spDropAccum = 0;
+  private revoteTimer = 0;
 
   // Input
   private activePointers = new Map<number, { x: number; y: number }>();
@@ -118,6 +157,71 @@ export class MultiplayerEngine {
     this.audio = audio;
     this.callbacks = callbacks;
 
+    this.offscreen = document.createElement('canvas');
+    this.offCtx = this.offscreen.getContext('2d')!;
+    this.imgData = this.offCtx.createImageData(1, 1);
+
+    this.glowCanvas = document.createElement('canvas');
+    this.glowCtx = this.glowCanvas.getContext('2d')!;
+    this.glowImgData = this.glowCtx.createImageData(1, 1);
+
+    this.state = this.createEmptyState('coop', false, 'local', LEVELS[0], []);
+    this.resize();
+    this.bindEvents();
+  }
+
+  private createEmptyState(
+    mpMode: MpMode,
+    vsBot: boolean,
+    localPlayerId: string,
+    level: LevelDefinition,
+    players: MpPlayerInfo[]
+  ): MpMatchState {
+    return {
+      mpMode,
+      vsBot,
+      localPlayerId,
+      level,
+      players,
+      localSp: 3, // Generous start so every player can immediately explore skills!
+      nodeRanks: { worker_root: 1 },
+      selectedAnt: 'worker',
+      compassCd: 0,
+      sugarFound: false,
+      winnerId: null,
+      totalBreakable: 1,
+      dugBreakable: 0,
+      allCleared: false,
+      vote: { active: false, reason: '', votes: {}, myVote: null },
+      pingMode: false,
+      nextSpDropSec: 300
+    };
+  }
+
+  startMatch(opts: {
+    seed: number;
+    levelId: string;
+    mpMode: MpMode;
+    vsBot: boolean;
+    localPlayerId: string;
+    players: MpPlayerInfo[];
+    width?: number;
+    height?: number;
+    transport: MpTransport | null;
+    lateDugEvents?: [number, number, number, number][];
+    startingSp?: number;
+  }) {
+    this.seed = opts.seed;
+    this.transport = opts.transport;
+    const level = LEVELS.find((l) => l.id === opts.levelId) || LEVELS[0];
+    const dims =
+      opts.width && opts.height
+        ? { width: opts.width, height: opts.height }
+        : computeCoopMapSize(opts.players.length, opts.mpMode);
+
+    this.width = dims.width;
+    this.height = dims.height;
+
     const size = this.width * this.height;
     this.cells = new Uint8Array(size);
     this.hp = new Uint8Array(size);
@@ -127,65 +231,45 @@ export class MultiplayerEngine {
     this.artExposed = new Uint8Array(size);
     this.noise = new Uint8Array(size);
 
-    this.offscreen = document.createElement('canvas');
     this.offscreen.width = this.width;
     this.offscreen.height = this.height;
-    this.offCtx = this.offscreen.getContext('2d')!;
     this.imgData = this.offCtx.createImageData(this.width, this.height);
-
-    this.glowCanvas = document.createElement('canvas');
     this.glowCanvas.width = this.width;
     this.glowCanvas.height = this.height;
-    this.glowCtx = this.glowCanvas.getContext('2d')!;
     this.glowImgData = this.glowCtx.createImageData(this.width, this.height);
 
-    this.state = this.createMatchState('versus', true, 1, LEVELS[0]);
-    this.resize();
-    this.bindEvents();
-  }
+    // Assign base positions for all players
+    const playersWithBases = this.assignPlayerBases(opts.players, opts.mpMode);
 
-  private createMatchState(
-    mpMode: MpMode,
-    vsBot: boolean,
-    localPlayer: 1 | 2,
-    level: LevelDefinition
-  ): MpMatchState {
-    return {
-      mpMode,
-      vsBot,
-      localPlayer,
+    this.state = this.createEmptyState(
+      opts.mpMode,
+      opts.vsBot,
+      opts.localPlayerId,
       level,
-      p1Dug: 0,
-      p2Dug: 0,
-      p1Sp: 2,
-      p2Sp: 2,
-      winner: 0,
-      selectedAnt: 'worker',
-      unlockedWarriors: false,
-      unlockedScouts: false,
-      unlockedQueens: false,
-      dmgLevel: 0,
-      compassCd: 0
-    };
-  }
+      playersWithBases
+    );
+    if (typeof opts.startingSp === 'number') {
+      this.state.localSp = opts.startingSp;
+    }
 
-  startMatch(opts: {
-    seed: number;
-    levelId: string;
-    mpMode: MpMode;
-    vsBot: boolean;
-    localPlayer: 1 | 2;
-    transport: MpTransport | null;
-  }) {
-    this.transport = opts.transport;
-    const level = LEVELS.find((l) => l.id === opts.levelId) || LEVELS[0];
-    this.state = this.createMatchState(opts.mpMode, opts.vsBot, opts.localPlayer, level);
     this.ants = [];
+    this.pings = [];
     this.particles.particles = [];
+    this.dugHistory = [];
     this.botTimer = 1.4;
+    this.spDropAccum = 0;
+    this.revoteTimer = 0;
     this.sugarExposed = false;
 
-    this.generateSeededWorld(level, opts.seed);
+    this.generateSeededWorld(level, opts.seed, playersWithBases);
+
+    // Apply late-join dig replay if joining mid-game!
+    if (opts.lateDugEvents && opts.lateDugEvents.length > 0) {
+      for (const [dx, dy, rad, dmg] of opts.lateDugEvents) {
+        this.digInternal(dx, dy, rad, dmg, 'replay', false);
+      }
+    }
+
     this.resetCamera();
     this.active = true;
     this.lastTime = performance.now();
@@ -193,11 +277,11 @@ export class MultiplayerEngine {
 
     const modeLabel =
       opts.mpMode === 'coop'
-        ? '🤝 Совместные раскопки'
+        ? `🤝 Кооператив (${playersWithBases.length} игр., ${this.width}×${this.height})`
         : opts.vsBot
           ? '⚔ Гонка против ИИ-колонии'
-          : '⚔ Онлайн 1 на 1 — Гонка за Сахаром';
-    this.callbacks.onToast(`${modeLabel} • Карта: ${level.name}`);
+          : '⚔ Онлайн 1 на 1';
+    this.callbacks.onToast(`${modeLabel} • ${level.name}`);
 
     cancelAnimationFrame(this.rafId);
     const loop = (now: number) => {
@@ -216,108 +300,292 @@ export class MultiplayerEngine {
     cancelAnimationFrame(this.rafId);
   }
 
+  private assignPlayerBases(players: MpPlayerInfo[], mpMode: MpMode): MpPlayerInfo[] {
+    const w = this.width;
+    const h = this.height;
+    return players.map((p, idx) => {
+      if (mpMode === 'versus' && players.length === 2) {
+        return {
+          ...p,
+          baseX: idx === 0 ? Math.floor(w * 0.19) : Math.floor(w * 0.81),
+          baseY: Math.floor(h * 0.5)
+        };
+      }
+      // Distribute up to 10 bases evenly in a welcoming ring inside the sanctuary!
+      const angle = (idx / Math.max(1, players.length)) * Math.PI * 2 + Math.PI * 0.5;
+      const rx = w * 0.31;
+      const ry = h * 0.31;
+      return {
+        ...p,
+        baseX: Math.round(w * 0.5 + Math.cos(angle) * rx),
+        baseY: Math.round(h * 0.5 + Math.sin(angle) * ry)
+      };
+    });
+  }
+
+  /** Mid-game late join: carve a fresh base for the newly arrived player! */
+  addLateJoinPlayer(player: MpPlayerInfo): MpPlayerInfo {
+    const idx = this.state.players.length;
+    const angle = (idx * 2.39996) % (Math.PI * 2); // golden angle spacing
+    const bx = Math.round(this.width * 0.5 + Math.cos(angle) * this.width * 0.31);
+    const by = Math.round(this.height * 0.5 + Math.sin(angle) * this.height * 0.31);
+    const withBase: MpPlayerInfo = { ...player, baseX: bx, baseY: by, dug: 0 };
+    this.state.players.push(withBase);
+    this.carveBaseChamber(bx, by);
+    this.callbacks.onSystemChat(`${withBase.nick} подключился к игре!`);
+    this.callbacks.onHudSync();
+    return withBase;
+  }
+
   resetCamera() {
-    const fitZoom = Math.min((this.viewW * 0.94) / this.width, (this.viewH * 0.86) / this.height);
-    this.camera.zoom = Math.max(2.1, Math.min(5.2, fitZoom * 1.15));
-    if (this.state.localPlayer === 1) {
-      this.camera.x = this.width * 0.36;
-    } else {
-      this.camera.x = this.width * 0.64;
+    const me = this.getLocalPlayer();
+    const fitZoom = Math.min((this.viewW * 0.92) / this.width, (this.viewH * 0.84) / this.height);
+    this.camera.zoom = Math.max(1.8, Math.min(4.8, fitZoom * 1.35));
+    this.camera.x = me ? me.baseX : this.width * 0.5;
+    this.camera.y = me ? me.baseY : this.height * 0.5;
+  }
+
+  getLocalPlayer(): MpPlayerInfo | undefined {
+    return this.state.players.find((p) => p.id === this.state.localPlayerId);
+  }
+
+  getPlayer(id: string): MpPlayerInfo | undefined {
+    return this.state.players.find((p) => p.id === id);
+  }
+
+  /* =========================================================
+     IN-MATCH CO-OP SKILL TREE LOGIC
+     ========================================================= */
+  getSkillRank(nodeId: string): number {
+    return this.state.nodeRanks[nodeId] || 0;
+  }
+
+  isSkillVisible(node: SkillNodeDef): boolean {
+    if (node.requires.length === 0) return true;
+    if (this.getSkillRank(node.id) > 0) return true;
+    return node.requires.some((req) => this.getSkillRank(req) > 0);
+  }
+
+  getSkillCost(node: SkillNodeDef): number {
+    const rank = this.getSkillRank(node.id);
+    if (node.maxRank <= 1) return node.cost;
+    return Math.round(node.cost * Math.pow(1.55, rank));
+  }
+
+  canBuySkill(node: SkillNodeDef): boolean {
+    const rank = this.getSkillRank(node.id);
+    if (rank >= node.maxRank) return false;
+    if (node.requires.length > 0 && !node.requires.some((req) => this.getSkillRank(req) > 0)) return false;
+    return this.state.localSp >= this.getSkillCost(node);
+  }
+
+  buySkill(nodeId: string): boolean {
+    const node = SKILL_NODES.find((n) => n.id === nodeId);
+    if (!node || !this.canBuySkill(node)) return false;
+    this.state.localSp -= this.getSkillCost(node);
+    this.state.nodeRanks[nodeId] = this.getSkillRank(nodeId) + 1;
+    this.audio.playUpgrade();
+    if (nodeId === 'warrior_unlock') this.state.selectedAnt = 'warrior';
+    if (nodeId === 'scout_unlock') this.state.selectedAnt = 'scout';
+    if (nodeId === 'queen_unlock') this.state.selectedAnt = 'queen';
+    this.callbacks.onHudSync();
+    return true;
+  }
+
+  isAntUnlocked(id: PlayableAntId): boolean {
+    if (id === 'worker' || id === 'compass') return true;
+    if (id === 'warrior') return this.getSkillRank('warrior_unlock') > 0;
+    if (id === 'scout') return this.getSkillRank('scout_unlock') > 0;
+    if (id === 'queen') return this.getSkillRank('queen_unlock') > 0;
+    return false;
+  }
+
+  hasAffordableSkill(): boolean {
+    return SKILL_NODES.some((n) => this.canBuySkill(n));
+  }
+
+  getLocalColonyStats(): ColonyStats {
+    const r = (id: string) => this.getSkillRank(id);
+    return {
+      globalLifeMult: 1 + r('colony_life') * 0.25,
+      globalSpeedMult: 1,
+      crystalBonus: r('colony_crystal'),
+      crystalLuckChance: 0,
+      hardBlockBonusDmg: r('colony_armor'),
+      queenAnomaly: false,
+      farSense: false,
+      compassCooldownSec: 120,
+      compassDuration: 5.0,
+      worker: {
+        speedMult: 1 + r('worker_spd') * 0.22,
+        dmgBonus: r('worker_dmg'),
+        lifeMult: 1 + r('worker_life') * 0.35,
+        maxActive: 6 + r('worker_cap') * 3
+      },
+      warrior: {
+        speedMult: 1 + r('warrior_spd') * 0.22,
+        dmgBonus: r('warrior_dmg') * 2,
+        radiusBonus: r('warrior_cleave') * 0.65,
+        maxActive: 2 + r('warrior_cap') * 2
+      },
+      scout: {
+        speedMult: 1 + r('scout_spd') * 0.25,
+        dmgBonus: r('scout_dmg'),
+        lifeMult: 1 + r('scout_life') * 0.4,
+        maxActive: 4 + r('scout_cap') * 3
+      },
+      queen: {
+        spawnRateMult: 1 + r('queen_rate') * 0.25,
+        broodDmgBonus: r('queen_brood_dmg'),
+        broodLifeMult: 1 + r('queen_brood_life') * 0.35,
+        maxActive: 1 + r('queen_brood_life')
+      }
+    };
+  }
+
+  selectAnt(type: PlayableAntId) {
+    if (!this.isAntUnlocked(type)) return;
+    this.state.selectedAnt = type;
+    this.callbacks.onHudSync();
+  }
+
+  togglePingMode() {
+    this.state.pingMode = !this.state.pingMode;
+    this.callbacks.onHudSync();
+    if (this.state.pingMode) {
+      this.callbacks.onToast('📍 Нажмите на карту, чтобы поставить маяк для команды!');
     }
-    this.camera.y = this.height * 0.5;
+  }
+
+  /* =========================================================
+     CO-OP VOTING AFTER SUGAR FOUND (RE-VOTES EVERY 2 MIN IF NO!)
+     ========================================================= */
+  startNextLevelVote(reason: string, broadcast = true) {
+    this.state.vote = {
+      active: true,
+      reason,
+      votes: {},
+      myVote: null
+    };
+    this.revoteTimer = 0;
+    if (broadcast) {
+      this.transport?.send({ type: 'vote_start', reason });
+    }
+    this.callbacks.onSystemChat(`🗳 Голосование: ${reason}`);
+    this.callbacks.onVoteUpdate();
+  }
+
+  castVote(yes: boolean) {
+    if (!this.state.vote.active) return;
+    this.state.vote.myVote = yes;
+    this.state.vote.votes[this.state.localPlayerId] = yes;
+    this.transport?.send({ type: 'vote_cast', playerId: this.state.localPlayerId, yes });
+    this.evaluateVotes();
+    this.callbacks.onVoteUpdate();
+  }
+
+  private evaluateVotes() {
+    const v = this.state.vote;
+    if (!v.active) return;
+    const totalPlayers = Math.max(1, this.state.players.filter((p) => !p.id.startsWith('bot_')).length);
+    const entries = Object.values(v.votes);
+    if (entries.length < totalPlayers) return;
+
+    const yesCount = entries.filter(Boolean).length;
+    const noCount = entries.length - yesCount;
+
+    if (yesCount > noCount) {
+      // Majority voted YES -> move to next map!
+      v.active = false;
+      this.callbacks.onVoteUpdate();
+      if (!this.transport || this.transport.isHost) {
+        this.advanceToNextCoopLevel();
+      }
+    } else {
+      // Voted NO -> keep digging until 100%, repeat vote in 2 minutes (120s)!
+      v.active = false;
+      this.revoteTimer = 120;
+      this.callbacks.onSystemChat('Продолжаем копать! Повторное голосование через 2 минуты.');
+      this.callbacks.onToast('Продолжаем открывать карту! Повтор голосования через 2 мин.');
+      this.callbacks.onVoteUpdate();
+    }
+  }
+
+  advanceToNextCoopLevel() {
+    const curIdx = LEVELS.findIndex((l) => l.id === this.state.level.id);
+    const nextLvl = LEVELS[(curIdx + 1) % LEVELS.length];
+    const nextSeed = Math.floor(Math.random() * 1_000_000);
+    const dims = computeCoopMapSize(this.state.players.length, this.state.mpMode);
+    const resetPlayers = this.state.players.map((p) => ({ ...p, dug: 0 }));
+
+    this.transport?.send({
+      type: 'next_level',
+      seed: nextSeed,
+      levelId: nextLvl.id,
+      players: resetPlayers,
+      width: dims.width,
+      height: dims.height
+    });
+
+    this.startMatch({
+      seed: nextSeed,
+      levelId: nextLvl.id,
+      mpMode: this.state.mpMode,
+      vsBot: this.state.vsBot,
+      localPlayerId: this.state.localPlayerId,
+      players: resetPlayers,
+      width: dims.width,
+      height: dims.height,
+      transport: this.transport
+    });
   }
 
   handleRemoteMessage(msg: MpMessage) {
     if (msg.type === 'spawn') {
-      this.spawnAntInternal(msg.owner, msg.antType, msg.x, msg.y, msg.angle);
+      this.spawnAntInternal(msg.playerId, msg.antType, msg.x, msg.y, msg.angle);
     } else if (msg.type === 'dig') {
-      this.digInternal(msg.x, msg.y, msg.radius, msg.damage, msg.owner, false);
-    } else if (msg.type === 'sugar_win' && this.state.winner === 0) {
-      this.state.winner = msg.winner;
+      this.digInternal(msg.x, msg.y, msg.radius, msg.damage, msg.playerId, false);
+    } else if (msg.type === 'ping') {
+      this.pings.push({
+        x: msg.x,
+        y: msg.y,
+        nick: msg.nick,
+        colorHex: msg.colorHex,
+        life: 6.0,
+        maxLife: 6.0
+      });
+      this.audio.playCompassLaunch();
+    } else if (msg.type === 'sugar_win') {
       this.sugarExposed = true;
-      this.audio.playSugarFound();
-      this.callbacks.onHudSync();
-      this.callbacks.onMatchEnd(msg.winner, this.state.mpMode === 'coop');
-    } else if (msg.type === 'rematch') {
+      this.state.sugarFound = true;
+      if (this.state.mpMode === 'versus' && !this.state.winnerId) {
+        this.state.winnerId = msg.winnerId;
+        this.audio.playSugarFound();
+        this.callbacks.onVersusEnd(msg.winnerNick, msg.winnerId === this.state.localPlayerId);
+      }
+    } else if (msg.type === 'vote_start') {
+      this.startNextLevelVote(msg.reason, false);
+    } else if (msg.type === 'vote_cast') {
+      this.state.vote.votes[msg.playerId] = msg.yes;
+      this.evaluateVotes();
+      this.callbacks.onVoteUpdate();
+    } else if (msg.type === 'next_level') {
       this.startMatch({
         seed: msg.seed,
         levelId: msg.levelId,
-        mpMode: msg.mpMode,
+        mpMode: this.state.mpMode,
         vsBot: false,
-        localPlayer: this.state.localPlayer,
+        localPlayerId: this.state.localPlayerId,
+        players: msg.players,
+        width: msg.width,
+        height: msg.height,
         transport: this.transport
       });
     }
   }
 
   /* =========================================================
-     IN-MATCH QUICK UPGRADES
-     ========================================================= */
-  private getLocalSp(): number {
-    return this.state.localPlayer === 1 ? this.state.p1Sp : this.state.p2Sp;
-  }
-
-  private spendLocalSp(amount: number): boolean {
-    if (this.getLocalSp() < amount) return false;
-    if (this.state.localPlayer === 1) this.state.p1Sp -= amount;
-    else this.state.p2Sp -= amount;
-    return true;
-  }
-
-  buyInMatchUpgrade(kind: 'warrior' | 'scout' | 'queen' | 'dmg'): boolean {
-    if (kind === 'warrior' && !this.state.unlockedWarriors && this.spendLocalSp(2)) {
-      this.state.unlockedWarriors = true;
-      this.state.selectedAnt = 'warrior';
-      this.audio.playUpgrade();
-      this.callbacks.onHudSync();
-      return true;
-    }
-    if (kind === 'scout' && !this.state.unlockedScouts && this.spendLocalSp(2)) {
-      this.state.unlockedScouts = true;
-      this.state.selectedAnt = 'scout';
-      this.audio.playUpgrade();
-      this.callbacks.onHudSync();
-      return true;
-    }
-    if (kind === 'queen' && !this.state.unlockedQueens && this.spendLocalSp(4)) {
-      this.state.unlockedQueens = true;
-      this.state.selectedAnt = 'queen';
-      this.audio.playUpgrade();
-      this.callbacks.onHudSync();
-      return true;
-    }
-    if (kind === 'dmg') {
-      const cost = 2 + this.state.dmgLevel * 2;
-      if (this.spendLocalSp(cost)) {
-        this.state.dmgLevel++;
-        this.audio.playUpgrade();
-        this.callbacks.onToast(`⚡ Урон колонии +${this.state.dmgLevel}`);
-        this.callbacks.onHudSync();
-        return true;
-      }
-    }
-    return false;
-  }
-
-  selectAnt(type: PlayableAntId) {
-    if (type === 'warrior' && !this.state.unlockedWarriors) {
-      if (!this.buyInMatchUpgrade('warrior')) this.callbacks.onToast('Нужно ♦ 2 для Воина');
-      return;
-    }
-    if (type === 'scout' && !this.state.unlockedScouts) {
-      if (!this.buyInMatchUpgrade('scout')) this.callbacks.onToast('Нужно ♦ 2 для Разведчика');
-      return;
-    }
-    if (type === 'queen' && !this.state.unlockedQueens) {
-      if (!this.buyInMatchUpgrade('queen')) this.callbacks.onToast('Нужно ♦ 4 для Матки');
-      return;
-    }
-    this.state.selectedAnt = type;
-    this.callbacks.onHudSync();
-  }
-
-  /* =========================================================
-     SEEDED WORLD GENERATION (2 OPPOSITE NESTS + CENTRAL SUGAR)
+     SEEDED WORLD GENERATION (NO UNREACHABLE POCKETS!)
      ========================================================= */
   private setBlock(idx: number, type: CellType) {
     this.cells[idx] = type;
@@ -326,7 +594,25 @@ export class MultiplayerEngine {
     this.maxHp[idx] = baseHp;
   }
 
-  private generateSeededWorld(level: LevelDefinition, seed: number) {
+  private carveBaseChamber(cx: number, cy: number) {
+    const w = this.width;
+    const h = this.height;
+    const r = 12;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 4 || nx >= w - 4 || ny < 4 || ny >= h - 4) continue;
+        const dist = Math.hypot(dx, dy);
+        if (dist + (this.noise[ny * w + nx] / 255) * 2.5 < r) {
+          this.setBlock(ny * w + nx, CellType.Empty);
+        }
+      }
+    }
+    this.revealCircle(cx, cy, 34);
+  }
+
+  private generateSeededWorld(level: LevelDefinition, seed: number, players: MpPlayerInfo[]) {
     const rng = mulberry32(seed);
     const { width: w, height: h } = this;
 
@@ -337,11 +623,6 @@ export class MultiplayerEngine {
     this.revealedMask.fill(0);
     this.artExposed.fill(0);
 
-    this.nest1X = 76;
-    this.nest1Y = Math.floor(h * 0.5);
-    this.nest2X = w - 76;
-    this.nest2Y = Math.floor(h * 0.5);
-
     // 1. Seeded mineral layers
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -349,60 +630,61 @@ export class MultiplayerEngine {
         const hash = ((x * 374761393 + y * 668265263 + seed) ^ (x * y * 1274126177)) >>> 0;
         this.noise[idx] = hash & 255;
 
-        const d1 = Math.hypot(x - this.nest1X, y - this.nest1Y);
-        const d2 = Math.hypot(x - this.nest2X, y - this.nest2Y);
-        const dNest = Math.min(d1, d2);
+        const n1 =
+          Math.sin(x * 0.045 + Math.cos(y * 0.04) * 2.0) +
+          Math.cos(y * 0.05 - Math.sin(x * 0.036) * 2.0);
+        const hardness = n1 * 0.72;
 
-        const n1 = Math.sin(x * 0.048 + Math.cos(y * 0.042) * 2.1) + Math.cos(y * 0.052 - Math.sin(x * 0.036) * 2.0);
-        const hardness = n1 * 0.72 + (dNest / 180) * 0.55;
-
-        if (dNest < 28) {
-          this.setBlock(idx, CellType.SoftSoil);
-        } else if (hardness > 1.65) {
-          this.setBlock(idx, CellType.Obsidian);
-        } else if (hardness > 1.05) {
-          this.setBlock(idx, CellType.Stone);
-        } else if (hardness > 0.35) {
-          this.setBlock(idx, CellType.Clay);
-        } else {
-          this.setBlock(idx, CellType.SoftSoil);
-        }
+        if (hardness > 1.35) this.setBlock(idx, CellType.Obsidian);
+        else if (hardness > 0.85) this.setBlock(idx, CellType.Stone);
+        else if (hardness > 0.25) this.setBlock(idx, CellType.Clay);
+        else this.setBlock(idx, CellType.SoftSoil);
       }
     }
 
-    // 2. Hidden Art
+    // 2. Beautiful scaled Hidden Art
     const artMask = level.generateArt(w, h);
     for (let i = 0; i < w * h; i++) {
       if (artMask[i] === 1) this.setBlock(i, CellType.HiddenArt);
     }
 
-    // 3. Carve BOTH opposite nests
-    const carveNest = (cx: number, cy: number) => {
-      const r = 12;
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          const nx = cx + dx;
-          const ny = cy + dy;
-          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-          const dist = Math.hypot(dx, dy);
-          if (dist + (this.noise[ny * w + nx] / 255) * 2.8 < r) {
-            const idx = ny * w + nx;
-            if (this.cells[idx] !== CellType.HiddenArt) {
-              this.setBlock(idx, CellType.Empty);
+    // 3. GUARANTEE ZERO UNREACHABLE POCKETS:
+    // Open clean 6px passageways along cardinal & diagonal corridors inside the interior
+    // (leaving the outer sanctuary frame intact!)
+    const cx = Math.floor(w * 0.5);
+    const cy = Math.floor(h * 0.5);
+    const innerRx = w * 0.4;
+    const innerRy = h * 0.4;
+    for (let ray = 0; ray < 8; ray++) {
+      const a = (ray / 8) * Math.PI * 2;
+      for (let t = 0.06; t <= 0.92; t += 0.01) {
+        const px = Math.round(cx + Math.cos(a) * innerRx * t);
+        const py = Math.round(cy + Math.sin(a) * innerRy * t);
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const nx = px + dx;
+            const ny = py + dy;
+            if (nx > 10 && nx < w - 10 && ny > 10 && ny < h - 10) {
+              const idx = ny * w + nx;
+              if (this.cells[idx] === CellType.HiddenArt) {
+                this.setBlock(idx, CellType.SoftSoil);
+              }
             }
           }
         }
       }
-      this.revealCircle(cx, cy, 34);
-    };
-    carveNest(this.nest1X, this.nest1Y);
-    carveNest(this.nest2X, this.nest2Y);
+    }
 
-    // 4. Fairly place the Sugar Cube near the vertical center line (equidistant from both nests!)
+    // 4. Carve all player bases
+    for (const p of players) {
+      this.carveBaseChamber(p.baseX, p.baseY);
+    }
+
+    // 5. Place Sugar Cube fairly near center (guaranteed reachable!)
     let placedSugar = false;
     for (let attempt = 0; attempt < 300; attempt++) {
-      const sx = Math.floor(w * 0.5 + (rng() - 0.5) * 34);
-      const sy = Math.floor(h * 0.18 + rng() * (h * 0.64));
+      const sx = Math.floor(w * 0.5 + (rng() - 0.5) * (w * 0.24));
+      const sy = Math.floor(h * 0.5 + (rng() - 0.5) * (h * 0.34));
       let clear = true;
       for (let dy = -4; dy <= 4 && clear; dy++) {
         for (let dx = -4; dx <= 4; dx++) {
@@ -423,29 +705,39 @@ export class MultiplayerEngine {
       }
     }
     if (!placedSugar) {
-      this.sugarX = Math.floor(w * 0.5);
-      this.sugarY = Math.floor(h * 0.28);
+      this.sugarX = cx;
+      this.sugarY = cy;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
-          this.setBlock((this.sugarY + dy) * w + (this.sugarX + dx), CellType.Sugar);
+          this.setBlock((cy + dy) * w + (cx + dx), CellType.Sugar);
         }
       }
     }
 
-    // 5. Symmetrically scatter Skill Crystals so both players have fair resources!
-    for (let i = 0; i < 24; i++) {
-      const lx = Math.floor(w * 0.14 + rng() * (w * 0.34));
-      const ly = Math.floor(h * 0.14 + rng() * (h * 0.72));
-      const rx = w - 1 - lx;
-      this.tryPlaceCrystal(lx, ly);
-      this.tryPlaceCrystal(rx, ly);
+    // 6. Abundant Skill Crystals scaled by player count so nobody runs short!
+    const crystalGoal = 36 + players.length * 14;
+    let placed = 0;
+    for (let attempt = 0; attempt < crystalGoal * 25 && placed < crystalGoal; attempt++) {
+      const lx = Math.floor(w * 0.1 + rng() * (w * 0.8));
+      const ly = Math.floor(h * 0.1 + rng() * (h * 0.8));
+      const nx = (lx - cx) / (w * 0.41);
+      const ny = (ly - cy) / (h * 0.41);
+      if (nx * nx + ny * ny > 0.92) continue;
+      if (this.tryPlaceCrystal(lx, ly)) placed++;
     }
 
-    // 6. Mark initial edges
+    // 7. Count breakable blocks inside sanctuary & mark initial edges
+    let breakable = 0;
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
         const idx = y * w + x;
-        if (this.cells[idx] !== CellType.Empty) {
+        const c = this.cells[idx] as CellType;
+        if (c === CellType.SoftSoil || c === CellType.Clay || c === CellType.Stone || c === CellType.Obsidian) {
+          const nx = (x - cx) / (w * 0.42);
+          const ny = (y - cy) / (h * 0.42);
+          if (nx * nx + ny * ny < 0.94) breakable++;
+        }
+        if (c !== CellType.Empty) {
           if (
             this.cells[idx - 1] === CellType.Empty ||
             this.cells[idx + 1] === CellType.Empty ||
@@ -457,17 +749,19 @@ export class MultiplayerEngine {
         }
       }
     }
+    this.state.totalBreakable = Math.max(1, breakable);
+    this.state.dugBreakable = 0;
   }
 
-  private tryPlaceCrystal(cx: number, cy: number) {
+  private tryPlaceCrystal(cx: number, cy: number): boolean {
     const w = this.width;
     const h = this.height;
-    if (cx < 8 || cx > w - 10 || cy < 8 || cy > h - 10) return;
-    if (Math.hypot(cx - this.sugarX, cy - this.sugarY) < 12) return;
+    if (cx < 8 || cx > w - 10 || cy < 8 || cy > h - 10) return false;
+    if (Math.hypot(cx - this.sugarX, cy - this.sugarY) < 12) return false;
     for (let dy = -2; dy <= 3; dy++) {
       for (let dx = -2; dx <= 3; dx++) {
         const c = this.cells[(cy + dy) * w + (cx + dx)] as CellType;
-        if (c !== CellType.SoftSoil && c !== CellType.Clay && c !== CellType.Stone) return;
+        if (c !== CellType.SoftSoil && c !== CellType.Clay && c !== CellType.Stone) return false;
       }
     }
     for (let dy = 0; dy <= 1; dy++) {
@@ -475,6 +769,7 @@ export class MultiplayerEngine {
         this.setBlock((cy + dy) * w + (cx + dx), CellType.SkillCrystal);
       }
     }
+    return true;
   }
 
   private revealCircle(cx: number, cy: number, radius: number) {
@@ -505,51 +800,63 @@ export class MultiplayerEngine {
   /* =========================================================
      SPAWNING & SIMULATION
      ========================================================= */
-  private countAnts(owner: 1 | 2, type: PlayableAntId): number {
+  private countAnts(ownerId: string, type: PlayableAntId): number {
     let n = 0;
-    for (const a of this.ants) if (a.owner === owner && a.type === type) n++;
+    for (const a of this.ants) if (a.ownerId === ownerId && a.type === type) n++;
     return n;
   }
 
   private getCap(type: PlayableAntId): number {
-    if (type === 'worker') return 8;
-    if (type === 'scout') return 5;
-    if (type === 'warrior') return 3;
-    if (type === 'queen') return 2;
+    const st = this.getLocalColonyStats();
+    if (type === 'worker') return st.worker.maxActive;
+    if (type === 'scout') return st.scout.maxActive;
+    if (type === 'warrior') return st.warrior.maxActive;
+    if (type === 'queen') return st.queen.maxActive;
     return 1;
   }
 
   private deployLocalAnt(wx: number, wy: number, angleOverride?: number) {
-    if (this.state.winner !== 0) return;
-    const type = this.state.selectedAnt;
-    const owner = this.state.localPlayer;
+    if (this.state.mpMode === 'versus' && this.state.winnerId) return;
 
+    const me = this.getLocalPlayer();
+    if (!me) return;
+
+    // Map Ping mode!
+    if (this.state.pingMode) {
+      this.state.pingMode = false;
+      const colorHex = PLAYER_COLORS[me.colorIndex % PLAYER_COLORS.length].hex;
+      this.pings.push({ x: wx, y: wy, nick: me.nick, colorHex, life: 6.0, maxLife: 6.0 });
+      this.transport?.send({ type: 'ping', playerId: me.id, nick: me.nick, colorHex, x: wx, y: wy });
+      this.audio.playCompassLaunch();
+      this.callbacks.onSystemChat(`📍 ${me.nick} поставил маяк на карте!`);
+      this.callbacks.onHudSync();
+      return;
+    }
+
+    const type = this.state.selectedAnt;
     if (type === 'compass' && this.state.compassCd > 0) {
       const sec = Math.ceil(this.state.compassCd);
       this.callbacks.onToast(`Компас перезаряжается: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
       return;
     }
 
-    if (this.countAnts(owner, type) >= this.getCap(type)) {
-      this.callbacks.onToast(`Лимит «${ANT_TYPES[type].name}» достигнут`);
+    if (this.countAnts(me.id, type) >= this.getCap(type)) {
+      this.callbacks.onToast(`Лимит «${ANT_TYPES[type].name}» достигнут (увеличь в ♦ Навыках)`);
       return;
     }
 
-    const defNest = owner === 1 ? { x: this.nest1X, y: this.nest1Y } : { x: this.nest2X, y: this.nest2Y };
-    const spawn = this.findNearestEmpty(wx, wy, 28) || defNest;
+    const spawn = this.findNearestEmpty(wx, wy, 28) || { x: me.baseX, y: me.baseY };
     const angle =
       angleOverride !== undefined
         ? angleOverride
         : Math.hypot(wx - spawn.x, wy - spawn.y) > 2
           ? Math.atan2(wy - spawn.y, wx - spawn.x)
-          : owner === 1
-            ? 0
-            : Math.PI;
+          : Math.atan2(this.height * 0.5 - spawn.y, this.width * 0.5 - spawn.x);
 
     if (type === 'compass') this.state.compassCd = 120;
 
-    this.spawnAntInternal(owner, type, spawn.x, spawn.y, angle);
-    this.transport?.send({ type: 'spawn', owner, antType: type, x: spawn.x, y: spawn.y, angle });
+    this.spawnAntInternal(me.id, type, spawn.x, spawn.y, angle);
+    this.transport?.send({ type: 'spawn', playerId: me.id, antType: type, x: spawn.x, y: spawn.y, angle });
 
     this.audio.ensureStarted();
     if (type === 'compass') this.audio.playCompassLaunch();
@@ -557,18 +864,21 @@ export class MultiplayerEngine {
     this.callbacks.onHudSync();
   }
 
-  private spawnAntInternal(owner: 1 | 2, type: PlayableAntId | 'brood', x: number, y: number, angle: number) {
+  private spawnAntInternal(ownerId: string, type: PlayableAntId | 'brood', x: number, y: number, angle: number) {
     const cfg = ANT_TYPES[type];
+    const stats = ownerId === this.state.localPlayerId ? this.getLocalColonyStats() : null;
+    const lifeMult = stats ? stats.globalLifeMult : 1;
+
     this.ants.push({
       id: this.nextAntId++,
-      owner,
+      ownerId,
       type,
       x,
       y,
       angle,
       fixedAngle: angle,
       age: 0,
-      maxAge: type === 'compass' ? 5.0 : cfg.baseLifespan,
+      maxAge: type === 'compass' ? 5.0 : cfg.baseLifespan * lifeMult,
       biteTimer: 0,
       biteFlash: 0,
       turnTimer: 0.5,
@@ -583,33 +893,64 @@ export class MultiplayerEngine {
     this.elapsed += dt;
     if (this.state.compassCd > 0) this.state.compassCd = Math.max(0, this.state.compassCd - dt);
 
-    // AI Rival Colony (Player 2) when playing vs Bot
-    if (this.state.vsBot && this.state.winner === 0) {
+    // Every 5 minutes (300s), grant +1 or +2 Skill Points to every player!
+    this.spDropAccum += dt;
+    this.state.nextSpDropSec = Math.max(0, Math.ceil(300 - this.spDropAccum));
+    if (this.spDropAccum >= 300) {
+      this.spDropAccum -= 300;
+      const bonus = Math.random() < 0.5 ? 1 : 2;
+      this.state.localSp += bonus;
+      this.audio.playCrystal();
+      this.callbacks.onToast(`♦ Бонус колонии (5 мин): +${bonus} очк. навыков!`);
+      this.callbacks.onSystemChat(`✨ Все игроки получили по ♦ +${bonus} очк. навыков!`);
+      this.callbacks.onHudSync();
+    }
+
+    // Co-op 2-minute re-vote timer after players voted NO
+    if (this.revoteTimer > 0 && this.state.mpMode === 'coop' && this.state.sugarFound && !this.state.allCleared) {
+      this.revoteTimer -= dt;
+      if (this.revoteTimer <= 0 && (!this.transport || this.transport.isHost)) {
+        this.startNextLevelVote('Прошло 2 минуты! Перейти к новой локации?', true);
+      }
+    }
+
+    // Update map pings
+    for (let i = this.pings.length - 1; i >= 0; i--) {
+      this.pings[i].life -= dt;
+      if (this.pings[i].life <= 0) this.pings.splice(i, 1);
+    }
+
+    // AI Bot Colony when playing vs Bot
+    if (this.state.vsBot && !this.state.winnerId) {
       this.botTimer -= dt;
       if (this.botTimer <= 0) {
-        this.botTimer = 2.6 + Math.random() * 1.6;
+        this.botTimer = 2.6 + Math.random() * 1.5;
         this.runBotStep();
       }
     }
 
+    const localStats = this.getLocalColonyStats();
+
     for (let i = this.ants.length - 1; i >= 0; i--) {
       const ant = this.ants[i];
       const cfg = ANT_TYPES[ant.type];
+      const isLocal = ant.ownerId === this.state.localPlayerId;
       ant.age += dt;
       if (ant.biteTimer > 0) ant.biteTimer -= dt;
       if (ant.biteFlash > 0) ant.biteFlash = Math.max(0, ant.biteFlash - dt * 5);
       ant.turnTimer -= dt;
 
       if (ant.age >= ant.maxAge) {
+        if (isLocal && ant.type !== 'brood') this.audio.playAntExpire();
         this.ants.splice(i, 1);
         continue;
       }
 
       if (ant.type === 'queen') {
-        ant.spawnTimer -= dt;
+        ant.spawnTimer -= dt * (isLocal ? localStats.queen.spawnRateMult : 1);
         if (ant.spawnTimer <= 0) {
-          ant.spawnTimer = 2.8;
-          this.spawnAntInternal(ant.owner, 'brood', ant.x, ant.y, Math.random() * Math.PI * 2);
+          ant.spawnTimer = 2.6;
+          this.spawnAntInternal(ant.ownerId, 'brood', ant.x, ant.y, Math.random() * Math.PI * 2);
         }
       }
 
@@ -630,7 +971,18 @@ export class MultiplayerEngine {
         ant.turnTimer = 0.6 + Math.random() * 0.7;
       }
 
-      const speed = cfg.baseSpeed;
+      let speedMult = 1;
+      let dmg = cfg.baseDamage;
+      let radius = cfg.baseRadius;
+      if (isLocal) {
+        if (ant.type === 'worker') { speedMult = localStats.worker.speedMult; dmg += localStats.worker.dmgBonus; }
+        if (ant.type === 'warrior') { speedMult = localStats.warrior.speedMult; dmg += localStats.warrior.dmgBonus; radius += localStats.warrior.radiusBonus; }
+        if (ant.type === 'scout') { speedMult = localStats.scout.speedMult; dmg += localStats.scout.dmgBonus; }
+        if (ant.type === 'brood') { dmg += localStats.queen.broodDmgBonus; }
+      }
+      if (ant.type === 'compass') dmg = 1;
+
+      const speed = cfg.baseSpeed * speedMult;
       const probeDist = ant.type === 'scout' ? Math.max(1.2, speed * dt) : 1.5;
       const nx = ant.x + Math.cos(ant.angle) * probeDist;
       const ny = ant.y + Math.sin(ant.angle) * probeDist;
@@ -649,18 +1001,15 @@ export class MultiplayerEngine {
         ant.y += Math.sin(ant.angle) * speed * dt;
         ant.legPhase += dt * speed * 1.4;
       } else if (ahead === CellType.HiddenArt) {
-        this.digInternal(ix, iy, cfg.baseRadius, 1, ant.owner, false);
+        this.digInternal(ix, iy, radius, 1, ant.ownerId, false);
         ant.angle += (Math.random() < 0.5 ? 1 : -1) * 1.1;
         if (ant.type === 'warrior') ant.fixedAngle = ant.angle;
       } else {
         ant.legPhase += dt * 4.5;
         if (ant.biteTimer <= 0) {
-          ant.biteTimer = cfg.baseBiteInterval;
+          ant.biteTimer = cfg.baseBiteInterval / speedMult;
           ant.biteFlash = 1;
-          const dmgBonus = ant.owner === this.state.localPlayer ? this.state.dmgLevel : 0;
-          const dmg = ant.type === 'compass' ? 1 : cfg.baseDamage + dmgBonus;
-          const isLocalOwned = ant.owner === this.state.localPlayer;
-          this.digInternal(nx, ny, cfg.baseRadius, dmg, ant.owner, isLocalOwned);
+          this.digInternal(nx, ny, radius, dmg, ant.ownerId, isLocal);
           if (ant.type === 'scout') {
             ant.angle += Math.PI * 0.75 + (Math.random() - 0.5) * 0.5;
           }
@@ -671,22 +1020,26 @@ export class MultiplayerEngine {
     this.particles.update(dt);
 
     this.hudAccum += dt;
-    if (this.hudAccum >= 0.3) {
+    if (this.hudAccum >= 0.35) {
       this.hudAccum = 0;
       this.callbacks.onHudSync();
     }
   }
 
   private runBotStep() {
-    // AI Colony spawns Workers, Scouts, or Warriors aimed generally toward the center/Sugar
+    const bot = this.state.players.find((p) => p.id.startsWith('bot_'));
+    if (!bot) return;
     const roll = Math.random();
     let type: PlayableAntId = 'worker';
-    if (roll < 0.25 && this.countAnts(2, 'warrior') < 2) type = 'warrior';
-    else if (roll < 0.55 && this.countAnts(2, 'scout') < 3) type = 'scout';
-    else if (this.countAnts(2, 'worker') >= 6) return;
+    if (roll < 0.25 && this.countAnts(bot.id, 'warrior') < 2) type = 'warrior';
+    else if (roll < 0.55 && this.countAnts(bot.id, 'scout') < 3) type = 'scout';
+    else if (this.countAnts(bot.id, 'worker') >= 6) return;
 
-    const toCenter = Math.atan2(this.height * 0.5 - this.nest2Y + (Math.random() - 0.5) * 90, this.width * 0.5 - this.nest2X);
-    this.spawnAntInternal(2, type, this.nest2X, this.nest2Y, toCenter);
+    const toCenter = Math.atan2(
+      this.height * 0.5 - bot.baseY + (Math.random() - 0.5) * 90,
+      this.width * 0.5 - bot.baseX
+    );
+    this.spawnAntInternal(bot.id, type, bot.baseX, bot.baseY, toCenter);
   }
 
   private digInternal(
@@ -694,13 +1047,14 @@ export class MultiplayerEngine {
     cy: number,
     radius: number,
     damage: number,
-    owner: 1 | 2,
+    ownerId: string,
     broadcast: boolean
   ) {
     const rCeil = Math.ceil(radius);
     const rSq = radius * radius;
     const w = this.width;
     let dugAny = false;
+    const ownerPlayer = this.getPlayer(ownerId);
 
     for (let dy = -rCeil; dy <= rCeil; dy++) {
       for (let dx = -rCeil; dx <= rCeil; dx++) {
@@ -720,13 +1074,23 @@ export class MultiplayerEngine {
 
         if (c === CellType.Sugar) {
           this.sugarExposed = true;
-          if (this.state.winner === 0) {
-            this.state.winner = owner;
+          if (!this.state.sugarFound) {
+            this.state.sugarFound = true;
             this.audio.playSugarFound();
             this.particles.spawn(this.sugarX, this.sugarY, 255, 245, 175, 34, 42, 2.0, 2.4);
-            if (broadcast) this.transport?.send({ type: 'sugar_win', winner: owner });
-            this.callbacks.onHudSync();
-            this.callbacks.onMatchEnd(owner, this.state.mpMode === 'coop');
+
+            if (this.state.mpMode === 'versus') {
+              this.state.winnerId = ownerId;
+              const nick = ownerPlayer?.nick || 'Игрок';
+              if (broadcast) this.transport?.send({ type: 'sugar_win', winnerId: ownerId, winnerNick: nick });
+              this.callbacks.onVersusEnd(nick, ownerId === this.state.localPlayerId);
+            } else {
+              // Co-op: trigger vote to move to next map!
+              this.callbacks.onSystemChat(`🧊 ${ownerPlayer?.nick || 'Колония'} нашёл сахар!`);
+              if (!this.transport || this.transport.isHost) {
+                this.startNextLevelVote('Сахар найден! Перейти к новой локации?', true);
+              }
+            }
           }
           continue;
         }
@@ -741,16 +1105,17 @@ export class MultiplayerEngine {
           this.isEdge[idx] = 0;
 
           if (c === CellType.SkillCrystal) {
-            if (owner === 1 || this.state.mpMode === 'coop') this.state.p1Sp++;
-            if (owner === 2 || this.state.mpMode === 'coop') this.state.p2Sp++;
+            // In Co-op, everyone gets +1 SP when a crystal is broken so no one falls behind!
+            if (this.state.mpMode === 'coop' || ownerId === this.state.localPlayerId) {
+              this.state.localSp += 1 + this.getLocalColonyStats().crystalBonus;
+            }
             this.audio.playCrystal();
             this.particles.spawn(x, y, 75, 235, 255, 10, 24, 1.0, 1.8);
           } else {
-            if (owner === 1) this.state.p1Dug++;
-            else this.state.p2Dug++;
+            this.state.dugBreakable++;
+            if (ownerPlayer) ownerPlayer.dug++;
           }
 
-          // Mark neighbors
           for (let ny = y - 1; ny <= y + 1; ny++) {
             for (let nx = x - 1; nx <= x + 1; nx++) {
               if (nx < 0 || nx >= w || ny < 0 || ny >= this.height) continue;
@@ -768,8 +1133,16 @@ export class MultiplayerEngine {
 
     if (dugAny) {
       this.revealCircle(cx, cy, 24);
+      if (this.dugHistory.length < 4000) {
+        this.dugHistory.push([Math.round(cx), Math.round(cy), Math.round(radius * 10) / 10, damage]);
+      }
       if (broadcast) {
-        this.transport?.send({ type: 'dig', x: cx, y: cy, radius, damage, owner });
+        this.transport?.send({ type: 'dig', playerId: ownerId, x: cx, y: cy, radius, damage });
+      }
+      // Check if 99%+ of all breakable blocks are eaten in Co-op!
+      if (!this.state.allCleared && this.state.dugBreakable >= this.state.totalBreakable * 0.99) {
+        this.state.allCleared = true;
+        this.callbacks.onAllBlocksCleared();
       }
     }
   }
@@ -795,7 +1168,7 @@ export class MultiplayerEngine {
   }
 
   /* =========================================================
-     RENDERER (TEAM RINGS + SEAMLESS PALETTE)
+     RENDERER (STYLED BASES + PLAYER SKINS + COLORS + PINGS)
      ========================================================= */
   private render() {
     const { width: w, height: h, cells, hp, maxHp, isEdge, revealedMask, artExposed, noise } = this;
@@ -879,10 +1252,11 @@ export class MultiplayerEngine {
     ctx.fillStyle = pal.bgHex;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
 
-    const drawW = w * this.camera.zoom;
-    const drawH = h * this.camera.zoom;
-    const drawX = this.viewW * 0.5 - this.camera.x * this.camera.zoom;
-    const drawY = this.viewH * 0.5 - this.camera.y * this.camera.zoom;
+    const z = this.camera.zoom;
+    const drawW = w * z;
+    const drawH = h * z;
+    const drawX = this.viewW * 0.5 - this.camera.x * z;
+    const drawY = this.viewH * 0.5 - this.camera.y * z;
 
     ctx.save();
     ctx.imageSmoothingEnabled = false;
@@ -890,70 +1264,104 @@ export class MultiplayerEngine {
 
     ctx.globalCompositeOperation = 'lighter';
     ctx.imageSmoothingEnabled = true;
-    ctx.filter = `blur(${Math.max(4, Math.min(10, this.camera.zoom * 1.5))}px)`;
+    ctx.filter = `blur(${Math.max(4, Math.min(10, z * 1.5))}px)`;
     ctx.globalAlpha = 0.56;
     ctx.drawImage(this.glowCanvas, drawX, drawY, drawW, drawH);
     ctx.filter = 'none';
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
 
-    // Draw Nest 1 (Emerald) & Nest 2 (Crimson) beacons
-    const drawNestRing = (wx: number, wy: number, color: string, label: string) => {
-      const sx = drawX + wx * this.camera.zoom;
-      const sy = drawY + wy * this.camera.zoom;
-      ctx.strokeStyle = color;
+    // Draw stylized Citadel Bases for EVERY player!
+    for (const pl of this.state.players) {
+      const col = PLAYER_COLORS[pl.colorIndex % PLAYER_COLORS.length];
+      const bx = drawX + pl.baseX * z;
+      const by = drawY + pl.baseY * z;
+      const pulse = 0.85 + 0.15 * Math.sin(this.elapsed * 2.5 + pl.colorIndex);
+      const baseR = Math.max(11, z * 5.2);
+
+      // Soft faction floor glow
+      ctx.fillStyle = `rgba(${col.rgb[0]}, ${col.rgb[1]}, ${col.rgb[2]}, 0.16)`;
+      ctx.beginPath();
+      ctx.arc(bx, by, baseR * 1.45, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Outer hexagonal fortress ring
+      ctx.strokeStyle = col.hex;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(sx, sy, Math.max(10, this.camera.zoom * 4), 0, Math.PI * 2);
+      for (let s = 0; s < 6; s++) {
+        const a = (s / 6) * Math.PI * 2 - Math.PI / 6;
+        const px = bx + Math.cos(a) * baseR;
+        const py = by + Math.sin(a) * baseR;
+        if (s === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
       ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.font = `700 ${Math.max(10, Math.round(this.camera.zoom * 2.4))}px Inter, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText(label, sx, sy + Math.max(18, this.camera.zoom * 6));
-    };
 
-    drawNestRing(this.nest1X, this.nest1Y, '#3ce87a', this.state.localPlayer === 1 ? 'Вы (Изумруд)' : 'Игрок 1');
-    drawNestRing(
-      this.nest2X,
-      this.nest2Y,
-      '#ff4d6d',
-      this.state.vsBot ? 'ИИ-колония' : this.state.localPlayer === 2 ? 'Вы (Алые)' : 'Игрок 2'
-    );
+      // Inner pulsing core dome
+      ctx.fillStyle = `rgba(${col.rgb[0]}, ${col.rgb[1]}, ${col.rgb[2]}, ${0.45 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(bx, by, baseR * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Player nickname tag
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `700 ${Math.max(10, Math.round(z * 2.4))}px Inter, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(pl.nick, bx, by + baseR + Math.max(12, z * 3.2));
+    }
+
+    // Draw Map Pings (📍 Beacons)
+    for (const ping of this.pings) {
+      const t = 1 - ping.life / ping.maxLife;
+      const px = drawX + ping.x * z;
+      const py = drawY + ping.y * z;
+      const ringR = (8 + (t * 4 % 1) * 28) * Math.max(0.7, z * 0.25);
+      ctx.strokeStyle = ping.colorHex;
+      ctx.globalAlpha = Math.max(0, 1 - (t * 4 % 1));
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(px, py, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = Math.min(1, ping.life);
+      ctx.fillStyle = ping.colorHex;
+      ctx.font = '700 11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`📍 ${ping.nick}`, px, py - 10);
+      ctx.globalAlpha = 1;
+    }
 
     // Particles
     for (const pt of this.particles.particles) {
       const alpha = Math.max(0, Math.min(1, pt.life / pt.maxLife));
       ctx.fillStyle = `rgba(${pt.r}, ${pt.g}, ${pt.b}, ${alpha})`;
       ctx.beginPath();
-      ctx.arc(drawX + pt.x * this.camera.zoom, drawY + pt.y * this.camera.zoom, Math.max(1.4, pt.size * this.camera.zoom * 0.4), 0, Math.PI * 2);
+      ctx.arc(drawX + pt.x * z, drawY + pt.y * z, Math.max(1.4, pt.size * z * 0.4), 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Ants with subtle team indicator rings
+    // Ants with each player's chosen SKIN & COLOR!
     for (const ant of this.ants) {
-      const sx = drawX + ant.x * this.camera.zoom;
-      const sy = drawY + ant.y * this.camera.zoom;
-      ctx.strokeStyle = ant.owner === 1 ? 'rgba(60, 232, 122, 0.5)' : 'rgba(255, 77, 109, 0.65)';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.arc(sx, sy, Math.max(4, this.camera.zoom * 2.1), 0, Math.PI * 2);
-      ctx.stroke();
-      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, this.camera.zoom);
+      const owner = this.getPlayer(ant.ownerId);
+      const col = owner ? PLAYER_COLORS[owner.colorIndex % PLAYER_COLORS.length] : PLAYER_COLORS[0];
+      const skin = owner ? owner.skin : 'classic';
+      const sx = drawX + ant.x * z;
+      const sy = drawY + ant.y * z;
+      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, z, skin, col.rgb);
     }
 
     // Aim arrow
     if (this.aimPreview) {
-      const ax = drawX + this.aimPreview.fromX * this.camera.zoom;
-      const ay = drawY + this.aimPreview.fromY * this.camera.zoom;
-      const len = Math.max(36, this.camera.zoom * 14);
-      const ex = ax + Math.cos(this.aimPreview.angle) * len;
-      const ey = ay + Math.sin(this.aimPreview.angle) * len;
+      const ax = drawX + this.aimPreview.fromX * z;
+      const ay = drawY + this.aimPreview.fromY * z;
+      const len = Math.max(36, z * 14);
       ctx.strokeStyle = this.aimPreview.color;
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 5]);
       ctx.beginPath();
       ctx.moveTo(ax, ay);
-      ctx.lineTo(ex, ey);
+      ctx.lineTo(ax + Math.cos(this.aimPreview.angle) * len, ay + Math.sin(this.aimPreview.angle) * len);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -988,7 +1396,7 @@ export class MultiplayerEngine {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.12 : 0.89;
         const before = this.screenToWorld(e.clientX, e.clientY);
-        this.camera.zoom = Math.max(1.2, Math.min(10, this.camera.zoom * factor));
+        this.camera.zoom = Math.max(1.0, Math.min(10, this.camera.zoom * factor));
         const after = this.screenToWorld(e.clientX, e.clientY);
         this.camera.x += before.x - after.x;
         this.camera.y += before.y - after.y;
@@ -1021,7 +1429,8 @@ export class MultiplayerEngine {
       }
 
       const wPos = this.screenToWorld(e.clientX, e.clientY);
-      const defNest = this.state.localPlayer === 1 ? { x: this.nest1X, y: this.nest1Y } : { x: this.nest2X, y: this.nest2Y };
+      const me = this.getLocalPlayer();
+      const defNest = me ? { x: me.baseX, y: me.baseY } : { x: this.width * 0.5, y: this.height * 0.5 };
       const spawn = this.findNearestEmpty(wPos.x, wPos.y, 28) || defNest;
       this.isAiming = true;
       this.aimOrigin = spawn;
@@ -1041,7 +1450,7 @@ export class MultiplayerEngine {
         const midX = (pts[0].x + pts[1].x) * 0.5;
         const midY = (pts[0].y + pts[1].y) * 0.5;
         if (this.pinchStartDist > 0) {
-          this.camera.zoom = Math.max(1.2, Math.min(10, this.pinchStartZoom * (dist / this.pinchStartDist)));
+          this.camera.zoom = Math.max(1.0, Math.min(10, this.pinchStartZoom * (dist / this.pinchStartDist)));
         }
         this.camera.x -= (midX - this.lastDragX) / this.camera.zoom;
         this.camera.y -= (midY - this.lastDragY) / this.camera.zoom;
@@ -1058,15 +1467,17 @@ export class MultiplayerEngine {
         return;
       }
 
-      if (this.isAiming && this.aimOrigin && this.aimDownScreen) {
+      if (this.isAiming && this.aimOrigin && this.aimDownScreen && !this.state.pingMode) {
         if (Math.hypot(e.clientX - this.aimDownScreen.x, e.clientY - this.aimDownScreen.y) >= 8) {
           this.aimDragged = true;
           const wPos = this.screenToWorld(e.clientX, e.clientY);
+          const me = this.getLocalPlayer();
+          const col = me ? PLAYER_COLORS[me.colorIndex % PLAYER_COLORS.length].hex : '#3ce87a';
           this.aimPreview = {
             fromX: this.aimOrigin.x,
             fromY: this.aimOrigin.y,
             angle: Math.atan2(wPos.y - this.aimOrigin.y, wPos.x - this.aimOrigin.x),
-            color: ANT_TYPES[this.state.selectedAnt].color
+            color: col
           };
         }
       }

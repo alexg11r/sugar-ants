@@ -1,18 +1,38 @@
 import { ANT_TYPES, PLAYABLE_ANTS } from '../core/ants';
 import { SOUNDTRACKS } from '../core/audio';
 import { LEVELS } from '../core/levels';
-import { LevelDefinition, SkillIcon, SkillNodeDef } from '../core/types';
+import {
+  AntSkinId,
+  LevelDefinition,
+  PLAYER_COLORS,
+  SkillIcon,
+  SkillNodeDef
+} from '../core/types';
 import { GameEngine } from '../game/engine';
 import { MenuBackground } from '../game/menuBg';
 import { getMutationDef, pickMutationChoices } from '../game/mutations';
 import { BRANCH_COLORS, SKILL_NODES } from '../game/skillTree';
-import { MultiplayerEngine } from '../multiplayer/mpEngine';
-import { MpMode, MpTransport } from '../multiplayer/mpTransport';
-import { StoryEngine } from '../story/storyEngine';
+import { computeCoopMapSize, MultiplayerEngine } from '../multiplayer/mpEngine';
+import {
+  ChatMessage,
+  listOpenLobbies,
+  MpMessage,
+  MpMode,
+  MpPlayerInfo,
+  MpTransport
+} from '../multiplayer/mpTransport';
+import { STORY_LEVELS, StoryEngine, StoryLevelDef } from '../story/storyEngine';
 
 const NODE_STEP = 74;
 const ORIGIN_X = 268;
 const ORIGIN_Y = 192;
+const NICK_STORAGE_KEY = 'sugar_ants_nick_v1';
+
+const SKIN_OPTIONS: { id: AntSkinId; name: string }[] = [
+  { id: 'classic', name: 'Классик' },
+  { id: 'cyber', name: 'Кибер' },
+  { id: 'royal', name: 'Король' }
+];
 
 function renderSkillSvg(icon: SkillIcon): string {
   switch (icon) {
@@ -115,6 +135,7 @@ export class HudController {
   // Story Mode HUD elements
   private storyHudTopEl = document.getElementById('story-hud-top')!;
   private storyHudBottomEl = document.getElementById('story-hud-bottom')!;
+  private storyChapterNameEl = document.getElementById('story-chapter-name')!;
   private storyNectarEl = document.getElementById('story-nectar')!;
   private storyLarvaeEl = document.getElementById('story-larvae')!;
   private storyMineralsEl = document.getElementById('story-minerals')!;
@@ -126,12 +147,24 @@ export class HudController {
   private mpHudTopEl = document.getElementById('mp-hud-top')!;
   private mpHudBottomEl = document.getElementById('mp-hud-bottom')!;
   private mpModeLabelEl = document.getElementById('mp-mode-label')!;
-  private mpP1ScoreEl = document.getElementById('mp-p1-score')!;
-  private mpP2ScoreEl = document.getElementById('mp-p2-score')!;
+  private mpDigPctEl = document.getElementById('mp-dig-pct')!;
+  private mpPlayerCountEl = document.getElementById('mp-player-count')!;
   private mpLocalSpEl = document.getElementById('mp-local-sp')!;
+  private mpSpTimerEl = document.getElementById('mp-sp-timer')!;
+  private mpBtnPingEl = document.getElementById('mp-btn-ping')!;
   private mpAntBarEl = document.getElementById('mp-ant-bar')!;
-  private mpDmgCostEl = document.getElementById('mp-dmg-cost')!;
-  private mpBtnDmgEl = document.getElementById('mp-btn-dmg') as HTMLButtonElement;
+  private mpSkillBadgeEl = document.getElementById('mp-skill-badge')!;
+
+  // Multiplayer Vote & Chat elements
+  private mpVoteBannerEl = document.getElementById('mp-vote-banner')!;
+  private mpVoteTextEl = document.getElementById('mp-vote-text')!;
+  private mpVoteYesBtn = document.getElementById('mp-vote-yes') as HTMLButtonElement;
+  private mpVoteNoBtn = document.getElementById('mp-vote-no') as HTMLButtonElement;
+  private mpVoteTallyEl = document.getElementById('mp-vote-tally')!;
+  private mpChatBoxEl = document.getElementById('mp-chat-box')!;
+  private mpChatLogEl = document.getElementById('mp-chat-log')!;
+  private mpChatFormEl = document.getElementById('mp-chat-form') as HTMLFormElement;
+  private mpChatInputEl = document.getElementById('mp-chat-input') as HTMLInputElement;
 
   // Skill tree elements
   private stOverlayEl = document.getElementById('skill-tree-overlay')!;
@@ -155,14 +188,27 @@ export class HudController {
   private selectedNodeId: string = 'worker_root';
   private lastBoughtNodeId: string | null = null;
   private hasStartedOnce = false;
-  private lobbyMpMode: MpMode = 'versus';
+
+  // Multiplayer Lobby & Profile State
+  private localNick: string;
+  private localColorIndex = 0;
+  private localSkin: AntSkinId = 'classic';
+  private lobbyMpMode: MpMode = 'coop';
   private lobbyLevelId: string = LEVELS[0].id;
+  private lobbyPlayers: MpPlayerInfo[] = [];
+  private lobbyStatus = '';
+  private inLobbyRoom = false;
+  private chatMessages: ChatMessage[] = [];
+  private chatOpen = true;
 
   constructor(engine: GameEngine, story: StoryEngine, mp: MultiplayerEngine, menuBg: MenuBackground) {
     this.engine = engine;
     this.story = story;
     this.mp = mp;
     this.menuBg = menuBg;
+
+    this.localNick =
+      localStorage.getItem(NICK_STORAGE_KEY) || `Муравей-${Math.floor(10 + Math.random() * 89)}`;
 
     this.engine.audio.onTrackAutoSwitch = (track) => {
       this.engine.skillTree.updateSettings({ soundtrack: track.id });
@@ -191,7 +237,7 @@ export class HudController {
 
     document.getElementById('menu-play-story')!.addEventListener('click', () => {
       this.engine.audio.ensureStarted();
-      this.enterStoryMode();
+      this.enterStoryMode(0);
     });
 
     document.getElementById('menu-play-mp')!.addEventListener('click', () => {
@@ -199,17 +245,9 @@ export class HudController {
       this.openMultiplayerLobbyModal();
     });
 
-    document.getElementById('menu-btn-levels')!.addEventListener('click', () => {
-      this.openLevelsModal();
-    });
-
-    document.getElementById('menu-btn-mutations')!.addEventListener('click', () => {
-      this.openMutationsModal();
-    });
-
-    document.getElementById('menu-btn-settings')!.addEventListener('click', () => {
-      this.openSettingsModal();
-    });
+    document.getElementById('menu-btn-levels')!.addEventListener('click', () => this.openLevelsModal());
+    document.getElementById('menu-btn-mutations')!.addEventListener('click', () => this.openMutationsModal());
+    document.getElementById('menu-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
 
     // Classic HUD buttons
     document.getElementById('btn-menu')!.addEventListener('click', () => this.showMainMenu());
@@ -221,18 +259,43 @@ export class HudController {
 
     // Story HUD buttons
     document.getElementById('story-btn-menu')!.addEventListener('click', () => this.showMainMenu());
+    document.getElementById('story-btn-chapters')!.addEventListener('click', () => this.openStoryChaptersModal());
     document.getElementById('story-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('story-btn-reset-cam')!.addEventListener('click', () => this.story.resetCamera());
 
     // Multiplayer HUD buttons
     document.getElementById('mp-btn-menu')!.addEventListener('click', () => {
-      this.mpTransport?.close();
-      this.mpTransport = null;
+      this.leaveMultiplayerRoom();
       this.showMainMenu();
+    });
+    document.getElementById('mp-btn-ping')!.addEventListener('click', () => this.mp.togglePingMode());
+    document.getElementById('mp-btn-chat-toggle')!.addEventListener('click', () => {
+      this.chatOpen = !this.chatOpen;
+      this.mpChatBoxEl.classList.toggle('hidden', !this.chatOpen);
     });
     document.getElementById('mp-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('mp-btn-reset-cam')!.addEventListener('click', () => this.mp.resetCamera());
-    this.mpBtnDmgEl.addEventListener('click', () => this.mp.buyInMatchUpgrade('dmg'));
+    document.getElementById('mp-btn-skills')!.addEventListener('click', () => this.openSkillTree());
+
+    // Vote buttons
+    this.mpVoteYesBtn.addEventListener('click', () => this.mp.castVote(true));
+    this.mpVoteNoBtn.addEventListener('click', () => this.mp.castVote(false));
+
+    // In-game chat form & emoji buttons
+    this.mpChatFormEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = this.mpChatInputEl.value.trim();
+      if (!text) return;
+      this.mpChatInputEl.value = '';
+      this.sendChatMessage(text);
+    });
+
+    this.mpChatBoxEl.querySelectorAll('.emoji-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const em = (btn as HTMLElement).dataset.emoji || '🐜';
+        this.sendChatMessage(em);
+      });
+    });
 
     // Skill tree buttons
     document.getElementById('skill-tree-close')!.addEventListener('click', () => this.closeSkillTree());
@@ -248,6 +311,7 @@ export class HudController {
     });
 
     window.addEventListener('keydown', (e) => {
+      if (document.activeElement?.tagName === 'INPUT') return;
       if (e.key === 'Escape') {
         if (!this.modalBackdropEl.classList.contains('hidden')) {
           this.closeModal();
@@ -258,6 +322,13 @@ export class HudController {
         }
       }
     });
+  }
+
+  private leaveMultiplayerRoom() {
+    this.mpTransport?.close();
+    this.mpTransport = null;
+    this.inLobbyRoom = false;
+    this.lobbyPlayers = [];
   }
 
   showMainMenu() {
@@ -275,6 +346,8 @@ export class HudController {
     this.storyCanvasEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
+    this.mpVoteBannerEl.classList.add('hidden');
+    this.mpChatBoxEl.classList.add('hidden');
     this.mpCanvasEl.classList.add('hidden');
     this.gameCanvasEl.classList.remove('hidden');
 
@@ -296,6 +369,8 @@ export class HudController {
     this.storyCanvasEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
+    this.mpVoteBannerEl.classList.add('hidden');
+    this.mpChatBoxEl.classList.add('hidden');
     this.mpCanvasEl.classList.add('hidden');
 
     this.gameCanvasEl.classList.remove('hidden');
@@ -306,7 +381,7 @@ export class HudController {
     this.sync();
   }
 
-  enterStoryMode() {
+  enterStoryMode(levelIndex = 0) {
     this.mode = 'story';
     this.closeModal();
     this.closeSkillTree();
@@ -321,13 +396,15 @@ export class HudController {
     this.gameCanvasEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
+    this.mpVoteBannerEl.classList.add('hidden');
+    this.mpChatBoxEl.classList.add('hidden');
     this.mpCanvasEl.classList.add('hidden');
 
     this.storyCanvasEl.classList.remove('hidden');
     this.storyHudTopEl.classList.remove('hidden');
     this.storyHudBottomEl.classList.remove('hidden');
 
-    this.story.startNewGame();
+    this.story.startLevel(levelIndex);
     this.syncStoryHud();
   }
 
@@ -336,10 +413,16 @@ export class HudController {
     levelId: string;
     mpMode: MpMode;
     vsBot: boolean;
-    localPlayer: 1 | 2;
+    localPlayerId: string;
+    players: MpPlayerInfo[];
+    width?: number;
+    height?: number;
     transport: MpTransport | null;
+    lateDugEvents?: [number, number, number, number][];
+    startingSp?: number;
   }) {
     this.mode = 'mp';
+    this.inLobbyRoom = false;
     this.closeModal();
     this.closeSkillTree();
     this.engine.paused = true;
@@ -358,9 +441,11 @@ export class HudController {
     this.mpCanvasEl.classList.remove('hidden');
     this.mpHudTopEl.classList.remove('hidden');
     this.mpHudBottomEl.classList.remove('hidden');
+    this.mpChatBoxEl.classList.toggle('hidden', !this.chatOpen);
 
     this.mp.startMatch(opts);
     this.syncMpHud();
+    this.renderChatLogs();
   }
 
   private syncMenuSummary() {
@@ -384,53 +469,198 @@ export class HudController {
   }
 
   /* =========================================================
-     MULTIPLAYER LOBBY & HUD
+     MULTIPLAYER CHAT (LOBBY + IN-GAME!)
      ========================================================= */
-  openMultiplayerLobbyModal() {
-    this.openModal('⚔ Мультиплеер — Битва за Сахар');
-    this.renderMpLobbyContent();
+  pushSystemChat(text: string) {
+    this.chatMessages.push({
+      id: `sys_${Date.now()}_${Math.random()}`,
+      senderNick: 'Система',
+      senderColor: '#88d9c4',
+      text,
+      system: true,
+      ts: Date.now()
+    });
+    if (this.chatMessages.length > 60) this.chatMessages.shift();
+    this.renderChatLogs();
   }
 
-  private renderMpLobbyContent(statusText = '', roomCode = '') {
+  private sendChatMessage(text: string) {
+    const col = PLAYER_COLORS[this.localColorIndex % PLAYER_COLORS.length].hex;
+    const msg: ChatMessage = {
+      id: `m_${Date.now()}_${Math.random()}`,
+      senderNick: this.localNick,
+      senderColor: col,
+      text,
+      ts: Date.now()
+    };
+    this.chatMessages.push(msg);
+    if (this.chatMessages.length > 60) this.chatMessages.shift();
+    this.mpTransport?.send({ type: 'chat', msg });
+    this.renderChatLogs();
+  }
+
+  private renderChatLogs() {
+    const html = this.chatMessages
+      .map((m) =>
+        m.system
+          ? `<div class="chat-line sys">${escapeHtml(m.text)}</div>`
+          : `<div class="chat-line"><strong style="color:${m.senderColor}">${escapeHtml(m.senderNick)}:</strong> ${escapeHtml(m.text)}</div>`
+      )
+      .join('');
+
+    this.mpChatLogEl.innerHTML = html;
+    this.mpChatLogEl.scrollTop = this.mpChatLogEl.scrollHeight;
+
+    const lobbyLog = document.getElementById('lobby-chat-log');
+    if (lobbyLog) {
+      lobbyLog.innerHTML = html;
+      lobbyLog.scrollTop = lobbyLog.scrollHeight;
+    }
+  }
+
+  /* =========================================================
+     MULTIPLAYER LOBBY BROWSER & PRE-GAME ROOM
+     ========================================================= */
+  private makeLocalPlayerInfo(id: string, isHost: boolean): MpPlayerInfo {
+    return {
+      id,
+      nick: this.localNick,
+      colorIndex: this.localColorIndex,
+      skin: this.localSkin,
+      isHost,
+      dug: 0,
+      baseX: 0,
+      baseY: 0
+    };
+  }
+
+  private pickFreeColorIndex(players: MpPlayerInfo[], preferred: number): number {
+    const taken = new Set(players.map((p) => p.colorIndex));
+    if (!taken.has(preferred)) return preferred;
+    for (let i = 0; i < PLAYER_COLORS.length; i++) {
+      if (!taken.has(i)) return i;
+    }
+    return preferred;
+  }
+
+  openMultiplayerLobbyModal() {
+    this.openModal(this.inLobbyRoom ? `🌐 Лобби • ${this.mpTransport?.roomCode || ''}` : '⚔ Мультиплеер — Лобби');
+    if (this.inLobbyRoom) {
+      this.renderLobbyRoomScreen();
+    } else {
+      this.renderMpBrowserScreen();
+    }
+  }
+
+  private renderProfileCustomizer(container: HTMLElement, takenColors: Set<number>, onUpdate?: () => void) {
+    const wrap = document.createElement('div');
+    wrap.className = 'settings-group';
+    wrap.innerHTML = `<div class="settings-label">Ваш профиль (Ник, Скин, Цвет)</div>`;
+
+    // Nick input
+    const nickRow = document.createElement('div');
+    nickRow.style.display = 'flex';
+    nickRow.style.gap = '8px';
+    const nickInput = document.createElement('input');
+    nickInput.className = 'mp-input';
+    nickInput.style.textTransform = 'none';
+    nickInput.style.letterSpacing = '0';
+    nickInput.placeholder = 'Ваш ник…';
+    nickInput.maxLength = 18;
+    nickInput.value = this.localNick;
+    nickInput.addEventListener('change', () => {
+      const v = nickInput.value.trim();
+      if (v) {
+        this.localNick = v;
+        localStorage.setItem(NICK_STORAGE_KEY, v);
+        onUpdate?.();
+      }
+    });
+    nickRow.appendChild(nickInput);
+    wrap.appendChild(nickRow);
+
+    // 3 Skins selector
+    const skinGrid = document.createElement('div');
+    skinGrid.className = 'skin-grid';
+    for (const sk of SKIN_OPTIONS) {
+      const btn = document.createElement('button');
+      btn.className = `track-card${this.localSkin === sk.id ? ' active' : ''}`;
+      btn.style.textAlign = 'center';
+      btn.style.padding = '7px 6px';
+      btn.innerHTML = `<strong style="margin:0">${sk.name}</strong>`;
+      btn.addEventListener('click', () => {
+        this.localSkin = sk.id;
+        onUpdate?.();
+        if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+        else this.renderMpBrowserScreen();
+      });
+      skinGrid.appendChild(btn);
+    }
+    wrap.appendChild(skinGrid);
+
+    // 10 Color swatches
+    const swatchGrid = document.createElement('div');
+    swatchGrid.className = 'color-swatch-grid';
+    PLAYER_COLORS.forEach((col, idx) => {
+      const isMine = this.localColorIndex === idx;
+      const isTaken = !isMine && takenColors.has(idx);
+      const sw = document.createElement('button');
+      sw.className = `color-swatch${isMine ? ' active' : ''}`;
+      sw.style.background = col.hex;
+      sw.style.color = col.hex;
+      sw.disabled = isTaken;
+      sw.title = isTaken ? `${col.name} (занят)` : col.name;
+      sw.addEventListener('click', () => {
+        this.localColorIndex = idx;
+        onUpdate?.();
+        if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+        else this.renderMpBrowserScreen();
+      });
+      swatchGrid.appendChild(sw);
+    });
+    wrap.appendChild(swatchGrid);
+
+    container.appendChild(wrap);
+  }
+
+  private renderMpBrowserScreen() {
+    this.modalTitleEl.textContent = '⚔ Мультиплеер — Список лобби';
     this.modalBodyEl.innerHTML = '';
 
-    // 1. Sub-mode selector (Versus 1v1 vs Co-op)
-    const modeGroup = document.createElement('div');
-    modeGroup.className = 'settings-group';
-    modeGroup.innerHTML = `<div class="settings-label">Режим матча</div>`;
+    // 1. Player Profile (Nick + 3 Skins + 10 Colors)
+    this.renderProfileCustomizer(this.modalBodyEl, new Set());
+
+    // 2. Mode & Map selector for creating a room
     const modeGrid = document.createElement('div');
     modeGrid.className = 'track-grid';
-
-    const vCard = document.createElement('button');
-    vCard.className = `track-card${this.lobbyMpMode === 'versus' ? ' active' : ''}`;
-    vCard.innerHTML = `<strong>⚔ Гонка 1 на 1</strong><small>Кто первый докопается до сахара</small>`;
-    vCard.addEventListener('click', () => {
-      this.lobbyMpMode = 'versus';
-      this.renderMpLobbyContent(statusText, roomCode);
-    });
-
-    const cCard = document.createElement('button');
-    cCard.className = `track-card${this.lobbyMpMode === 'coop' ? ' active' : ''}`;
-    cCard.innerHTML = `<strong>🤝 Кооператив</strong><small>Вместе открывайте картину и сахар</small>`;
-    cCard.addEventListener('click', () => {
+    const coopCard = document.createElement('button');
+    coopCard.className = `track-card${this.lobbyMpMode === 'coop' ? ' active' : ''}`;
+    coopCard.innerHTML = `<strong>🤝 Кооператив (до 10)</strong><small>Древо навыков, голосование, чат</small>`;
+    coopCard.addEventListener('click', () => {
       this.lobbyMpMode = 'coop';
-      this.renderMpLobbyContent(statusText, roomCode);
+      this.renderMpBrowserScreen();
     });
 
-    modeGrid.appendChild(vCard);
-    modeGrid.appendChild(cCard);
-    modeGroup.appendChild(modeGrid);
-    this.modalBodyEl.appendChild(modeGroup);
+    const vsCard = document.createElement('button');
+    vsCard.className = `track-card${this.lobbyMpMode === 'versus' ? ' active' : ''}`;
+    vsCard.innerHTML = `<strong>⚔ Гонка 1 на 1</strong><small>Кто первым найдёт сахар</small>`;
+    vsCard.addEventListener('click', () => {
+      this.lobbyMpMode = 'versus';
+      this.renderMpBrowserScreen();
+    });
+    modeGrid.appendChild(coopCard);
+    modeGrid.appendChild(vsCard);
+    this.modalBodyEl.appendChild(modeGrid);
 
-    // 2. Map selector
-    const mapRow = document.createElement('div');
-    mapRow.className = 'card-row';
-    mapRow.innerHTML = `<div class="card-row-info"><div class="card-row-title">Карта матча</div></div>`;
+    // Map + Optional Password (empty by default = passwordless!)
+    const createRow = document.createElement('div');
+    createRow.className = 'card-row';
+    createRow.style.flexWrap = 'wrap';
     const mapSel = document.createElement('select');
     mapSel.className = 'mp-input';
-    mapSel.style.maxWidth = '220px';
     mapSel.style.textTransform = 'none';
     mapSel.style.letterSpacing = '0';
+    mapSel.style.minWidth = '150px';
     for (const lvl of LEVELS) {
       const opt = document.createElement('option');
       opt.value = lvl.id;
@@ -438,169 +668,519 @@ export class HudController {
       if (lvl.id === this.lobbyLevelId) opt.selected = true;
       mapSel.appendChild(opt);
     }
-    mapSel.addEventListener('change', () => {
-      this.lobbyLevelId = mapSel.value;
+    mapSel.addEventListener('change', () => (this.lobbyLevelId = mapSel.value));
+
+    const passInput = document.createElement('input');
+    passInput.className = 'mp-input';
+    passInput.style.textTransform = 'none';
+    passInput.style.letterSpacing = '0';
+    passInput.style.maxWidth = '150px';
+    passInput.placeholder = 'Пароль (необяз.)';
+
+    const createBtn = document.createElement('button');
+    createBtn.className = 'action-btn primary';
+    createBtn.textContent = '🌐 Создать лобби';
+    createBtn.addEventListener('click', () => {
+      this.createHostLobby(passInput.value);
     });
-    mapRow.appendChild(mapSel);
-    this.modalBodyEl.appendChild(mapRow);
+
+    createRow.appendChild(mapSel);
+    createRow.appendChild(passInput);
+    createRow.appendChild(createBtn);
+    this.modalBodyEl.appendChild(createRow);
 
     // 3. Instant Solo vs AI Rival Colony
     const botRow = document.createElement('div');
     botRow.className = 'card-row';
     botRow.innerHTML = `
       <div class="card-row-info">
-        <div class="card-row-title">🤖 Против ИИ-колонии</div>
-        <div class="card-row-desc">Мгновенный старт 1v1 против соперника-бота</div>
+        <div class="card-row-title">🤖 Быстрый матч против ИИ</div>
+        <div class="card-row-desc">Запустить гонку 1v1 против соперника-бота прямо сейчас</div>
       </div>
     `;
     const botBtn = document.createElement('button');
-    botBtn.className = 'action-btn primary';
-    botBtn.textContent = 'Играть';
+    botBtn.className = 'action-btn';
+    botBtn.textContent = 'Старт vs ИИ';
     botBtn.addEventListener('click', () => {
-      this.mpTransport?.close();
-      this.mpTransport = null;
+      this.leaveMultiplayerRoom();
+      this.chatMessages = [];
+      const me = this.makeLocalPlayerInfo('local_1', true);
+      const botColor = this.pickFreeColorIndex([me], 1);
+      const bot: MpPlayerInfo = {
+        id: 'bot_rival',
+        nick: 'ИИ-Колония',
+        colorIndex: botColor,
+        skin: 'cyber',
+        isHost: false,
+        dug: 0,
+        baseX: 0,
+        baseY: 0
+      };
       this.enterMultiplayerMatch({
         seed: Math.floor(Math.random() * 1_000_000),
         levelId: this.lobbyLevelId,
-        mpMode: this.lobbyMpMode,
+        mpMode: 'versus',
         vsBot: true,
-        localPlayer: 1,
+        localPlayerId: me.id,
+        players: [me, bot],
         transport: null
       });
     });
     botRow.appendChild(botBtn);
     this.modalBodyEl.appendChild(botRow);
 
-    // 4. Host Online / 2-Tab Room (PeerJS WebRTC + Local BroadcastChannel)
-    const hostRow = document.createElement('div');
-    hostRow.className = 'card-row';
-    hostRow.innerHTML = `
-      <div class="card-row-info">
-        <div class="card-row-title">🌐 Создать комнату (P2P / 2 вкладки)</div>
-        <div class="card-row-desc">Отправьте код другу или откройте вторую вкладку браузера</div>
-      </div>
-    `;
-    const hostBtn = document.createElement('button');
-    hostBtn.className = 'action-btn';
-    hostBtn.textContent = 'Создать';
-    hostBtn.addEventListener('click', () => {
-      this.mpTransport?.close();
-      const transport = new MpTransport({
-        onStatus: (st) => this.renderMpLobbyContent(st, transport.roomCode),
-        onMessage: (msg) => this.mp.handleRemoteMessage(msg),
-        onPeerConnected: () => {
-          const seed = Math.floor(Math.random() * 1_000_000);
-          transport.send({
-            type: 'start',
-            seed,
-            levelId: this.lobbyLevelId,
-            mpMode: this.lobbyMpMode
-          });
-          this.enterMultiplayerMatch({
-            seed,
-            levelId: this.lobbyLevelId,
-            mpMode: this.lobbyMpMode,
-            vsBot: false,
-            localPlayer: 1,
-            transport
-          });
-        },
-        onPeerDisconnected: () => this.showToast('Соперник отключился')
-      });
-      this.mpTransport = transport;
-      const code = transport.createRoom();
-      this.renderMpLobbyContent(`Ожидание игрока…`, code);
-    });
-    hostRow.appendChild(hostBtn);
-    this.modalBodyEl.appendChild(hostRow);
+    // 4. Open Lobbies List!
+    const listHeader = document.createElement('div');
+    listHeader.style.display = 'flex';
+    listHeader.style.justifyContent = 'space-between';
+    listHeader.style.alignItems = 'center';
+    listHeader.innerHTML = `<div class="settings-label">Открытые лобби</div>`;
+    const refBtn = document.createElement('button');
+    refBtn.className = 'action-btn';
+    refBtn.style.padding = '4px 10px';
+    refBtn.textContent = '↻ Обновить';
+    refBtn.addEventListener('click', () => this.renderMpBrowserScreen());
+    listHeader.appendChild(refBtn);
+    this.modalBodyEl.appendChild(listHeader);
 
-    if (roomCode) {
-      const codeBox = document.createElement('div');
-      codeBox.className = 'mp-code-pill';
-      codeBox.textContent = roomCode;
-      codeBox.title = 'Нажмите, чтобы скопировать код комнаты';
-      codeBox.addEventListener('click', () => {
-        navigator.clipboard?.writeText(roomCode).catch(() => {});
-        this.showToast(`Код ${roomCode} скопирован!`);
-      });
-      this.modalBodyEl.appendChild(codeBox);
+    const lobbies = listOpenLobbies();
+    if (lobbies.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'card-row-desc';
+      empty.textContent = 'Пока нет открытых локальных лобби — создайте своё или введите код друга ниже!';
+      this.modalBodyEl.appendChild(empty);
+    } else {
+      for (const lob of lobbies) {
+        const lvlName = LEVELS.find((l) => l.id === lob.levelId)?.name || lob.levelId;
+        const row = document.createElement('div');
+        row.className = 'card-row';
+        row.innerHTML = `
+          <div class="card-row-info">
+            <div class="card-row-title">
+              <span>${lob.hasPassword ? '🔒 ' : ''}${lob.code} • ${escapeHtml(lob.hostNick)}</span>
+              <span class="badge-done">${lob.playerCount}/${lob.maxPlayers}</span>
+            </div>
+            <div class="card-row-desc">${lob.mpMode === 'coop' ? '🤝 Кооп' : '⚔ 1v1'} • ${lvlName} • ${lob.inGame ? 'В игре (можно войти!)' : 'В лобби'}</div>
+          </div>
+        `;
+        const jBtn = document.createElement('button');
+        jBtn.className = 'action-btn primary';
+        jBtn.textContent = 'Войти';
+        jBtn.addEventListener('click', () => {
+          const pw = lob.hasPassword ? window.prompt('Введите пароль лобби:') || '' : '';
+          this.joinExistingLobby(lob.code, pw);
+        });
+        row.appendChild(jBtn);
+        this.modalBodyEl.appendChild(row);
+      }
     }
 
-    if (statusText) {
-      const stEl = document.createElement('div');
-      stEl.className = 'card-row-desc';
-      stEl.style.textAlign = 'center';
-      stEl.style.color = 'var(--accent-cyan)';
-      stEl.textContent = statusText;
-      this.modalBodyEl.appendChild(stEl);
-    }
-
-    // 5. Join Room by Code
+    // 5. Direct Join by Room Code
     const joinRow = document.createElement('div');
     joinRow.className = 'card-row';
-    const input = document.createElement('input');
-    input.className = 'mp-input';
-    input.placeholder = 'Код комнаты (ANT-XXXX)';
+    const codeInput = document.createElement('input');
+    codeInput.className = 'mp-input';
+    codeInput.placeholder = 'Код комнаты (ANT-XXXX)';
     const joinBtn = document.createElement('button');
     joinBtn.className = 'action-btn primary';
     joinBtn.textContent = 'Войти';
     joinBtn.addEventListener('click', () => {
-      const code = input.value.trim();
-      if (!code) return;
-      this.mpTransport?.close();
-      const transport = new MpTransport({
-        onStatus: (st) => this.renderMpLobbyContent(st, ''),
-        onMessage: (msg) => {
-          if (msg.type === 'start') {
-            this.enterMultiplayerMatch({
-              seed: msg.seed,
-              levelId: msg.levelId,
-              mpMode: msg.mpMode,
-              vsBot: false,
-              localPlayer: 2,
-              transport
-            });
-          } else {
-            this.mp.handleRemoteMessage(msg);
-          }
-        },
-        onPeerConnected: () => {},
-        onPeerDisconnected: () => this.showToast('Хост отключился')
-      });
-      this.mpTransport = transport;
-      transport.joinRoom(code);
+      if (codeInput.value.trim()) {
+        this.joinExistingLobby(codeInput.value.trim(), passInput.value);
+      }
     });
-    joinRow.appendChild(input);
+    joinRow.appendChild(codeInput);
     joinRow.appendChild(joinBtn);
     this.modalBodyEl.appendChild(joinRow);
   }
 
+  private createHostLobby(password = '') {
+    this.leaveMultiplayerRoom();
+    this.chatMessages = [];
+
+    const transport = new MpTransport({
+      onStatus: (st) => {
+        this.lobbyStatus = st;
+        if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+      },
+      onMessage: (msg, fromPeerId) => this.handleHostMessage(msg, fromPeerId),
+      onPeerDisconnected: (peerId) => {
+        const left = this.lobbyPlayers.find((p) => p.id === peerId);
+        this.lobbyPlayers = this.lobbyPlayers.filter((p) => p.id !== peerId);
+        if (left) {
+          this.pushSystemChat(`${left.nick} покинул лобби.`);
+          this.broadcastLobbyState();
+        }
+        if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+      }
+    });
+
+    const hostPlayer = this.makeLocalPlayerInfo(transport.localId, true);
+    this.lobbyPlayers = [hostPlayer];
+    this.mpTransport = transport;
+    this.inLobbyRoom = true;
+
+    transport.createRoom({
+      hostNick: this.localNick,
+      mpMode: this.lobbyMpMode,
+      levelId: this.lobbyLevelId,
+      password,
+      getListingMeta: () => ({
+        playerCount: this.mode === 'mp' ? this.mp.state.players.length : this.lobbyPlayers.length,
+        inGame: this.mode === 'mp',
+        levelId: this.mode === 'mp' ? this.mp.state.level.id : this.lobbyLevelId,
+        mpMode: this.lobbyMpMode
+      })
+    });
+
+    this.pushSystemChat(`Лобби ${transport.roomCode} создано! Делитесь кодом с друзьями.`);
+    this.openMultiplayerLobbyModal();
+  }
+
+  private joinExistingLobby(code: string, password = '') {
+    this.leaveMultiplayerRoom();
+    this.chatMessages = [];
+
+    const transport = new MpTransport({
+      onStatus: (st) => {
+        this.lobbyStatus = st;
+        if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+      },
+      onMessage: (msg) => this.handleGuestMessage(msg),
+      onPeerDisconnected: () => {
+        this.showToast('Хост закрыл лобби');
+        this.pushSystemChat('Соединение с хостом потеряно.');
+      }
+    });
+
+    const me = this.makeLocalPlayerInfo(transport.localId, false);
+    this.lobbyPlayers = [me];
+    this.mpTransport = transport;
+    this.inLobbyRoom = true;
+    transport.joinRoom(code, me, password);
+    this.openMultiplayerLobbyModal();
+  }
+
+  private broadcastLobbyState() {
+    if (!this.mpTransport?.isHost) return;
+    this.mpTransport.send({
+      type: 'lobby_state',
+      players: this.lobbyPlayers,
+      mpMode: this.lobbyMpMode,
+      levelId: this.lobbyLevelId,
+      inGame: this.mode === 'mp',
+      code: this.mpTransport.roomCode
+    });
+  }
+
+  private handleHostMessage(msg: MpMessage, fromPeerId: string) {
+    if (!this.mpTransport) return;
+
+    if (msg.type === 'hello') {
+      if (this.mpTransport.password && msg.password !== this.mpTransport.password) {
+        this.mpTransport.sendTo(fromPeerId, { type: 'reject', reason: 'Неверный пароль лобби!' });
+        return;
+      }
+      const maxP = this.lobbyMpMode === 'coop' ? 10 : 2;
+      const activeList = this.mode === 'mp' ? this.mp.state.players : this.lobbyPlayers;
+      if (activeList.length >= maxP) {
+        this.mpTransport.sendTo(fromPeerId, { type: 'reject', reason: `Лобби заполнено (${maxP}/${maxP})` });
+        return;
+      }
+
+      const assignedColor = this.pickFreeColorIndex(activeList, msg.player.colorIndex);
+      const joined: MpPlayerInfo = { ...msg.player, colorIndex: assignedColor, isHost: false };
+
+      if (this.mode === 'mp') {
+        // MID-GAME LATE JOIN! Carve their base & send full state sync!
+        const added = this.mp.addLateJoinPlayer(joined);
+        this.lobbyPlayers = this.mp.state.players;
+        this.mpTransport.sendTo(fromPeerId, {
+          type: 'late_sync',
+          seed: this.mp.seed,
+          levelId: this.mp.state.level.id,
+          mpMode: this.mp.state.mpMode,
+          players: this.mp.state.players,
+          width: this.mp.width,
+          height: this.mp.height,
+          dugEvents: this.mp.dugHistory
+        });
+        this.broadcastLobbyState();
+        this.showToast(`${added.nick} вошёл в идущую игру!`);
+      } else {
+        this.lobbyPlayers = this.lobbyPlayers.filter((p) => p.id !== joined.id);
+        this.lobbyPlayers.push(joined);
+        this.pushSystemChat(`${joined.nick} вошёл в лобби!`);
+        this.broadcastLobbyState();
+        if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+      }
+      return;
+    }
+
+    if (msg.type === 'update_profile') {
+      const target = this.lobbyPlayers.find((p) => p.id === msg.playerId);
+      if (target) {
+        const others = this.lobbyPlayers.filter((p) => p.id !== msg.playerId);
+        target.nick = msg.nick;
+        target.skin = msg.skin;
+        target.colorIndex = this.pickFreeColorIndex(others, msg.colorIndex);
+        this.broadcastLobbyState();
+        if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+      }
+      return;
+    }
+
+    if (msg.type === 'chat') {
+      this.chatMessages.push(msg.msg);
+      if (this.chatMessages.length > 60) this.chatMessages.shift();
+      this.mpTransport.send(msg, fromPeerId); // Relay to all other peers!
+      this.renderChatLogs();
+      return;
+    }
+
+    // Relay gameplay messages to all other peers and apply locally!
+    this.mpTransport.send(msg, fromPeerId);
+    this.mp.handleRemoteMessage(msg);
+  }
+
+  private handleGuestMessage(msg: MpMessage) {
+    if (msg.type === 'reject') {
+      this.showToast(msg.reason);
+      this.leaveMultiplayerRoom();
+      this.renderMpBrowserScreen();
+      return;
+    }
+    if (msg.type === 'lobby_state') {
+      this.lobbyPlayers = msg.players;
+      this.lobbyMpMode = msg.mpMode;
+      this.lobbyLevelId = msg.levelId;
+      const me = msg.players.find((p) => p.id === this.mpTransport?.localId);
+      if (me) this.localColorIndex = me.colorIndex;
+      if (this.inLobbyRoom) this.renderLobbyRoomScreen();
+      return;
+    }
+    if (msg.type === 'chat') {
+      this.chatMessages.push(msg.msg);
+      if (this.chatMessages.length > 60) this.chatMessages.shift();
+      this.renderChatLogs();
+      return;
+    }
+    if (msg.type === 'start') {
+      this.enterMultiplayerMatch({
+        seed: msg.seed,
+        levelId: msg.levelId,
+        mpMode: msg.mpMode,
+        vsBot: false,
+        localPlayerId: this.mpTransport!.localId,
+        players: msg.players,
+        width: msg.width,
+        height: msg.height,
+        transport: this.mpTransport
+      });
+      return;
+    }
+    if (msg.type === 'late_sync') {
+      this.enterMultiplayerMatch({
+        seed: msg.seed,
+        levelId: msg.levelId,
+        mpMode: msg.mpMode,
+        vsBot: false,
+        localPlayerId: this.mpTransport!.localId,
+        players: msg.players,
+        width: msg.width,
+        height: msg.height,
+        transport: this.mpTransport,
+        lateDugEvents: msg.dugEvents,
+        startingSp: 5 // Catch-up SP for late joiners!
+      });
+      return;
+    }
+
+    this.mp.handleRemoteMessage(msg);
+  }
+
+  private renderLobbyRoomScreen() {
+    if (!this.mpTransport) return;
+    const isHost = this.mpTransport.isHost;
+    const maxP = this.lobbyMpMode === 'coop' ? 10 : 2;
+    const dims = computeCoopMapSize(this.lobbyPlayers.length, this.lobbyMpMode);
+
+    this.modalTitleEl.textContent = `🌐 Лобби • ${this.mpTransport.roomCode}`;
+    this.modalBodyEl.innerHTML = '';
+
+    // Room Code + Copy
+    const codeBox = document.createElement('div');
+    codeBox.className = 'mp-code-pill';
+    codeBox.textContent = `${this.mpTransport.roomCode}  (${this.lobbyPlayers.length}/${maxP} • Карта ${dims.width}×${dims.height})`;
+    codeBox.title = 'Нажмите, чтобы скопировать код';
+    codeBox.addEventListener('click', () => {
+      navigator.clipboard?.writeText(this.mpTransport!.roomCode).catch(() => {});
+      this.showToast(`Код ${this.mpTransport!.roomCode} скопирован!`);
+    });
+    this.modalBodyEl.appendChild(codeBox);
+
+    if (this.lobbyStatus) {
+      const st = document.createElement('div');
+      st.className = 'card-row-desc';
+      st.style.textAlign = 'center';
+      st.style.color = 'var(--accent-cyan)';
+      st.textContent = this.lobbyStatus;
+      this.modalBodyEl.appendChild(st);
+    }
+
+    // Player roster
+    const roster = document.createElement('div');
+    roster.className = 'settings-group';
+    roster.innerHTML = `<div class="settings-label">Игроки в лобби</div>`;
+    for (const pl of this.lobbyPlayers) {
+      const col = PLAYER_COLORS[pl.colorIndex % PLAYER_COLORS.length];
+      const skName = SKIN_OPTIONS.find((s) => s.id === pl.skin)?.name || 'Классик';
+      const row = document.createElement('div');
+      row.className = 'card-row';
+      row.style.padding = '7px 12px';
+      row.innerHTML = `
+        <div class="card-row-title" style="font-size:13px;">
+          <span style="width:11px;height:11px;border-radius:50%;background:${col.hex};display:inline-block;"></span>
+          <span>${escapeHtml(pl.nick)} ${pl.isHost ? '👑' : ''}</span>
+        </div>
+        <span style="font-size:11px;color:var(--text-muted);">${skName} • ${col.name}</span>
+      `;
+      roster.appendChild(row);
+    }
+    this.modalBodyEl.appendChild(roster);
+
+    // Profile customizer inside lobby (with live taken colors!)
+    const taken = new Set(
+      this.lobbyPlayers.filter((p) => p.id !== this.mpTransport?.localId).map((p) => p.colorIndex)
+    );
+    this.renderProfileCustomizer(this.modalBodyEl, taken, () => {
+      if (!this.mpTransport) return;
+      const myId = this.mpTransport.localId;
+      const me = this.lobbyPlayers.find((p) => p.id === myId);
+      if (me) {
+        me.nick = this.localNick;
+        me.colorIndex = this.localColorIndex;
+        me.skin = this.localSkin;
+      }
+      if (this.mpTransport.isHost) {
+        this.broadcastLobbyState();
+      } else {
+        this.mpTransport.send({
+          type: 'update_profile',
+          playerId: myId,
+          nick: this.localNick,
+          colorIndex: this.localColorIndex,
+          skin: this.localSkin
+        });
+      }
+    });
+
+    // LIVE LOBBY CHAT!
+    const chatWrap = document.createElement('div');
+    chatWrap.className = 'settings-group';
+    chatWrap.innerHTML = `<div class="settings-label">Чат лобби</div>`;
+    const log = document.createElement('div');
+    log.id = 'lobby-chat-log';
+    log.className = 'lobby-chat-log';
+    chatWrap.appendChild(log);
+
+    const form = document.createElement('form');
+    form.style.display = 'flex';
+    form.style.gap = '6px';
+    const inp = document.createElement('input');
+    inp.className = 'mp-chat-input';
+    inp.placeholder = 'Сообщение в чат лобби…';
+    const sendBtn = document.createElement('button');
+    sendBtn.type = 'submit';
+    sendBtn.className = 'action-btn primary';
+    sendBtn.textContent = 'Отправить';
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const t = inp.value.trim();
+      if (!t) return;
+      inp.value = '';
+      this.sendChatMessage(t);
+    });
+    form.appendChild(inp);
+    form.appendChild(sendBtn);
+    chatWrap.appendChild(form);
+    this.modalBodyEl.appendChild(chatWrap);
+    this.renderChatLogs();
+
+    // Footer buttons (Host Start / Leave)
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.justifyContent = 'space-between';
+    actions.style.gap = '10px';
+
+    const leaveBtn = document.createElement('button');
+    leaveBtn.className = 'action-btn danger';
+    leaveBtn.textContent = 'Покинуть лобби';
+    leaveBtn.addEventListener('click', () => {
+      this.leaveMultiplayerRoom();
+      this.renderMpBrowserScreen();
+    });
+    actions.appendChild(leaveBtn);
+
+    if (isHost) {
+      const startBtn = document.createElement('button');
+      startBtn.className = 'action-btn primary';
+      startBtn.textContent = '▶ Начать игру';
+      startBtn.addEventListener('click', () => {
+        const seed = Math.floor(Math.random() * 1_000_000);
+        const mapDims = computeCoopMapSize(this.lobbyPlayers.length, this.lobbyMpMode);
+        this.mpTransport!.send({
+          type: 'start',
+          seed,
+          levelId: this.lobbyLevelId,
+          mpMode: this.lobbyMpMode,
+          players: this.lobbyPlayers,
+          width: mapDims.width,
+          height: mapDims.height
+        });
+        this.enterMultiplayerMatch({
+          seed,
+          levelId: this.lobbyLevelId,
+          mpMode: this.lobbyMpMode,
+          vsBot: false,
+          localPlayerId: this.mpTransport!.localId,
+          players: this.lobbyPlayers,
+          width: mapDims.width,
+          height: mapDims.height,
+          transport: this.mpTransport
+        });
+      });
+      actions.appendChild(startBtn);
+    }
+
+    this.modalBodyEl.appendChild(actions);
+  }
+
+  /* =========================================================
+     IN-GAME MULTIPLAYER HUD & VOTING
+     ========================================================= */
   syncMpHud() {
     if (this.mode !== 'mp') return;
     const st = this.mp.state;
-    const localSp = st.localPlayer === 1 ? st.p1Sp : st.p2Sp;
 
     this.mpModeLabelEl.textContent =
-      st.mpMode === 'coop' ? '🤝 Кооп-раскопки' : st.vsBot ? '⚔ Гонка vs ИИ' : '⚔ Гонка 1v1';
-    this.mpP1ScoreEl.textContent = String(st.p1Dug);
-    this.mpP2ScoreEl.textContent = String(st.p2Dug);
-    this.mpLocalSpEl.textContent = String(localSp);
+      st.mpMode === 'coop' ? `🤝 Кооп • ${st.level.name}` : st.vsBot ? '⚔ Гонка vs ИИ' : '⚔ Гонка 1v1';
+    const digPct = Math.min(100, Math.round((st.dugBreakable / st.totalBreakable) * 100));
+    this.mpDigPctEl.textContent = `${digPct}%`;
+    this.mpPlayerCountEl.textContent = String(st.players.length);
+    this.mpLocalSpEl.textContent = String(st.localSp);
 
-    const dmgCost = 2 + st.dmgLevel * 2;
-    this.mpDmgCostEl.textContent = `♦ ${dmgCost}`;
-    this.mpBtnDmgEl.disabled = localSp < dmgCost;
+    const rem = st.nextSpDropSec;
+    this.mpSpTimerEl.textContent = `${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`;
+
+    this.mpBtnPingEl.classList.toggle('ping-active', st.pingMode);
+    this.mpSkillBadgeEl.classList.toggle('hidden', !this.mp.hasAffordableSkill());
 
     this.mpAntBarEl.innerHTML = '';
     for (const id of PLAYABLE_ANTS) {
       const cfg = ANT_TYPES[id];
-      const unlocked =
-        id === 'worker' ||
-        id === 'compass' ||
-        (id === 'warrior' && st.unlockedWarriors) ||
-        (id === 'scout' && st.unlockedScouts) ||
-        (id === 'queen' && st.unlockedQueens);
-
-      let sub = unlocked ? 'Готов' : id === 'queen' ? '🔒 ♦ 4' : '🔒 ♦ 2';
+      const unlocked = this.mp.isAntUnlocked(id);
+      let sub = unlocked ? 'Готов' : '🔒';
       if (id === 'compass' && st.compassCd > 0) {
         const s = Math.ceil(st.compassCd);
         sub = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -612,33 +1192,44 @@ export class HudController {
       const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
       btn.innerHTML = `
         <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg(iconType)}</span>
-        <span class="ant-name">${cfg.shortName}</span>
+        <span class="ant-name">${unlocked ? cfg.shortName : '🔒 ' + cfg.shortName}</span>
         <span class="ant-count">${sub}</span>
       `;
-      btn.addEventListener('click', () => this.mp.selectAnt(id));
+      btn.addEventListener('click', () => {
+        if (unlocked) this.mp.selectAnt(id);
+        else this.openSkillTree();
+      });
       this.mpAntBarEl.appendChild(btn);
+    }
+
+    if (this.skillTreeOpen) {
+      this.renderSkillTree();
     }
   }
 
-  openMpMatchEndModal(winner: 1 | 2, isCoop: boolean) {
-    const st = this.mp.state;
-    const iWon = winner === st.localPlayer;
-    this.openModal(isCoop ? '🤝 Сахар найден вместе!' : iWon ? '🏆 Победа вашей колонии!' : '⚔ Соперник оказался быстрее!');
+  syncMpVoteBanner() {
+    const v = this.mp.state.vote;
+    if (!v.active || this.mode !== 'mp') {
+      this.mpVoteBannerEl.classList.add('hidden');
+      return;
+    }
+    this.mpVoteBannerEl.classList.remove('hidden');
+    this.mpVoteTextEl.textContent = v.reason;
+    const totalHumans = Math.max(1, this.mp.state.players.filter((p) => !p.id.startsWith('bot_')).length);
+    const castCount = Object.keys(v.votes).length;
+    const yesCount = Object.values(v.votes).filter(Boolean).length;
+    this.mpVoteTallyEl.textContent = `За: ${yesCount} • Проголосовало: ${castCount}/${totalHumans}`;
+    this.mpVoteYesBtn.disabled = v.myVote !== null;
+    this.mpVoteNoBtn.disabled = v.myVote !== null;
+  }
+
+  openMpVersusEndModal(winnerNick: string, iWon: boolean) {
+    this.openModal(iWon ? '🏆 Победа вашей колонии!' : '⚔ Соперник оказался быстрее!');
     this.modalBodyEl.innerHTML = `
       <div class="story-preview-box">
-        <p><strong>${
-          isCoop
-            ? 'Обе колонии объединились и нашли заветный сахар!'
-            : iWon
-              ? 'Ваши муравьи первыми добрались до кусочка сахара!'
-              : 'Колония соперника первой нашла сахар. Попробуете реванш?'
-        }</strong></p>
-        <p style="margin-top:10px;font-size:13px;color:var(--text-muted);">
-          🟢 Изумрудная колония: <strong>${st.p1Dug}</strong> блоков • 🔴 Алая колония: <strong>${st.p2Dug}</strong> блоков
-        </p>
+        <p><strong>${iWon ? 'Ваши муравьи первыми добрались до сахара!' : `Победил ${escapeHtml(winnerNick)}!`}</strong></p>
       </div>
     `;
-
     const actions = document.createElement('div');
     actions.style.display = 'flex';
     actions.style.gap = '10px';
@@ -646,33 +1237,17 @@ export class HudController {
 
     const rematchBtn = document.createElement('button');
     rematchBtn.className = 'action-btn primary';
-    rematchBtn.textContent = 'Реванш';
+    rematchBtn.textContent = 'Новая карта';
     rematchBtn.addEventListener('click', () => {
-      const seed = Math.floor(Math.random() * 1_000_000);
-      if (this.mpTransport) {
-        this.mpTransport.send({
-          type: 'rematch',
-          seed,
-          levelId: st.level.id,
-          mpMode: st.mpMode
-        });
-      }
-      this.enterMultiplayerMatch({
-        seed,
-        levelId: st.level.id,
-        mpMode: st.mpMode,
-        vsBot: st.vsBot,
-        localPlayer: st.localPlayer,
-        transport: this.mpTransport
-      });
+      this.closeModal();
+      this.mp.advanceToNextCoopLevel();
     });
 
     const menuBtn = document.createElement('button');
     menuBtn.className = 'action-btn';
     menuBtn.textContent = 'В меню';
     menuBtn.addEventListener('click', () => {
-      this.mpTransport?.close();
-      this.mpTransport = null;
+      this.leaveMultiplayerRoom();
       this.closeModal();
       this.showMainMenu();
     });
@@ -682,99 +1257,127 @@ export class HudController {
     this.modalBodyEl.appendChild(actions);
   }
 
+  openMpAllClearedModal() {
+    this.openModal('🌟 Карта очищена на 100%!');
+    this.modalBodyEl.innerHTML = `
+      <div class="story-preview-box">
+        <p><strong>Невероятно! Ваши колонии съели все блоки и полностью открыли скрытый узор!</strong></p>
+      </div>
+    `;
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'action-btn primary';
+    nextBtn.textContent = 'Перейти на следующую карту →';
+    nextBtn.addEventListener('click', () => {
+      this.closeModal();
+      this.mp.advanceToNextCoopLevel();
+    });
+    this.modalBodyEl.appendChild(nextBtn);
+  }
+
   /* =========================================================
-     STORY MODE HUD SYNC
+     STORY MODE HUD (3 CHAPTERS + DEEP ECONOMY!)
      ========================================================= */
   syncStoryHud() {
     if (this.mode !== 'story') return;
     const st = this.story.state;
+    const lvl = this.story.getCurrentLevel();
 
+    this.storyChapterNameEl.textContent = lvl.name;
     this.storyNectarEl.textContent = String(Math.floor(st.nectar));
     this.storyLarvaeEl.textContent = String(Math.floor(st.larvae));
     this.storyMineralsEl.textContent = String(Math.floor(st.minerals));
     this.storySatietyEl.textContent = `${Math.round(st.satiety)}%`;
 
-    // Diggers selector
     this.storyDiggersEl.innerHTML = '';
-    const diggerList: { id: 'worker' | 'warrior' | 'scout'; unlocked: boolean; cost: string }[] = [
+    const diggers: { id: 'worker' | 'warrior' | 'scout' | 'queen'; unlocked: boolean; cost: string }[] = [
       { id: 'worker', unlocked: true, cost: '1🥚 2🍯' },
-      { id: 'warrior', unlocked: st.warriorUnlocked, cost: st.warriorUnlocked ? '3🥚 4🍯' : '🔒16🍯 6🥚' },
-      { id: 'scout', unlocked: st.scoutUnlocked, cost: st.scoutUnlocked ? '2🥚 2🍯' : '🔒12🍯 4🥚' }
+      { id: 'warrior', unlocked: st.warriorUnlocked, cost: st.warriorUnlocked ? '3🥚 4🍯' : '🔒14🍯 5🥚' },
+      { id: 'scout', unlocked: st.scoutUnlocked, cost: st.scoutUnlocked ? '2🥚 2🍯' : '🔒11🍯 4🥚' },
+      { id: 'queen', unlocked: st.queenUnlocked, cost: st.queenUnlocked ? '5🥚 8🍯' : '🔒22🍯 8🥚' }
     ];
 
-    for (const d of diggerList) {
+    for (const d of diggers) {
       const cfg = ANT_TYPES[d.id];
       const btn = document.createElement('button');
       btn.className = `ant-btn${st.selectedDigger === d.id && d.unlocked ? ' active' : ''}${d.unlocked ? '' : ' locked'}`;
       btn.style.setProperty('--ant-color', cfg.color);
       btn.innerHTML = `
-        <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg('ant')}</span>
+        <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg(d.id === 'queen' ? 'queen' : 'ant')}</span>
         <span class="ant-name">${d.unlocked ? cfg.shortName : '🔒 ' + cfg.shortName}</span>
         <span class="ant-count">${d.cost}</span>
       `;
       btn.addEventListener('click', () => {
-        if (d.unlocked) {
-          this.story.selectDigger(d.id);
-        } else if (d.id === 'warrior') {
-          if (!this.story.unlockWarrior()) {
-            this.showToast('Нужно 16 🍯 и 6 🥚, чтобы открыть Воина');
-          }
-        } else if (d.id === 'scout') {
-          if (!this.story.unlockScout()) {
-            this.showToast('Нужно 12 🍯 и 4 🥚, чтобы открыть Разведчика');
-          }
+        if (d.unlocked) this.story.selectDigger(d.id);
+        else if (d.id !== 'worker' && !this.story.unlockDigger(d.id)) {
+          this.showToast(`Недостаточно ресурсов для открытия «${cfg.name}»`);
         }
       });
       this.storyDiggersEl.appendChild(btn);
     }
 
-    // Colony economy actions
     this.storyEconomyEl.innerHTML = '';
-    const aphidMin = 6 + st.aphidHerders * 5;
+    const aphidMin = 5 + st.aphidHerders * 5;
     const aphidLarv = 2 + st.aphidHerders;
-    const nurseNec = 10 + st.nurses * 8;
+    const nurseNec = 9 + st.nurses * 7;
     const nurseMin = 4 + st.nurses * 4;
-    const jawNec = 12 + st.jawLevel * 12;
-    const jawMin = 10 + st.jawLevel * 10;
+    const panNec = 8 + st.pantryLevel * 8;
+    const panMin = 8 + st.pantryLevel * 8;
+    const jawNec = 10 + st.jawLevel * 10;
+    const jawMin = 8 + st.jawLevel * 9;
+    const pherNec = 12 + st.pheromoneLevel * 12;
+    const pherLarv = 3 + st.pheromoneLevel * 2;
 
     const ecoActions = [
-      {
-        title: `🌿 Тли ×${st.aphidHerders}`,
-        sub: `${aphidMin}🪨 ${aphidLarv}🥚`,
-        canAfford: st.minerals >= aphidMin && st.larvae >= aphidLarv,
-        onClick: () => this.story.hireAphidHerder()
-      },
-      {
-        title: `🥚 Няньки ×${st.nurses}`,
-        sub: `${nurseNec}🍯 ${nurseMin}🪨`,
-        canAfford: st.nectar >= nurseNec && st.minerals >= nurseMin,
-        onClick: () => this.story.hireNurse()
-      },
-      {
-        title: `⚡ Жвалы +${st.jawLevel}`,
-        sub: `${jawNec}🍯 ${jawMin}🪨`,
-        canAfford: st.nectar >= jawNec && st.minerals >= jawMin,
-        onClick: () => this.story.upgradeJaws()
-      }
+      { title: `🌿 Тли ×${st.aphidHerders}`, sub: `${aphidMin}🪨 ${aphidLarv}🥚`, ok: st.minerals >= aphidMin && st.larvae >= aphidLarv, fn: () => this.story.hireAphidHerder() },
+      { title: `🥚 Няньки ×${st.nurses}`, sub: `${nurseNec}🍯 ${nurseMin}🪨`, ok: st.nectar >= nurseNec && st.minerals >= nurseMin, fn: () => this.story.hireNurse() },
+      { title: `🏠 Склад +${st.pantryLevel}`, sub: `${panNec}🍯 ${panMin}🪨`, ok: st.nectar >= panNec && st.minerals >= panMin, fn: () => this.story.upgradePantry() },
+      { title: `⚡ Жвалы +${st.jawLevel}`, sub: `${jawNec}🍯 ${jawMin}🪨`, ok: st.nectar >= jawNec && st.minerals >= jawMin, fn: () => this.story.upgradeJaws() },
+      { title: `🏃 Скорость +${st.pheromoneLevel}`, sub: `${pherNec}🍯 ${pherLarv}🥚`, ok: st.nectar >= pherNec && st.larvae >= pherLarv, fn: () => this.story.upgradePheromones() }
     ];
 
     for (const eco of ecoActions) {
       const btn = document.createElement('button');
       btn.className = 'eco-btn';
-      btn.disabled = !eco.canAfford;
+      btn.disabled = !eco.ok;
       btn.innerHTML = `<strong>${eco.title}</strong><small>${eco.sub}</small>`;
-      btn.addEventListener('click', eco.onClick);
+      btn.addEventListener('click', eco.fn);
       this.storyEconomyEl.appendChild(btn);
     }
   }
 
-  openStoryVictoryModal() {
-    this.openModal('🎉 Колония спасена!');
+  openStoryChaptersModal() {
+    this.openModal('🌿 Главы сюжетного режима');
+    this.modalBodyEl.innerHTML = '';
+
+    STORY_LEVELS.forEach((lvl, idx) => {
+      const isCur = this.story.state.levelIndex === idx;
+      const row = document.createElement('div');
+      row.className = 'card-row';
+      row.innerHTML = `
+        <div class="card-row-info">
+          <div class="card-row-title">${lvl.name}</div>
+          <div class="card-row-desc">${lvl.intro}</div>
+        </div>
+      `;
+      const btn = document.createElement('button');
+      btn.className = `action-btn${isCur ? '' : ' primary'}`;
+      btn.textContent = isCur ? 'Заново' : 'Играть';
+      btn.addEventListener('click', () => {
+        this.closeModal();
+        this.enterStoryMode(idx);
+      });
+      row.appendChild(btn);
+      this.modalBodyEl.appendChild(row);
+    });
+  }
+
+  openStoryVictoryModal(level: StoryLevelDef, hasNext: boolean) {
+    this.openModal(`🎉 ${level.name} — пройдена!`);
     this.modalBodyEl.innerHTML = `
       <div class="story-preview-box">
-        <p><strong>Муравьи вырвались из забытой фермы и добрались до кусочка сахара!</strong></p>
+        <p><strong>Муравьи выбрались из фермы и добрались до кусочка сахара!</strong></p>
         <p style="margin-top:8px;color:var(--text-muted);font-size:13px;">
-          Благодаря пастухам тлей и нянькам личинок колония пережила голод, прогрызла пробку и нашла сладкое спасение на подоконнике.
+          ${hasNext ? 'Впереди следующая глава с более глубокой фермой и новыми преградами!' : 'Вы прошли все 3 главы сюжетного режима — колония полностью спасена!'}
         </p>
       </div>
     `;
@@ -783,21 +1386,26 @@ export class HudController {
     actions.style.gap = '10px';
     actions.style.justifyContent = 'flex-end';
 
-    const stayBtn = document.createElement('button');
-    stayBtn.className = 'action-btn';
-    stayBtn.textContent = 'Продолжить играть';
-    stayBtn.addEventListener('click', () => this.closeModal());
-
     const menuBtn = document.createElement('button');
-    menuBtn.className = 'action-btn primary';
-    menuBtn.textContent = 'В главное меню';
+    menuBtn.className = 'action-btn';
+    menuBtn.textContent = 'В меню';
     menuBtn.addEventListener('click', () => {
       this.closeModal();
       this.showMainMenu();
     });
-
-    actions.appendChild(stayBtn);
     actions.appendChild(menuBtn);
+
+    if (hasNext) {
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'action-btn primary';
+      nextBtn.textContent = `Далее: Глава ${level.chapter + 1} →`;
+      nextBtn.addEventListener('click', () => {
+        this.closeModal();
+        this.enterStoryMode(level.chapter); // chapter is 1-based, so next index = chapter
+      });
+      actions.appendChild(nextBtn);
+    }
+
     this.modalBodyEl.appendChild(actions);
   }
 
@@ -832,16 +1440,12 @@ export class HudController {
       this.statSugarEl.textContent = 'Поиск сахара';
     }
 
-    if (skillTree.hasAffordableNode()) {
-      this.upgradeBadgeEl.classList.remove('hidden');
-    } else {
-      this.upgradeBadgeEl.classList.add('hidden');
-    }
+    this.upgradeBadgeEl.classList.toggle('hidden', !skillTree.hasAffordableNode());
 
     this.renderAntBar();
     this.syncMenuSummary();
 
-    if (this.skillTreeOpen) {
+    if (this.skillTreeOpen && this.mode === 'classic') {
       this.renderSkillTree();
     }
   }
@@ -863,9 +1467,7 @@ export class HudController {
         if (ants.compassCooldown > 0) {
           onCooldown = true;
           const sec = Math.ceil(ants.compassCooldown);
-          const m = Math.floor(sec / 60);
-          const s = String(sec % 60).padStart(2, '0');
-          subText = `${m}:${s}`;
+          subText = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
         } else {
           subText = 'Готов';
         }
@@ -874,36 +1476,28 @@ export class HudController {
       const btn = document.createElement('button');
       btn.className = `ant-btn${selectedAnt === id ? ' active' : ''}${!unlocked || onCooldown ? ' locked' : ''}`;
       btn.style.setProperty('--ant-color', cfg.color);
-      btn.title = unlocked ? `${cfg.name}: ${cfg.description}` : 'Откройте в Дереве навыков';
-
       const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
-
       btn.innerHTML = `
         <span class="ant-key">${cfg.hotkey}</span>
         <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg(iconType)}</span>
         <span class="ant-name">${unlocked ? cfg.shortName : '🔒 ' + cfg.shortName}</span>
         <span class="ant-count">${subText}</span>
       `;
-
       btn.addEventListener('click', () => {
-        if (unlocked) {
-          this.engine.selectAnt(id);
-        } else {
-          this.openSkillTree();
-        }
+        if (unlocked) this.engine.selectAnt(id);
+        else this.openSkillTree();
       });
-
       this.antBarEl.appendChild(btn);
     }
   }
 
   /* =========================================================
-     NON-OVERLAPPING VISUAL SKILL TREE WITH ANIMATIONS
+     SHARED VISUAL SKILL TREE (WORKS IN BOTH CLASSIC & CO-OP!)
      ========================================================= */
   openSkillTree() {
     this.closeModal();
     this.skillTreeOpen = true;
-    this.engine.paused = true;
+    if (this.mode === 'classic') this.engine.paused = true;
     this.lastBoughtNodeId = null;
     this.stOverlayEl.classList.remove('hidden');
     this.renderSkillTree();
@@ -911,107 +1505,103 @@ export class HudController {
 
   closeSkillTree() {
     this.skillTreeOpen = false;
-    if (this.mode === 'classic') {
-      this.engine.paused = false;
-    }
+    if (this.mode === 'classic') this.engine.paused = false;
     this.stOverlayEl.classList.add('hidden');
-    this.sync();
+    if (this.mode === 'classic') this.sync();
+    if (this.mode === 'mp') this.syncMpHud();
+  }
+
+  private getSkillAdapter() {
+    if (this.mode === 'mp') {
+      return {
+        sp: this.mp.state.localSp,
+        getRank: (id: string) => this.mp.getSkillRank(id),
+        isVisible: (n: SkillNodeDef) => this.mp.isSkillVisible(n),
+        getCost: (n: SkillNodeDef) => this.mp.getSkillCost(n),
+        canBuy: (n: SkillNodeDef) => this.mp.canBuySkill(n),
+        buy: (id: string) => this.mp.buySkill(id)
+      };
+    }
+    const st = this.engine.skillTree;
+    return {
+      sp: st.state.skillPoints,
+      getRank: (id: string) => st.getRank(id),
+      isVisible: (n: SkillNodeDef) => st.isNodeVisible(n),
+      getCost: (n: SkillNodeDef) => st.getNodeCost(n),
+      canBuy: (n: SkillNodeDef) => st.canBuyNode(n),
+      buy: (id: string) => st.buyNode(id)
+    };
   }
 
   private tryBuySkillNode(nodeId: string) {
-    const { skillTree } = this.engine;
-    const node = SKILL_NODES.find((n) => n.id === nodeId);
-    if (!node) return;
-    if (skillTree.buyNode(nodeId)) {
+    const adapter = this.getSkillAdapter();
+    if (adapter.buy(nodeId)) {
       this.lastBoughtNodeId = nodeId;
       this.engine.audio.playUpgrade();
-      if (nodeId === 'warrior_unlock') {
-        this.engine.selectAnt('warrior');
-        this.showToast('Открыт Муравей-воин!');
-      } else if (nodeId === 'scout_unlock') {
-        this.engine.selectAnt('scout');
-        this.showToast('Открыт Муравей-разведчик!');
-      } else if (nodeId === 'queen_unlock') {
-        this.engine.selectAnt('queen');
-        this.showToast('Открыта Матка колонии!');
+      if (this.mode === 'classic') {
+        if (nodeId === 'warrior_unlock') this.engine.selectAnt('warrior');
+        if (nodeId === 'scout_unlock') this.engine.selectAnt('scout');
+        if (nodeId === 'queen_unlock') this.engine.selectAnt('queen');
+        this.sync();
+      } else {
+        this.syncMpHud();
       }
-      this.sync();
     }
   }
 
   private renderSkillTree() {
-    const { skillTree } = this.engine;
-    this.stPointsNumEl.textContent = String(skillTree.state.skillPoints);
+    const adapter = this.getSkillAdapter();
+    this.stPointsNumEl.textContent = String(adapter.sp);
     this.stNodesEl.innerHTML = '';
     this.stLinksEl.innerHTML = '';
 
-    const visibleNodes = SKILL_NODES.filter((n) => skillTree.isNodeVisible(n));
+    const visibleNodes = SKILL_NODES.filter((n) => adapter.isVisible(n));
     const visibleSet = new Set(visibleNodes.map((n) => n.id));
+    if (!visibleSet.has(this.selectedNodeId)) this.selectedNodeId = 'worker_root';
 
-    if (!visibleSet.has(this.selectedNodeId)) {
-      this.selectedNodeId = 'worker_root';
-    }
-
-    // Animated SVG connector lines
     for (const node of visibleNodes) {
       const x1 = ORIGIN_X + node.gx * NODE_STEP;
       const y1 = ORIGIN_Y + node.gy * NODE_STEP;
-
       for (const reqId of node.requires) {
         if (!visibleSet.has(reqId)) continue;
         const parent = SKILL_NODES.find((p) => p.id === reqId);
         if (!parent) continue;
         const x2 = ORIGIN_X + parent.gx * NODE_STEP;
         const y2 = ORIGIN_Y + parent.gy * NODE_STEP;
-
-        const bothOwned = skillTree.getRank(node.id) > 0 && skillTree.getRank(parent.id) > 0;
-        const branchColor = BRANCH_COLORS[node.branch].main;
-
+        const bothOwned = adapter.getRank(node.id) > 0 && adapter.getRank(parent.id) > 0;
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         line.setAttribute('x1', String(x2));
         line.setAttribute('y1', String(y2));
         line.setAttribute('x2', String(x1));
         line.setAttribute('y2', String(y1));
-        line.setAttribute('stroke', bothOwned ? branchColor : 'rgba(150, 185, 168, 0.25)');
+        line.setAttribute('stroke', bothOwned ? BRANCH_COLORS[node.branch].main : 'rgba(150, 185, 168, 0.25)');
         line.setAttribute('stroke-width', bothOwned ? '3' : '2');
-        if (bothOwned) {
-          line.classList.add('st-link-flow');
-        } else {
-          line.setAttribute('stroke-dasharray', '4 4');
-        }
+        if (bothOwned) line.classList.add('st-link-flow');
+        else line.setAttribute('stroke-dasharray', '4 4');
         this.stLinksEl.appendChild(line);
       }
     }
 
-    // Spatial nodes with staggered entrance & purchase shockwave
     visibleNodes.forEach((node, idx) => {
-      const rank = skillTree.getRank(node.id);
+      const rank = adapter.getRank(node.id);
       const isMaxed = rank >= node.maxRank;
-      const canBuy = skillTree.canBuyNode(node);
-      const isOwned = rank > 0;
+      const canBuy = adapter.canBuy(node);
       const colors = BRANCH_COLORS[node.branch];
-
-      const el = document.createElement('button');
       let stateClass = 'state-locked';
       if (isMaxed) stateClass = 'state-maxed';
       else if (canBuy) stateClass = 'state-available';
-      else if (isOwned) stateClass = 'state-owned';
+      else if (rank > 0) stateClass = 'state-owned';
 
-      const boughtClass = this.lastBoughtNodeId === node.id ? ' just-bought' : '';
-
-      el.className = `st-node shape-${node.shape} ${stateClass}${this.selectedNodeId === node.id ? ' selected' : ''}${boughtClass}`;
+      const el = document.createElement('button');
+      el.className = `st-node shape-${node.shape} ${stateClass}${this.selectedNodeId === node.id ? ' selected' : ''}${this.lastBoughtNodeId === node.id ? ' just-bought' : ''}`;
       el.style.left = `${ORIGIN_X + node.gx * NODE_STEP}px`;
       el.style.top = `${ORIGIN_Y + node.gy * NODE_STEP}px`;
       el.style.setProperty('--node-color', colors.main);
       el.style.setProperty('--node-glow', colors.glow);
       el.style.setProperty('--node-bg', colors.bg);
-      el.style.setProperty('--enter-delay', `${Math.min(260, idx * 24)}ms`);
+      el.style.setProperty('--enter-delay', `${Math.min(240, idx * 22)}ms`);
       el.dataset.nodeId = node.id;
-
-      el.innerHTML = `
-        ${renderSkillSvg(node.icon)}
-        ${node.maxRank > 1 ? `<span class="st-node-rank">${rank}/${node.maxRank}</span>` : ''}
-      `;
+      el.innerHTML = `${renderSkillSvg(node.icon)}${node.maxRank > 1 ? `<span class="st-node-rank">${rank}/${node.maxRank}</span>` : ''}`;
 
       el.addEventListener('pointerenter', (e) => {
         if (e.pointerType === 'mouse') {
@@ -1025,10 +1615,8 @@ export class HudController {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const isTouch = (e as PointerEvent).pointerType === 'touch';
-        if (!isTouch && skillTree.canBuyNode(node)) {
+        if ((!isTouch || this.selectedNodeId === node.id) && adapter.canBuy(node)) {
           this.selectedNodeId = node.id;
-          this.tryBuySkillNode(node.id);
-        } else if (this.selectedNodeId === node.id && skillTree.canBuyNode(node)) {
           this.tryBuySkillNode(node.id);
         } else {
           this.selectedNodeId = node.id;
@@ -1041,24 +1629,21 @@ export class HudController {
       this.stNodesEl.appendChild(el);
     });
 
-    const selNode = SKILL_NODES.find((n) => n.id === this.selectedNodeId) || visibleNodes[0];
-    if (selNode) {
-      this.updateInspector(selNode);
-    }
+    const sel = SKILL_NODES.find((n) => n.id === this.selectedNodeId) || visibleNodes[0];
+    if (sel) this.updateInspector(sel);
   }
 
   private updateInspector(node: SkillNodeDef) {
-    const { skillTree } = this.engine;
-    const rank = skillTree.getRank(node.id);
+    const adapter = this.getSkillAdapter();
+    const rank = adapter.getRank(node.id);
     const isMaxed = rank >= node.maxRank;
-    const cost = skillTree.getNodeCost(node);
-    const canBuy = skillTree.canBuyNode(node);
+    const cost = adapter.getCost(node);
+    const canBuy = adapter.canBuy(node);
     const colors = BRANCH_COLORS[node.branch];
 
     this.stTooltipEl.style.setProperty('--tt-color', colors.main);
     this.stTtCatEl.textContent = node.category;
-    this.stTtTitleEl.textContent =
-      node.maxRank > 1 ? `${node.title} (${rank}/${node.maxRank})` : node.title;
+    this.stTtTitleEl.textContent = node.maxRank > 1 ? `${node.title} (${rank}/${node.maxRank})` : node.title;
     this.stTtDescEl.textContent = node.description;
 
     if (isMaxed) {
@@ -1090,13 +1675,6 @@ export class HudController {
     this.openModal('🗺 Карты — Классический режим');
     this.modalBodyEl.innerHTML = '';
 
-    const note = document.createElement('div');
-    note.className = 'card-row-desc';
-    note.style.marginBottom = '4px';
-    note.textContent =
-      'Каждый уровень открывается после нахождения сахара на предыдущем. За прохождение КАЖДОГО уровня даётся новая постоянная Мутация, а древо навыков начинается заново.';
-    this.modalBodyEl.appendChild(note);
-
     for (let i = 0; i < LEVELS.length; i++) {
       const lvl = LEVELS[i];
       const unlocked = this.engine.skillTree.isLevelUnlocked(lvl.id);
@@ -1115,7 +1693,6 @@ export class HudController {
           <div class="card-row-desc">${unlocked ? lvl.subtitle : 'Найдите сахар на предыдущем уровне, чтобы открыть'}</div>
         </div>
       `;
-
       const btn = document.createElement('button');
       btn.className = `action-btn${unlocked && !isCurrent ? ' primary' : ''}`;
       btn.disabled = !unlocked;
@@ -1126,13 +1703,11 @@ export class HudController {
         this.engine.loadLevel(lvl.id, true);
         this.enterClassicGame();
       });
-
       row.appendChild(btn);
       this.modalBodyEl.appendChild(row);
     }
   }
 
-  /** Always grants a Mutation choice on completing ANY level! */
   openSugarFoundModal(level: LevelDefinition) {
     const { skillTree } = this.engine;
     const choices = pickMutationChoices(skillTree.state.mutations, 3);
@@ -1143,12 +1718,11 @@ export class HudController {
 
       const intro = document.createElement('div');
       intro.className = 'card-row-desc';
-      intro.innerHTML = `Уровень <strong>«${level.name}»</strong> пройден! Выберите 1 постоянную мутацию — она усиливает колонию на всех следующих уровнях:`;
+      intro.innerHTML = `Уровень <strong>«${level.name}»</strong> пройден! Выберите 1 постоянную мутацию:`;
       this.modalBodyEl.appendChild(intro);
 
       const grid = document.createElement('div');
       grid.className = 'mutation-grid';
-
       for (const mut of choices) {
         const card = document.createElement('button');
         card.className = 'mutation-choice';
@@ -1169,7 +1743,6 @@ export class HudController {
         });
         grid.appendChild(card);
       }
-
       this.modalBodyEl.appendChild(grid);
     } else {
       this.openPostSugarNextModal(level);
@@ -1179,26 +1752,18 @@ export class HudController {
   private openPostSugarNextModal(level: LevelDefinition) {
     this.openModal('🧊 Уровень пройден!');
     this.modalBodyEl.innerHTML = '';
-
     const idx = LEVELS.findIndex((l) => l.id === level.id);
-    const hasNext = idx >= 0 && idx + 1 < LEVELS.length;
-    const nextLevel = hasNext ? LEVELS[idx + 1] : null;
+    const nextLevel = idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1] : null;
 
     const box = document.createElement('div');
     box.className = 'story-preview-box';
-    box.innerHTML = `
-      <p>Сахар на карте <strong>«${level.name}»</strong> найден!</p>
-      <p style="margin-top:8px;color:var(--text-muted);font-size:12.5px;">
-        Вы можете остаться здесь и медитативно открыть всю скрытую картину и пасхалки${nextLevel ? `, или перейти на следующий уровень «${nextLevel.name}» (древо навыков сбросится, мутации сохранятся)` : ''}.
-      </p>
-    `;
+    box.innerHTML = `<p>Сахар на карте <strong>«${level.name}»</strong> найден!</p>`;
     this.modalBodyEl.appendChild(box);
 
     const actions = document.createElement('div');
     actions.style.display = 'flex';
     actions.style.gap = '10px';
     actions.style.justifyContent = 'flex-end';
-    actions.style.marginTop = '6px';
 
     const stayBtn = document.createElement('button');
     stayBtn.className = 'action-btn';
@@ -1216,28 +1781,17 @@ export class HudController {
       });
       actions.appendChild(nextBtn);
     }
-
     this.modalBodyEl.appendChild(actions);
   }
 
   openMutationsModal() {
     this.openModal('🧬 Мутации колонии');
     this.modalBodyEl.innerHTML = '';
-
     const owned = this.engine.skillTree.state.mutations;
     if (owned.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'story-preview-box';
-      empty.innerHTML = `
-        <p><strong>Пока нет активных мутаций</strong></p>
-        <p style="margin-top:6px;color:var(--text-muted);font-size:12.5px;">
-          Найдите спрятанный кусочек сахара на уровне, чтобы выбрать постоянную мутацию для всех будущих уровней!
-        </p>
-      `;
-      this.modalBodyEl.appendChild(empty);
+      this.modalBodyEl.innerHTML = `<div class="story-preview-box"><p><strong>Пока нет мутаций</strong></p><p style="margin-top:6px;color:var(--text-muted);font-size:12.5px;">Найдите сахар на уровне, чтобы выбрать постоянную мутацию!</p></div>`;
       return;
     }
-
     for (const id of owned) {
       const mut = getMutationDef(id);
       if (!mut) continue;
@@ -1267,11 +1821,9 @@ export class HudController {
     const s = skillTree.state.settings;
     this.modalBodyEl.innerHTML = '';
 
-    // 1. Soundtrack selector (8 tracks including 3 Trip-Hop & Aphex Twin IDM!)
     const trackGroup = document.createElement('div');
     trackGroup.className = 'settings-group';
     trackGroup.innerHTML = `<div class="settings-label">Саундтрек</div>`;
-
     const grid = document.createElement('div');
     grid.className = 'track-grid';
     for (const track of SOUNDTRACKS) {
@@ -1289,35 +1841,27 @@ export class HudController {
     trackGroup.appendChild(grid);
     this.modalBodyEl.appendChild(trackGroup);
 
-    // 2. Auto-switch toggle
-    const autoRow = document.createElement('div');
-    autoRow.className = 'card-row';
-    autoRow.innerHTML = `
-      <div class="card-row-info">
-        <div class="card-row-title">Автосмена саундтреков</div>
-        <div class="card-row-desc">Плавно переключать треки каждые ~1.5 минуты</div>
-      </div>
-    `;
-    const autoBtn = document.createElement('button');
-    autoBtn.className = `action-btn${s.autoSwitchTrack ? ' primary' : ''}`;
-    autoBtn.textContent = s.autoSwitchTrack ? 'Вкл' : 'Выкл';
-    autoBtn.addEventListener('click', () => {
+    const addToggle = (title: string, desc: string, val: boolean, onToggle: () => void) => {
+      const row = document.createElement('div');
+      row.className = 'card-row';
+      row.innerHTML = `<div class="card-row-info"><div class="card-row-title">${title}</div><div class="card-row-desc">${desc}</div></div>`;
+      const btn = document.createElement('button');
+      btn.className = `action-btn${val ? ' primary' : ''}`;
+      btn.textContent = val ? 'Вкл' : 'Выкл';
+      btn.addEventListener('click', onToggle);
+      row.appendChild(btn);
+      this.modalBodyEl.appendChild(row);
+    };
+
+    addToggle('Автосмена саундтреков', 'Плавно переключать треки каждые ~1.5 минуты', s.autoSwitchTrack, () => {
       skillTree.updateSettings({ autoSwitchTrack: !s.autoSwitchTrack });
       audio.applySettings(skillTree.state.settings);
       this.renderSettingsContent();
     });
-    autoRow.appendChild(autoBtn);
-    this.modalBodyEl.appendChild(autoRow);
 
-    // 3. Volume & Music/SFX Toggles
     const volRow = document.createElement('div');
     volRow.className = 'card-row';
-    volRow.innerHTML = `
-      <div class="card-row-info">
-        <div class="card-row-title">Общая громкость</div>
-        <div class="card-row-desc">${Math.round(s.volume * 100)}%</div>
-      </div>
-    `;
+    volRow.innerHTML = `<div class="card-row-info"><div class="card-row-title">Общая громкость</div><div class="card-row-desc">${Math.round(s.volume * 100)}%</div></div>`;
     const slider = document.createElement('input');
     slider.type = 'range';
     slider.min = '0';
@@ -1334,55 +1878,23 @@ export class HudController {
     volRow.appendChild(slider);
     this.modalBodyEl.appendChild(volRow);
 
-    const musicRow = document.createElement('div');
-    musicRow.className = 'card-row';
-    musicRow.innerHTML = `
-      <div class="card-row-info">
-        <div class="card-row-title">Фоновая музыка</div>
-        <div class="card-row-desc">Эмбиент, трип-хоп и IDM-синтез</div>
-      </div>
-    `;
-    const musicBtn = document.createElement('button');
-    musicBtn.className = `action-btn${s.musicEnabled ? ' primary' : ''}`;
-    musicBtn.textContent = s.musicEnabled ? 'Вкл' : 'Выкл';
-    musicBtn.addEventListener('click', () => {
+    addToggle('Фоновая музыка', 'Эмбиент, трип-хоп и IDM-синтез', s.musicEnabled, () => {
       skillTree.updateSettings({ musicEnabled: !s.musicEnabled });
       audio.ensureStarted();
       audio.applySettings(skillTree.state.settings);
       this.renderSettingsContent();
     });
-    musicRow.appendChild(musicBtn);
-    this.modalBodyEl.appendChild(musicRow);
 
-    const sfxRow = document.createElement('div');
-    sfxRow.className = 'card-row';
-    sfxRow.innerHTML = `
-      <div class="card-row-info">
-        <div class="card-row-title">Звуковые эффекты</div>
-        <div class="card-row-desc">Выпуск муравьёв, аномалии, окончание жизни, находки</div>
-      </div>
-    `;
-    const sfxBtn = document.createElement('button');
-    sfxBtn.className = `action-btn${s.sfxEnabled ? ' primary' : ''}`;
-    sfxBtn.textContent = s.sfxEnabled ? 'Вкл' : 'Выкл';
-    sfxBtn.addEventListener('click', () => {
+    addToggle('Звуковые эффекты', 'Выпуск муравьёв, аномалии, окончание жизни', s.sfxEnabled, () => {
       skillTree.updateSettings({ sfxEnabled: !s.sfxEnabled });
       audio.ensureStarted();
       audio.applySettings(skillTree.state.settings);
       this.renderSettingsContent();
     });
-    sfxRow.appendChild(sfxBtn);
-    this.modalBodyEl.appendChild(sfxRow);
 
-    // 4. Reset Progress
     const resetRow = document.createElement('div');
     resetRow.className = 'card-row';
-    resetRow.innerHTML = `
-      <div class="card-row-info">
-        <div class="card-row-title">Сброс прогресса</div>
-        <div class="card-row-desc">Очистить пройденные уровни и мутации</div>
-      </div>
-    `;
+    resetRow.innerHTML = `<div class="card-row-info"><div class="card-row-title">Сброс прогресса</div><div class="card-row-desc">Очистить пройденные уровни и мутации</div></div>`;
     const resetBtn = document.createElement('button');
     resetBtn.className = 'action-btn danger';
     resetBtn.textContent = 'Сбросить';
@@ -1397,4 +1909,8 @@ export class HudController {
     resetRow.appendChild(resetBtn);
     this.modalBodyEl.appendChild(resetRow);
   }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
