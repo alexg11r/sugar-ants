@@ -49,6 +49,7 @@ export type MpMessage =
   | { type: 'sugar_win'; winnerId: string; winnerNick: string }
   | { type: 'vote_start'; reason: string }
   | { type: 'vote_cast'; playerId: string; yes: boolean }
+  | { type: 'coop_event'; eventId: 'sugar_rush' | 'crystal_shower' | 'wild_swarm' | 'quake' | 'royal_blessing'; seed: number }
   | { type: 'next_level'; seed: number; levelId: string; players: MpPlayerInfo[]; width: number; height: number };
 
 export interface MpTransportCallbacks {

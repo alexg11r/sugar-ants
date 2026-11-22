@@ -77,10 +77,11 @@ function mulberry32(seed: number) {
 
 export function computeCoopMapSize(playerCount: number, mpMode: MpMode): { width: number; height: number } {
   if (mpMode === 'versus') return { width: 400, height: 250 };
-  const clamped = Math.max(1, Math.min(10, playerCount));
+  // Default minimum size is for 5 players (490x310), scaling proportionally up to 10 players (640x400)!
+  const effective = Math.max(5, Math.min(10, playerCount));
   return {
-    width: Math.min(640, 340 + clamped * 30),
-    height: Math.min(400, 220 + clamped * 18)
+    width: Math.min(640, 340 + effective * 30),
+    height: Math.min(400, 220 + effective * 18)
   };
 }
 
@@ -132,6 +133,8 @@ export class MultiplayerEngine {
   private botTimer = 0;
   private spDropAccum = 0;
   private revoteTimer = 0;
+  private coopEventTimer = 75; // First rare fun event after ~75-115s, then every ~105-155s
+  private sugarRushTimer = 0;
 
   // Input
   private activePointers = new Map<number, { x: number; y: number }>();
@@ -259,6 +262,8 @@ export class MultiplayerEngine {
     this.botTimer = 1.4;
     this.spDropAccum = 0;
     this.revoteTimer = 0;
+    this.coopEventTimer = 75 + Math.random() * 40;
+    this.sugarRushTimer = 0;
     this.sugarExposed = false;
 
     this.generateSeededWorld(level, opts.seed, playersWithBases);
@@ -569,6 +574,8 @@ export class MultiplayerEngine {
       this.state.vote.votes[msg.playerId] = msg.yes;
       this.evaluateVotes();
       this.callbacks.onVoteUpdate();
+    } else if (msg.type === 'coop_event') {
+      this.applyCoopEvent(msg.eventId, msg.seed);
     } else if (msg.type === 'next_level') {
       this.startMatch({
         seed: msg.seed,
@@ -906,6 +913,28 @@ export class MultiplayerEngine {
       this.callbacks.onHudSync();
     }
 
+    // Co-op rare fun random events!
+    if (this.sugarRushTimer > 0) {
+      this.sugarRushTimer = Math.max(0, this.sugarRushTimer - dt);
+    }
+    if (this.state.mpMode === 'coop' && (!this.transport || this.transport.isHost)) {
+      this.coopEventTimer -= dt;
+      if (this.coopEventTimer <= 0) {
+        this.coopEventTimer = 105 + Math.random() * 50;
+        const pool: ('sugar_rush' | 'crystal_shower' | 'wild_swarm' | 'quake' | 'royal_blessing')[] = [
+          'sugar_rush',
+          'crystal_shower',
+          'wild_swarm',
+          'quake',
+          'royal_blessing'
+        ];
+        const chosen = pool[Math.floor(Math.random() * pool.length)];
+        const evSeed = Math.floor(Math.random() * 1_000_000);
+        this.transport?.send({ type: 'coop_event', eventId: chosen, seed: evSeed });
+        this.applyCoopEvent(chosen, evSeed);
+      }
+    }
+
     // Co-op 2-minute re-vote timer after players voted NO
     if (this.revoteTimer > 0 && this.state.mpMode === 'coop' && this.state.sugarFound && !this.state.allCleared) {
       this.revoteTimer -= dt;
@@ -982,6 +1011,10 @@ export class MultiplayerEngine {
       }
       if (ant.type === 'compass') dmg = 1;
 
+      if (this.sugarRushTimer > 0) {
+        speedMult *= 1.8;
+      }
+
       const speed = cfg.baseSpeed * speedMult;
       const probeDist = ant.type === 'scout' ? Math.max(1.2, speed * dt) : 1.5;
       const nx = ant.x + Math.cos(ant.angle) * probeDist;
@@ -1023,6 +1056,96 @@ export class MultiplayerEngine {
     if (this.hudAccum >= 0.35) {
       this.hudAccum = 0;
       this.callbacks.onHudSync();
+    }
+  }
+
+  /** Rare fun Co-op random events synchronized across all players! */
+  private applyCoopEvent(
+    eventId: 'sugar_rush' | 'crystal_shower' | 'wild_swarm' | 'quake' | 'royal_blessing',
+    evSeed: number
+  ) {
+    const rng = mulberry32(evSeed);
+    this.audio.playMutationSpawn();
+
+    switch (eventId) {
+      case 'sugar_rush': {
+        this.sugarRushTimer = 25;
+        for (const a of this.ants) {
+          this.particles.spawn(a.x, a.y, 255, 224, 102, 5, 22, 0.9, 1.8);
+        }
+        this.callbacks.onToast('⚡ Событие: Сахарная лихорадка! Все муравьи ускорены ×1.8 на 25 сек!');
+        this.callbacks.onSystemChat('⚡ Редкое событие: Сахарная лихорадка! Скорость всех муравьёв ×1.8 на 25с!');
+        break;
+      }
+      case 'crystal_shower': {
+        let spawned = 0;
+        for (let attempt = 0; attempt < 260 && spawned < 7; attempt++) {
+          const cx = Math.floor(this.width * 0.14 + rng() * (this.width * 0.72));
+          const cy = Math.floor(this.height * 0.14 + rng() * (this.height * 0.72));
+          if (this.tryPlaceCrystal(cx, cy)) {
+            this.revealCircle(cx, cy, 14);
+            this.particles.spawn(cx, cy, 75, 235, 255, 14, 28, 1.4, 2.0);
+            spawned++;
+          }
+        }
+        this.callbacks.onToast(`💎 Метеоритный дождь! На карте появилось ${spawned} новых кристаллов!`);
+        this.callbacks.onSystemChat(`💎 Редкое событие: Кристальный дождь (+${spawned} кристаллов на карте)!`);
+        break;
+      }
+      case 'wild_swarm': {
+        for (const pl of this.state.players) {
+          for (let k = 0; k < 4; k++) {
+            const kind: PlayableAntId = k % 2 === 0 ? 'scout' : 'warrior';
+            this.spawnAntInternal(pl.id, kind, pl.baseX, pl.baseY, rng() * Math.PI * 2);
+          }
+        }
+        this.callbacks.onToast('🐜 Нашествие союзников! Из каждой базы выбежали 4 бесплатных муравья!');
+        this.callbacks.onSystemChat('🐜 Редкое событие: Нашествие бродяг — по 4 бесплатных Воина и Разведчика из каждой базы!');
+        break;
+      }
+      case 'quake': {
+        let cracked = 0;
+        for (let i = 0; i < this.cells.length; i++) {
+          if (this.isEdge[i] === 1 && this.hp[i] > 1 && this.hp[i] < 255) {
+            this.hp[i] = Math.max(1, this.hp[i] - 4);
+            cracked++;
+          }
+        }
+        for (const pl of this.state.players) {
+          this.particles.spawn(pl.baseX, pl.baseY, 255, 165, 70, 14, 30, 1.2, 1.8);
+        }
+        this.callbacks.onToast('🌋 Подземный толчок! Все стенки тоннелей ослаблены и треснули!');
+        this.callbacks.onSystemChat(`🌋 Редкое событие: Подземный толчок ослабил ${cracked} блоков на стенах тоннелей!`);
+        break;
+      }
+      case 'royal_blessing': {
+        this.state.localSp += 1;
+        for (const pl of this.state.players) {
+          const q: MpAnt = {
+            id: this.nextAntId++,
+            ownerId: pl.id,
+            type: 'queen',
+            x: pl.baseX,
+            y: pl.baseY,
+            angle: rng() * Math.PI * 2,
+            fixedAngle: 0,
+            age: 0,
+            maxAge: 22,
+            biteTimer: 0,
+            biteFlash: 0,
+            turnTimer: 1.0,
+            spawnTimer: 1.0,
+            legPhase: 0,
+            trailTimer: 0
+          };
+          this.ants.push(q);
+          this.particles.spawn(pl.baseX, pl.baseY, 235, 120, 255, 14, 24, 1.3, 2.0);
+        }
+        this.callbacks.onToast('👑 Королевский визит! Временная Матка на каждой базе + ♦ 1 очко навыков!');
+        this.callbacks.onSystemChat('👑 Редкое событие: Королевский визит — временная Матка у каждого игрока + ♦ 1!');
+        this.callbacks.onHudSync();
+        break;
+      }
     }
   }
 
