@@ -916,13 +916,16 @@ body,
   color: var(--node-color);
   box-shadow: 0 0 12px var(--node-glow);
   overflow: visible;
-  animation: st-node-enter 0.36s cubic-bezier(0.22, 1.35, 0.36, 1) backwards;
-  animation-delay: var(--enter-delay, 0ms);
   transition:
     transform 0.22s cubic-bezier(0.22, 1.4, 0.36, 1),
     box-shadow 0.22s ease,
     border-color 0.2s ease,
     background 0.2s ease;
+}
+
+.st-nodes.st-entering .st-node {
+  animation: st-node-enter 0.32s cubic-bezier(0.22, 1.35, 0.36, 1) backwards;
+  animation-delay: var(--enter-delay, 0ms);
 }
 
 @keyframes st-node-enter {

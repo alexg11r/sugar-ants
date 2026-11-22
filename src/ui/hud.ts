@@ -185,6 +185,7 @@ export class HudController {
 
   private mode: 'menu' | 'classic' | 'story' | 'mp' = 'menu';
   private skillTreeOpen = false;
+  private lastRenderedSp = -1;
   private selectedNodeId: string = 'worker_root';
   private lastBoughtNodeId: string | null = null;
   private hasStartedOnce = false;
@@ -1202,8 +1203,8 @@ export class HudController {
       this.mpAntBarEl.appendChild(btn);
     }
 
-    if (this.skillTreeOpen) {
-      this.renderSkillTree();
+    if (this.skillTreeOpen && this.lastRenderedSp !== st.localSp) {
+      this.renderSkillTree(false);
     }
   }
 
@@ -1445,8 +1446,8 @@ export class HudController {
     this.renderAntBar();
     this.syncMenuSummary();
 
-    if (this.skillTreeOpen && this.mode === 'classic') {
-      this.renderSkillTree();
+    if (this.skillTreeOpen && this.mode === 'classic' && this.lastRenderedSp !== skillTree.state.skillPoints) {
+      this.renderSkillTree(false);
     }
   }
 
@@ -1500,7 +1501,7 @@ export class HudController {
     if (this.mode === 'classic') this.engine.paused = true;
     this.lastBoughtNodeId = null;
     this.stOverlayEl.classList.remove('hidden');
-    this.renderSkillTree();
+    this.renderSkillTree(true);
   }
 
   closeSkillTree() {
@@ -1546,12 +1547,15 @@ export class HudController {
       } else {
         this.syncMpHud();
       }
+      this.renderSkillTree(false);
     }
   }
 
-  private renderSkillTree() {
+  private renderSkillTree(animateEnter = false) {
     const adapter = this.getSkillAdapter();
+    this.lastRenderedSp = adapter.sp;
     this.stPointsNumEl.textContent = String(adapter.sp);
+    this.stNodesEl.classList.toggle('st-entering', animateEnter);
     this.stNodesEl.innerHTML = '';
     this.stLinksEl.innerHTML = '';
 
