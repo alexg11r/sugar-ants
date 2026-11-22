@@ -22,6 +22,7 @@ import {
   MpPlayerInfo,
   MpTransport
 } from '../multiplayer/mpTransport';
+import { onlineDirectory } from '../multiplayer/onlineDirectory';
 import { STORY_LEVELS, StoryEngine, StoryLevelDef } from '../story/storyEngine';
 
 const NODE_STEP = 74;
@@ -200,6 +201,8 @@ export class HudController {
   private lobbyPlayers: MpPlayerInfo[] = [];
   private lobbyStatus = '';
   private inLobbyRoom = false;
+  private lobbyBrowserOpen = false;
+  private unsubOnlineLobbies: (() => void) | null = null;
   private chatMessages: ChatMessage[] = [];
   private chatOpen = true;
 
@@ -542,10 +545,19 @@ export class HudController {
   }
 
   openMultiplayerLobbyModal() {
-    this.openModal(this.inLobbyRoom ? `🌐 Лобби • ${this.mpTransport?.roomCode || ''}` : '⚔ Мультиплеер — Лобби');
+    this.openModal(this.inLobbyRoom ? `🌐 Лобби • ${this.mpTransport?.roomCode || ''}` : '🌐 Онлайн-лобби');
     if (this.inLobbyRoom) {
+      this.lobbyBrowserOpen = false;
       this.renderLobbyRoomScreen();
     } else {
+      this.lobbyBrowserOpen = true;
+      if (!this.unsubOnlineLobbies) {
+        this.unsubOnlineLobbies = onlineDirectory.onLobbiesUpdated(() => {
+          if (this.lobbyBrowserOpen && !this.inLobbyRoom && !this.modalBackdropEl.classList.contains('hidden')) {
+            this.renderMpBrowserScreen();
+          }
+        });
+      }
       this.renderMpBrowserScreen();
     }
   }
@@ -727,17 +739,21 @@ export class HudController {
     botRow.appendChild(botBtn);
     this.modalBodyEl.appendChild(botRow);
 
-    // 4. Open Lobbies List!
+    // 4. Open Online Lobbies List!
     const listHeader = document.createElement('div');
     listHeader.style.display = 'flex';
     listHeader.style.justifyContent = 'space-between';
     listHeader.style.alignItems = 'center';
-    listHeader.innerHTML = `<div class="settings-label">Открытые лобби</div>`;
+    const isOnline = onlineDirectory.isConnected();
+    listHeader.innerHTML = `<div class="settings-label">Открытые онлайн-лобби • <span style="color:${isOnline ? '#3ce87a' : '#ffd845'}">${isOnline ? '🟢 Онлайн' : '🟡 Подключение…'}</span></div>`;
     const refBtn = document.createElement('button');
     refBtn.className = 'action-btn';
     refBtn.style.padding = '4px 10px';
     refBtn.textContent = '↻ Обновить';
-    refBtn.addEventListener('click', () => this.renderMpBrowserScreen());
+    refBtn.addEventListener('click', () => {
+      onlineDirectory.ensureConnected();
+      this.renderMpBrowserScreen();
+    });
     listHeader.appendChild(refBtn);
     this.modalBodyEl.appendChild(listHeader);
 
@@ -745,7 +761,9 @@ export class HudController {
     if (lobbies.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'card-row-desc';
-      empty.textContent = 'Пока нет открытых локальных лобби — создайте своё или введите код друга ниже!';
+      empty.textContent = isOnline
+        ? 'Пока нет активных онлайн-лобби — создайте своё, и оно сразу появится в списке у всех игроков!'
+        : 'Подключаемся к онлайн-серверу лобби… Вы также можете создать комнату или войти по коду.';
       this.modalBodyEl.appendChild(empty);
     } else {
       for (const lob of lobbies) {
@@ -932,13 +950,11 @@ export class HudController {
     if (msg.type === 'chat') {
       this.chatMessages.push(msg.msg);
       if (this.chatMessages.length > 60) this.chatMessages.shift();
-      this.mpTransport.send(msg, fromPeerId); // Relay to all other peers!
       this.renderChatLogs();
       return;
     }
 
-    // Relay gameplay messages to all other peers and apply locally!
-    this.mpTransport.send(msg, fromPeerId);
+    // All peers receive room pub/sub directly — apply locally without re-broadcasting!
     this.mp.handleRemoteMessage(msg);
   }
 
@@ -1750,6 +1766,7 @@ export class HudController {
   }
 
   closeModal() {
+    this.lobbyBrowserOpen = false;
     this.modalBackdropEl.classList.add('hidden');
   }
 
