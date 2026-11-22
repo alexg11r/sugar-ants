@@ -54,6 +54,8 @@ export type MpMessage =
   | { type: 'late_sync'; seed: number; levelId: string; mpMode: MpMode; players: MpPlayerInfo[]; width: number; height: number; dugEvents: [number, number, number, number][] }
   | { type: 'spawn'; playerId: string; antType: PlayableAntId; x: number; y: number; angle: number }
   | { type: 'dig'; playerId: string; x: number; y: number; radius: number; damage: number }
+  | { type: 'cells_clear'; indices: number[]; ownerId: string }
+  | { type: 'ants_sync'; ants: [number, string, number, number, number, number][] }
   | { type: 'ping'; playerId: string; nick: string; colorHex: string; x: number; y: number }
   | { type: 'sugar_win'; winnerId: string; winnerNick: string }
   | { type: 'vote_start'; reason: string; options: string[] }
@@ -133,6 +135,8 @@ export class MpTransport {
   private bc: BroadcastChannel | null = null;
   private heartbeatTimer: number | null = null;
   private joinRetryTimer: number | null = null;
+  private seenMsgIds = new Set<string>();
+  private msgSeq = 0;
   private callbacks: MpTransportCallbacks;
 
   readonly localId: string;
@@ -156,6 +160,16 @@ export class MpTransport {
   private handleEnvelope(env: RoomEnvelope) {
     if (env.senderId === this.localId) return;
     if (env.targetId && env.targetId !== this.localId) return;
+
+    // Deduplicate across MQTT WSS + BroadcastChannel
+    if (env.msgId) {
+      if (this.seenMsgIds.has(env.msgId)) return;
+      this.seenMsgIds.add(env.msgId);
+      if (this.seenMsgIds.size > 400) {
+        const first = this.seenMsgIds.values().next().value;
+        if (first) this.seenMsgIds.delete(first);
+      }
+    }
 
     if (env.msg.type === 'leave') {
       this.callbacks.onPeerDisconnected(env.msg.playerId);
@@ -191,13 +205,11 @@ export class MpTransport {
     onlineDirectory.ensureConnected();
     onlineDirectory.joinRoomChannel(this.roomCode, (env) => this.handleEnvelope(env));
 
-    // Offline same-browser backup
+    // Same-browser instant BroadcastChannel (always active alongside MQTT, deduplicated by msgId!)
     try {
       this.bc = new BroadcastChannel(`sugar_ants_room_${this.roomCode}`);
       this.bc.onmessage = (ev) => {
-        if (!onlineDirectory.isConnected()) {
-          this.handleEnvelope(ev.data as RoomEnvelope);
-        }
+        this.handleEnvelope(ev.data as RoomEnvelope);
       };
     } catch {
       // Ignore
@@ -247,9 +259,7 @@ export class MpTransport {
     try {
       this.bc = new BroadcastChannel(`sugar_ants_room_${code}`);
       this.bc.onmessage = (ev) => {
-        if (!onlineDirectory.isConnected()) {
-          this.handleEnvelope(ev.data as RoomEnvelope);
-        }
+        this.handleEnvelope(ev.data as RoomEnvelope);
       };
     } catch {
       // Ignore
@@ -279,20 +289,24 @@ export class MpTransport {
 
   send(msg: MpMessage, _excludePeerId?: string) {
     if (!this.roomCode) return;
-    const env: RoomEnvelope = { senderId: this.localId, msg };
+    const msgId = `${this.localId}_${++this.msgSeq}`;
+    const env: RoomEnvelope = { msgId, senderId: this.localId, msg };
     if (onlineDirectory.isConnected()) {
       onlineDirectory.publishRoom(this.roomCode, env);
-    } else if (this.bc) {
+    }
+    if (this.bc) {
       this.bc.postMessage(env);
     }
   }
 
   sendTo(peerId: string, msg: MpMessage) {
     if (!this.roomCode) return;
-    const env: RoomEnvelope = { senderId: this.localId, targetId: peerId, msg };
+    const msgId = `${this.localId}_${++this.msgSeq}`;
+    const env: RoomEnvelope = { msgId, senderId: this.localId, targetId: peerId, msg };
     if (onlineDirectory.isConnected()) {
       onlineDirectory.publishRoom(this.roomCode, env);
-    } else if (this.bc) {
+    }
+    if (this.bc) {
       this.bc.postMessage(env);
     }
   }

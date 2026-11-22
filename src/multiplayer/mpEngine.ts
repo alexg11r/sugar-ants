@@ -5,6 +5,7 @@ import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, drawDetailedAnt } from '../core/renderer';
 import {
   Ant,
+  AntTypeId,
   CellType,
   LevelDefinition,
   PLAYER_COLORS,
@@ -18,6 +19,8 @@ import { MpMapSizePreset, MpMessage, MpMode, MpPlayerInfo, MpTransport } from '.
 interface MpAnt extends Ant {
   ownerId: string;
 }
+
+const SYNC_ANT_TYPES: AntTypeId[] = ['worker', 'warrior', 'scout', 'queen', 'compass', 'brood'];
 
 interface MapPing {
   x: number;
@@ -153,8 +156,11 @@ export class MultiplayerEngine {
   private botTimer = 0;
   private spDropAccum = 0;
   private revoteTimer = 0;
-  private coopEventTimer = 75; // First rare fun event after ~75-115s, then every ~105-155s
+  private coopEventTimer = 75;
   private sugarRushTimer = 0;
+  private antsSyncAccum = 0;
+  private cellsFlushAccum = 0;
+  private pendingClearedCells = new Set<number>();
 
   // Input
   private activePointers = new Map<number, { x: number; y: number }>();
@@ -285,6 +291,9 @@ export class MultiplayerEngine {
     this.revoteTimer = 0;
     this.coopEventTimer = 75 + Math.random() * 40;
     this.sugarRushTimer = 0;
+    this.antsSyncAccum = 0;
+    this.cellsFlushAccum = 0;
+    this.pendingClearedCells.clear();
     this.sugarExposed = false;
 
     this.generateSeededWorld(level, opts.seed, playersWithBases);
@@ -589,6 +598,12 @@ export class MultiplayerEngine {
       this.spawnAntInternal(msg.playerId, msg.antType, msg.x, msg.y, msg.angle);
     } else if (msg.type === 'dig') {
       this.digInternal(msg.x, msg.y, msg.radius, msg.damage, msg.playerId, false);
+    } else if (msg.type === 'cells_clear') {
+      this.applyRemoteCellsClear(msg.indices, msg.ownerId);
+    } else if (msg.type === 'ants_sync') {
+      if (!this.transport?.isHost) {
+        this.applyRemoteAntsSync(msg.ants);
+      }
     } else if (msg.type === 'ping') {
       this.pings.push({
         x: msg.x,
@@ -1095,7 +1110,10 @@ export class MultiplayerEngine {
         if (ant.biteTimer <= 0) {
           ant.biteTimer = cfg.baseBiteInterval / speedMult;
           ant.biteFlash = 1;
-          this.digInternal(nx, ny, radius, dmg, ant.ownerId, isLocal);
+          const shouldBroadcast = !this.transport || this.transport.isHost;
+          if (shouldBroadcast) {
+            this.digInternal(nx, ny, radius, dmg, ant.ownerId, true);
+          }
           if (ant.type === 'scout') {
             ant.angle += Math.PI * 0.75 + (Math.random() - 0.5) * 0.5;
           }
@@ -1104,6 +1122,36 @@ export class MultiplayerEngine {
     }
 
     this.particles.update(dt);
+
+    // Flush exact destroyed block indices (~10Hz) so all screens stay 100% pixel-identical!
+    this.cellsFlushAccum += dt;
+    if (this.cellsFlushAccum >= 0.1 && this.pendingClearedCells.size > 0) {
+      this.cellsFlushAccum = 0;
+      const batch = Array.from(this.pendingClearedCells);
+      this.pendingClearedCells.clear();
+      this.transport?.send({
+        type: 'cells_clear',
+        indices: batch,
+        ownerId: this.state.localPlayerId
+      });
+    }
+
+    // Host broadcasts authoritative ant positions (~5Hz) so all ants stay perfectly synced across screens!
+    if (this.transport?.isHost) {
+      this.antsSyncAccum += dt;
+      if (this.antsSyncAccum >= 0.2) {
+        this.antsSyncAccum = 0;
+        const snapshot: [number, string, number, number, number, number][] = this.ants.map((a) => [
+          a.id,
+          a.ownerId,
+          Math.max(0, SYNC_ANT_TYPES.indexOf(a.type)),
+          Math.round(a.x * 10) / 10,
+          Math.round(a.y * 10) / 10,
+          Math.round(a.angle * 100) / 100
+        ]);
+        this.transport.send({ type: 'ants_sync', ants: snapshot });
+      }
+    }
 
     this.hudAccum += dt;
     if (this.hudAccum >= 0.35) {
@@ -1245,6 +1293,90 @@ export class MultiplayerEngine {
         break;
       }
     }
+  }
+
+  private applyRemoteCellsClear(indices: number[], ownerId: string) {
+    const w = this.width;
+    const h = this.height;
+    const ownerPlayer = this.getPlayer(ownerId);
+
+    for (const idx of indices) {
+      if (idx < 0 || idx >= this.cells.length) continue;
+      const c = this.cells[idx] as CellType;
+      if (c === CellType.Empty || c === CellType.HiddenArt || c === CellType.Sugar) continue;
+
+      this.hp[idx] = 0;
+      this.maxHp[idx] = 0;
+      this.cells[idx] = CellType.Empty;
+      this.isEdge[idx] = 0;
+
+      const x = idx % w;
+      const y = Math.floor(idx / w);
+
+      if (c === CellType.SkillCrystal) {
+        if (this.state.mpMode === 'coop') {
+          this.state.localSp += 1 + this.getLocalColonyStats().crystalBonus;
+        }
+        this.audio.playCrystal();
+        this.particles.spawn(x, y, 75, 235, 255, 8, 22, 0.9, 1.7);
+      } else {
+        this.state.dugBreakable++;
+        if (ownerPlayer) ownerPlayer.dug++;
+      }
+
+      for (let ny = y - 1; ny <= y + 1; ny++) {
+        for (let nx = x - 1; nx <= x + 1; nx++) {
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const nIdx = ny * w + nx;
+          if (this.cells[nIdx] !== CellType.Empty) {
+            this.isEdge[nIdx] = 1;
+            if (this.cells[nIdx] === CellType.HiddenArt) this.artExposed[nIdx] = 1;
+            if (this.cells[nIdx] === CellType.Sugar) this.sugarExposed = true;
+          }
+        }
+      }
+
+      this.revealCircle(x, y, 22);
+    }
+  }
+
+  private applyRemoteAntsSync(snapshot: [number, string, number, number, number, number][]) {
+    const existingById = new Map<number, MpAnt>();
+    for (const a of this.ants) existingById.set(a.id, a);
+
+    const synced: MpAnt[] = [];
+    for (const [id, ownerId, typeIdx, x, y, angle] of snapshot) {
+      const prev = existingById.get(id);
+      if (prev) {
+        // Snap/blend smoothly to Host's authoritative position & angle
+        prev.x = prev.x + (x - prev.x) * 0.72;
+        prev.y = prev.y + (y - prev.y) * 0.72;
+        prev.angle = angle;
+        prev.fixedAngle = angle;
+        synced.push(prev);
+      } else {
+        const type = SYNC_ANT_TYPES[typeIdx] || 'worker';
+        const cfg = ANT_TYPES[type];
+        synced.push({
+          id,
+          ownerId,
+          type,
+          x,
+          y,
+          angle,
+          fixedAngle: angle,
+          age: 0,
+          maxAge: type === 'compass' ? 5.0 : cfg.baseLifespan,
+          biteTimer: 0,
+          biteFlash: 0,
+          turnTimer: 0.5,
+          spawnTimer: 2.2,
+          legPhase: Math.random() * Math.PI * 2,
+          trailTimer: 0
+        });
+      }
+    }
+    this.ants = synced;
   }
 
   private isNearAnyBase(x: number, y: number, safeRadius: number): boolean {
@@ -1403,6 +1535,9 @@ export class MultiplayerEngine {
           this.maxHp[idx] = 0;
           this.cells[idx] = CellType.Empty;
           this.isEdge[idx] = 0;
+          if (broadcast) {
+            this.pendingClearedCells.add(idx);
+          }
 
           if (c === CellType.SkillCrystal) {
             // In Co-op, everyone gets +1 SP when a crystal is broken so no one falls behind!

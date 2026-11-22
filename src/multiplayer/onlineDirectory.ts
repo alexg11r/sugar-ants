@@ -8,8 +8,10 @@ const BROKERS = [
 
 const LOBBY_PREFIX = 'sugar-ants/v1/lobbies/';
 const ROOM_PREFIX = 'sugar-ants/v1/rooms/';
+const textDecoder = new TextDecoder();
 
 export interface RoomEnvelope {
+  msgId?: string;
   senderId: string;
   targetId?: string;
   msg: MpMessage;
@@ -79,7 +81,10 @@ class OnlineDirectory {
       });
 
       client.on('message', (topic, payload) => {
-        const text = payload.toString('utf8');
+        const text =
+          typeof payload === 'string'
+            ? payload
+            : textDecoder.decode(payload as Uint8Array);
         if (topic.startsWith(LOBBY_PREFIX)) {
           const code = topic.slice(LOBBY_PREFIX.length);
           if (!text) {
