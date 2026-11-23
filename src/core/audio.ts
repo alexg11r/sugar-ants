@@ -895,6 +895,72 @@ export class MeditativeAudio {
     });
   }
 
+  /** Epic 4-beat subterranean seismic intro impacts (0=Blocks, 1=Colony, 2=One Sugar, 3=Launch Drop!) */
+  playIntroBeat(step: 0 | 1 | 2 | 3) {
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+
+    // 1. Subterranean seismic bass impact (escalates in weight & presence across beats!)
+    const subOsc = this.ctx.createOscillator();
+    const subGain = this.ctx.createGain();
+    subOsc.type = 'sine';
+    const startFreq = [115, 130, 148, 165][step];
+    const endFreq = [36, 41, 46, 32][step];
+    const subDur = step === 3 ? 0.95 : 0.48;
+    subOsc.frequency.setValueAtTime(startFreq, t);
+    subOsc.frequency.exponentialRampToValueAtTime(endFreq, t + 0.22);
+    subGain.gain.setValueAtTime(0.0001, t);
+    subGain.gain.exponentialRampToValueAtTime(step === 3 ? 0.3 : 0.22, t + 0.012);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, t + subDur);
+    subOsc.connect(subGain);
+    subGain.connect(this.masterGain);
+    subOsc.start(t);
+    subOsc.stop(t + subDur + 0.05);
+
+    // 2. Crisp tactile mineral/mandible transient snap
+    const snapOsc = this.ctx.createOscillator();
+    const snapGain = this.ctx.createGain();
+    snapOsc.type = 'triangle';
+    snapOsc.frequency.setValueAtTime(640 + step * 190, t);
+    snapOsc.frequency.exponentialRampToValueAtTime(160, t + 0.055);
+    snapGain.gain.setValueAtTime(0.0001, t);
+    snapGain.gain.exponentialRampToValueAtTime(0.11, t + 0.004);
+    snapGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.065);
+    snapOsc.connect(snapGain);
+    snapGain.connect(this.masterGain);
+    snapOsc.start(t);
+    snapOsc.stop(t + 0.075);
+
+    // 3. Signature rising harmonic identity per beat!
+    if (step === 0) {
+      // Beat 0 — Massive Rock Strata: low gritty fifth + fast crystalline ticks
+      this.playToneInternal(146.83, 0.85, 0.075, 'sawtooth', 0.01);
+      this.playToneInternal(220.0, 0.75, 0.065, 'triangle', 0.04);
+      [587.33, 659.25, 739.99, 880.0].forEach((f, i) => {
+        this.playToneInternal(f, 0.14, 0.032, 'sine', 0.07 + i * 0.07);
+      });
+    } else if (step === 1) {
+      // Beat 1 — Ant Colony Awakening: bioluminescent emerald swarm arpeggio
+      const notes = [293.66, 369.99, 440.0, 587.33, 739.99];
+      notes.forEach((f, i) => {
+        this.playToneInternal(f, 0.42, 0.062, i % 2 === 0 ? 'triangle' : 'sine', 0.02 + i * 0.055);
+      });
+    } else if (step === 2) {
+      // Beat 2 — ONE SUGAR: radiant golden crystalline chord shimmer
+      const notes = [329.63, 493.88, 659.25, 987.77, 1318.51];
+      notes.forEach((f, i) => {
+        this.playToneInternal(f, 0.95, 0.068, 'sine', 0.015 + i * 0.05);
+      });
+    } else {
+      // Beat 3 — EPIC LAUNCH DROP: grand resonant fanfare melting into the map!
+      const chord = [146.83, 220.0, 293.66, 369.99, 440.0, 587.33, 880.0, 1174.66];
+      chord.forEach((f, i) => {
+        this.playToneInternal(f, 1.35, i < 2 ? 0.08 : 0.06, i < 3 ? 'triangle' : 'sine', i * 0.028);
+      });
+    }
+  }
+
   /** Original atmospheric "Dive into the Colony" chapter swell: soft warm drone + glassy water-drop notes */
   playChapterIntro() {
     this.ensureStarted();

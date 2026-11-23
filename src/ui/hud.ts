@@ -116,13 +116,16 @@ export class HudController {
   private gameCanvasEl = document.getElementById('game-canvas')!;
   private mpCanvasEl = document.getElementById('mp-canvas')!;
 
-  // Splash & Original Subterranean Chapter Opening elements
+  // Splash & Original Epic 4-Beat Subterranean Intro elements
   private splashOverlayEl = document.getElementById('splash-overlay')!;
   private introOverlayEl = document.getElementById('game-intro-overlay')!;
   private introStageEl = document.getElementById('intro-stage')!;
-  private introChapterNumEl = document.getElementById('intro-chapter-num')!;
+  private introVisualEl = document.getElementById('intro-visual')!;
+  private introKickerEl = document.getElementById('intro-kicker')!;
   private introBigEl = document.getElementById('intro-big')!;
   private introSmallEl = document.getElementById('intro-small')!;
+  private introDotsEl = document.getElementById('intro-dots')!;
+  private introShockwavesEl = document.getElementById('intro-shockwaves')!;
 
   // Main Menu elements
   private mainMenuEl = document.getElementById('main-menu')!;
@@ -202,6 +205,7 @@ export class HudController {
   private hasStartedOnce = false;
   private tutorialStep: 'launch' | 'zoom' | 'pan' | 'done' = 'launch';
   private introTimers: number[] = [];
+  private introRafId = 0;
   private introCancelFn: (() => void) | null = null;
   private epicNextAction: (() => void) | null = null;
 
@@ -308,39 +312,169 @@ export class HudController {
     }, 2050);
   }
 
-  /** Original Atmospheric Subterranean Chapter Opening (unique title, glyph & poetic whisper per map!) */
+  /** Original Epic 4-Beat Subterranean Intro: Blocks -> Ant Colony -> One Sugar -> Launch! */
   private playPreGameIntro(onComplete: () => void) {
     this.cancelPreGameIntro();
 
     const lvl = this.engine.world.level;
     const lvlIdx = Math.max(0, LEVELS.findIndex((l) => l.id === lvl.id));
     const roman = ['I', 'II', 'III', 'IV', 'V'][lvlIdx] || String(lvlIdx + 1);
-    const whispers: Record<string, string> = {
-      prism: 'В глубине изумрудной тишины спит Лунный Мотылёк…',
-      galaxy: 'Сквозь звёздную пыль плывёт безмолвный Космический Кит…',
-      'ant-crown': 'Древний Скарабей хранит королевскую печать колонии…',
-      'moon-temple': 'Полуночная Сова бережёт песочные часы забвения…',
-      'tree-of-life': 'Мировое Древо тихо дышит в ладонях подземного мира…'
-    };
+    const totalBlocks = Math.max(1000, this.engine.world.stats.totalBreakable);
+
+    // 100% original Sugar Ants pixel-geometric SVG emblems for each beat
+    const svgBlocks = `<svg viewBox="0 0 96 96" shape-rendering="crispEdges">
+      <rect x="20" y="20" width="56" height="56" rx="4" fill="#1b1410" stroke="#ffad42" stroke-width="3"/>
+      <rect x="24" y="24" width="48" height="12" fill="#4f3622"/>
+      <rect x="24" y="36" width="48" height="12" fill="#6b4428"/>
+      <rect x="24" y="48" width="48" height="12" fill="#4e525c"/>
+      <rect x="24" y="60" width="48" height="12" fill="#2a2038"/>
+      <path d="M48 20 L44 36 L53 46 L42 62 L49 76" fill="none" stroke="#ffe26a" stroke-width="3"/>
+      <path d="M22 48 L38 45 L44 36" fill="none" stroke="#ffad42" stroke-width="2"/>
+      <path d="M74 54 L58 52 L53 46" fill="none" stroke="#ffad42" stroke-width="2"/>
+      <rect x="46" y="44" width="6" height="6" fill="#ffffff"/>
+    </svg>`;
+
+    const svgColony = `<svg viewBox="0 0 96 96" shape-rendering="crispEdges">
+      <circle cx="48" cy="48" r="13" fill="#0d2b1a" stroke="#3ce87a" stroke-width="3"/>
+      <circle cx="48" cy="48" r="5" fill="#7dffb2"/>
+      <g class="swarm-ring">
+        <g transform="translate(48 16)"><rect x="-3" y="-6" width="6" height="4" fill="#7dffb2"/><rect x="-2" y="-1" width="4" height="4" fill="#3ce87a"/><rect x="-3" y="4" width="6" height="5" fill="#25b85c"/></g>
+        <g transform="translate(76 32) rotate(60)"><rect x="-3" y="-6" width="6" height="4" fill="#7dffb2"/><rect x="-2" y="-1" width="4" height="4" fill="#3ce87a"/><rect x="-3" y="4" width="6" height="5" fill="#25b85c"/></g>
+        <g transform="translate(76 64) rotate(120)"><rect x="-3" y="-6" width="6" height="4" fill="#7dffb2"/><rect x="-2" y="-1" width="4" height="4" fill="#3ce87a"/><rect x="-3" y="4" width="6" height="5" fill="#25b85c"/></g>
+        <g transform="translate(48 80) rotate(180)"><rect x="-3" y="-6" width="6" height="4" fill="#7dffb2"/><rect x="-2" y="-1" width="4" height="4" fill="#3ce87a"/><rect x="-3" y="4" width="6" height="5" fill="#25b85c"/></g>
+        <g transform="translate(20 64) rotate(240)"><rect x="-3" y="-6" width="6" height="4" fill="#7dffb2"/><rect x="-2" y="-1" width="4" height="4" fill="#3ce87a"/><rect x="-3" y="4" width="6" height="5" fill="#25b85c"/></g>
+        <g transform="translate(20 32) rotate(300)"><rect x="-3" y="-6" width="6" height="4" fill="#7dffb2"/><rect x="-2" y="-1" width="4" height="4" fill="#3ce87a"/><rect x="-3" y="4" width="6" height="5" fill="#25b85c"/></g>
+      </g>
+    </svg>`;
+
+    const svgSugar = `<svg viewBox="0 0 96 96" shape-rendering="crispEdges">
+      <circle cx="48" cy="48" r="38" fill="none" stroke="#ffe26a" stroke-opacity="0.28" stroke-width="1.5" stroke-dasharray="5 5"/>
+      <circle cx="48" cy="48" r="26" fill="none" stroke="#ffe26a" stroke-opacity="0.52" stroke-width="2"/>
+      <g class="sugar-float">
+        <rect x="30" y="30" width="36" height="36" fill="#ffcf4a"/>
+        <rect x="33" y="33" width="30" height="30" fill="#ffe985"/>
+        <rect x="36" y="36" width="24" height="24" fill="#fff7cc"/>
+        <rect x="39" y="39" width="9" height="9" fill="#ffffff"/>
+        <rect x="46" y="10" width="4" height="10" fill="#fff7cc"/>
+        <rect x="46" y="76" width="4" height="10" fill="#fff7cc"/>
+        <rect x="10" y="46" width="10" height="4" fill="#fff7cc"/>
+        <rect x="76" y="46" width="10" height="4" fill="#fff7cc"/>
+      </g>
+    </svg>`;
+
+    const svgLaunch = `<svg viewBox="0 0 96 96" fill="none">
+      <polygon points="48,10 82,48 48,86 14,48" stroke="#7dffb2" stroke-width="3" fill="rgba(60,232,122,0.14)"/>
+      <polygon points="48,22 70,48 48,74 26,48" stroke="#ffe26a" stroke-width="2.5" fill="rgba(255,226,106,0.18)"/>
+      <circle cx="48" cy="48" r="8" fill="#ffffff"/>
+    </svg>`;
+
+    const beats: {
+      step: 0 | 1 | 2 | 3;
+      delayMs: number;
+      kicker: string;
+      big: string;
+      small: string;
+      svg: string;
+      rollTo?: number;
+    }[] = [
+      {
+        step: 0,
+        delayMs: 0,
+        kicker: 'ПОД ЗЕМЛЁЙ',
+        big: `${totalBlocks.toLocaleString('ru-RU')} БЛОКОВ`,
+        small: 'ПОРОДЫ, КАМНЯ И ОБСИДИАНА',
+        svg: svgBlocks,
+        rollTo: totalBlocks
+      },
+      {
+        step: 1,
+        delayMs: 1300,
+        kicker: 'ТВОЯ СИЛА',
+        big: 'КОЛОНИЯ МУРАВЬЁВ',
+        small: 'РАБОЧИЕ • ВОИНЫ • РАЗВЕДЧИКИ • МАТКА',
+        svg: svgColony
+      },
+      {
+        step: 2,
+        delayMs: 2550,
+        kicker: 'ОДНА ЦЕЛЬ',
+        big: 'ОДИН САХАР',
+        small: 'СПРЯТАН В САМОЙ ДАЛЬНЕЙ ГЛУБИНЕ',
+        svg: svgSugar
+      },
+      {
+        step: 3,
+        delayMs: 3850,
+        kicker: `КАРТА ${roman} • ${lvl.name.toUpperCase()}`,
+        big: 'ПРОГРЫЗИ ПУТЬ',
+        small: 'РАСКРОЙ ТАЙНУЮ КАРТИНУ',
+        svg: svgLaunch
+      }
+    ];
 
     const el = this.introOverlayEl;
-    el.style.setProperty('--chapter-accent', lvl.palette.accentHex);
-    this.introChapterNumEl.textContent = `ГЛАВА ${roman}`;
-    this.introBigEl.textContent = lvl.name.toUpperCase();
-    this.introSmallEl.textContent = whispers[lvl.id] || lvl.subtitle;
-
-    // Retrigger crisp entrance & ripple animations
+    el.style.setProperty('--map-accent', lvl.palette.accentHex);
     el.classList.remove('hidden', 'fade-out');
-    this.introStageEl.style.animation = 'none';
-    void this.introStageEl.offsetWidth;
-    this.introStageEl.style.animation = '';
-    el.querySelectorAll<HTMLElement>('.chapter-ring').forEach((r) => {
-      r.style.animation = 'none';
-      void r.offsetWidth;
-      r.style.animation = '';
-    });
 
-    this.engine.audio.playChapterIntro();
+    const dots = Array.from(this.introDotsEl.querySelectorAll<HTMLElement>('.intro-dot'));
+    const waves = Array.from(this.introShockwavesEl.querySelectorAll<HTMLElement>('.intro-wave'));
+
+    const showBeat = (b: (typeof beats)[number]) => {
+      if (this.introRafId) {
+        cancelAnimationFrame(this.introRafId);
+        this.introRafId = 0;
+      }
+
+      el.dataset.beat = String(b.step);
+      el.classList.remove('beat-impact');
+      void el.offsetWidth;
+      el.classList.add('beat-impact');
+
+      // Retrigger shockwave burst rings
+      for (const w of waves) {
+        w.style.animation = 'none';
+        void w.offsetWidth;
+        w.style.animation = '';
+      }
+
+      // Retrigger stage slam animation
+      this.introVisualEl.innerHTML = b.svg;
+      this.introKickerEl.textContent = b.kicker;
+      this.introSmallEl.textContent = b.small;
+      this.introStageEl.style.animation = 'none';
+      void this.introStageEl.offsetWidth;
+      this.introStageEl.style.animation = '';
+
+      // Update progress segments
+      dots.forEach((dot, idx) => {
+        dot.classList.toggle('active', idx === b.step);
+        dot.classList.toggle('done', idx < b.step);
+      });
+
+      this.engine.audio.playIntroBeat(b.step);
+
+      // Odometer fast count-up for real block count on Beat 0!
+      if (b.rollTo !== undefined) {
+        const target = b.rollTo;
+        const startMs = performance.now();
+        const durMs = 540;
+        const tick = (now: number) => {
+          const p = Math.min(1, (now - startMs) / durMs);
+          const eased = 1 - Math.pow(1 - p, 3);
+          const cur = Math.round(target * eased);
+          this.introBigEl.textContent = `${cur.toLocaleString('ru-RU')} БЛОКОВ`;
+          if (p < 1) {
+            this.introRafId = requestAnimationFrame(tick);
+          } else {
+            this.introRafId = 0;
+          }
+        };
+        this.introBigEl.textContent = '0 БЛОКОВ';
+        this.introRafId = requestAnimationFrame(tick);
+      } else {
+        this.introBigEl.textContent = b.big;
+      }
+    };
 
     let done = false;
     const finish = () => {
@@ -364,12 +498,24 @@ export class HudController {
     this.introCancelFn = finish;
     el.addEventListener('click', finish);
     window.addEventListener('keydown', onKey);
-    this.introTimers.push(window.setTimeout(finish, 2650));
+
+    for (const b of beats) {
+      if (b.delayMs === 0) {
+        showBeat(b);
+      } else {
+        this.introTimers.push(window.setTimeout(() => showBeat(b), b.delayMs));
+      }
+    }
+    this.introTimers.push(window.setTimeout(finish, 4950));
   }
 
   private clearIntroTimers() {
     for (const t of this.introTimers) window.clearTimeout(t);
     this.introTimers = [];
+    if (this.introRafId) {
+      cancelAnimationFrame(this.introRafId);
+      this.introRafId = 0;
+    }
   }
 
   private cancelPreGameIntro() {
