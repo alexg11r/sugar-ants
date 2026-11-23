@@ -1,13 +1,16 @@
 export const enum CellType {
-  Empty = 0,        // Dug / open void
-  SoftSoil = 1,     // HP 3
-  Clay = 2,         // HP 8
-  Stone = 3,        // HP 18
-  Obsidian = 4,     // HP 36
-  HiddenArt = 5,    // Indestructible glowing white hidden picture (including frame & easter eggs)
-  SkillCrystal = 6, // HP 10 - special crystal granting +1 Skill Point (only visible near tunnels)
-  Sugar = 7,        // Goal block: completely hidden until exposed!
-  Artifact = 8      // Secret collectible artifact (e.g. Креветочка Руся) -> permanent +1 SP!
+  Empty = 0,          // Dug / open void
+  SoftSoil = 1,       // HP 3
+  Clay = 2,           // HP 8
+  Stone = 3,          // HP 18
+  Obsidian = 4,       // HP 36
+  HiddenArt = 5,      // Indestructible glowing white hidden picture (including frame & easter eggs)
+  SkillCrystal = 6,   // HP 10 - special crystal granting +1 Skill Point (only visible near tunnels)
+  Sugar = 7,          // Goal block: completely hidden until exposed!
+  Artifact = 8,       // Secret collectible artifact (e.g. Креветочка Руся) -> permanent +1 SP!
+  ExplosiveSpore = 9, // Volatile subterranean spore bulb -> blasts a neat cavern!
+  SugarDust = 10,     // Golden crystal vein -> triggers 15s ×1.6 Sugar Rush!
+  AncientCocoon = 11  // Silk pod -> hatches 3 free allied bonus ants deep in the tunnel!
 }
 
 export type PlayableAntId = 'worker' | 'warrior' | 'scout' | 'queen' | 'compass';
@@ -68,6 +71,24 @@ export interface Ant {
   legPhase: number;
   trailTimer: number;
   fromQueen?: boolean;
+  /** Temporary obstacle wall-slide timer so beacon-guided ants smoothly skirt HiddenArt walls instead of sticking! */
+  wallSlideTimer?: number;
+  wallSlideDir?: number;
+  /** True when currently inside a Queen's tiny royal buff aura */
+  queenBuffed?: boolean;
+}
+
+export interface ScentPoint {
+  x: number;
+  y: number;
+  angle: number;
+  life: number;
+  maxLife: number;
+}
+
+export interface PheromoneBeacon {
+  x: number;
+  y: number;
 }
 
 export interface Particle {
@@ -96,7 +117,9 @@ export type SkillIcon =
   | 'brood'
   | 'crystal'
   | 'swarm'
-  | 'compass';
+  | 'compass'
+  | 'poison'
+  | 'evo';
 
 export interface SkillNodeDef {
   id: string;
@@ -148,6 +171,7 @@ export interface GameSettings {
   musicEnabled: boolean;
   sfxEnabled: boolean;
   volume: number;
+  autoSummon: boolean;
 }
 
 export interface ArtifactDef {

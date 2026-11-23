@@ -118,8 +118,22 @@ export const SKILL_NODES: SkillNodeDef[] = [
     maxRank: 4,
     requires: ['worker_spd', 'worker_life']
   },
+  {
+    id: 'worker_evo',
+    gx: 1,
+    gy: -2,
+    branch: 'worker',
+    shape: 'square',
+    icon: 'evo',
+    category: 'Эволюция Рабочего',
+    title: 'Эволюция: Титан-труженик',
+    description: 'Высшая эволюция Рабочих: +25% к скорости, +2 к урону, +2 к лимиту, широкий проход и 25% шанс изумрудного импульса по соседним блокам!',
+    cost: 10,
+    maxRank: 1,
+    requires: ['worker_cap']
+  },
 
-  // LEFT — Warrior (Orange/Red)
+  // LEFT — Warrior (Orange/Red — balanced heavy line-breaker!)
   {
     id: 'warrior_unlock',
     gx: -1,
@@ -129,8 +143,8 @@ export const SKILL_NODES: SkillNodeDef[] = [
     icon: 'ant',
     category: 'Новый муравей',
     title: 'Муравей-воин',
-    description: 'Идёт строго в выбранном направлении и бьёт сразу по нескольким блокам.',
-    cost: 2,
+    description: 'Тяжёлый таран: идёт строго в выбранном направлении и крушит несколько блоков сразу.',
+    cost: 3,
     maxRank: 1,
     requires: ['worker_root']
   },
@@ -143,7 +157,7 @@ export const SKILL_NODES: SkillNodeDef[] = [
     icon: 'sword',
     category: 'Воин',
     title: 'Сокрушительный удар',
-    description: '+2 к урону Воина по всем задетым блокам.',
+    description: '+1 к урону Воина по всем задетым блокам.',
     cost: 3,
     maxRank: 4,
     requires: ['warrior_unlock']
@@ -157,7 +171,7 @@ export const SKILL_NODES: SkillNodeDef[] = [
     icon: 'cleave',
     category: 'Воин',
     title: 'Широкий захват',
-    description: 'Увеличивает зону удара Воина, позволяя крушить ещё больше блоков за раз.',
+    description: 'Увеличивает зону удара Воина, позволяя задевать больше блоков за раз.',
     cost: 4,
     maxRank: 3,
     requires: ['warrior_dmg']
@@ -171,7 +185,7 @@ export const SKILL_NODES: SkillNodeDef[] = [
     icon: 'swarm',
     category: 'Воин',
     title: 'Отряд воинов',
-    description: '+2 к максимуму активных Воинов в колонии.',
+    description: '+1 к максимуму активных Воинов в колонии.',
     cost: 3,
     maxRank: 3,
     requires: ['warrior_unlock']
@@ -185,7 +199,7 @@ export const SKILL_NODES: SkillNodeDef[] = [
     icon: 'speed',
     category: 'Воин',
     title: 'Натиск',
-    description: '+22% к скорости шага и частоте ударов Воина.',
+    description: '+20% к скорости шага и частоте ударов Воина.',
     cost: 3,
     maxRank: 3,
     requires: ['warrior_dmg', 'warrior_cap']
@@ -201,7 +215,7 @@ export const SKILL_NODES: SkillNodeDef[] = [
     icon: 'bounce',
     category: 'Новый муравей',
     title: 'Муравей-разведчик',
-    description: 'Очень быстрый! Отскакивает от блоков, давая им лёгкую тычку при каждом ударе.',
+    description: 'Стремительный рикошетчик! Быстро разведывает карту и наносит серии укусов при отскоках.',
     cost: 2,
     maxRank: 1,
     requires: ['worker_spd', 'worker_dmg']
@@ -219,6 +233,20 @@ export const SKILL_NODES: SkillNodeDef[] = [
     cost: 2,
     maxRank: 4,
     requires: ['scout_unlock']
+  },
+  {
+    id: 'scout_poison',
+    gx: 3,
+    gy: 1,
+    branch: 'scout',
+    shape: 'circle',
+    icon: 'poison',
+    category: 'Разведчик',
+    title: 'Ядовитый рикошет',
+    description: 'При отскоке Разведчик отравляет задетые блоки кислотой — они разъедаются ещё 4.5 сек (до 3.4 урона/сек).',
+    cost: 3,
+    maxRank: 3,
+    requires: ['scout_spd']
   },
   {
     id: 'scout_dmg',
@@ -273,7 +301,7 @@ export const SKILL_NODES: SkillNodeDef[] = [
     icon: 'queen',
     category: 'Новый муравей',
     title: 'Матка',
-    description: 'Медленно ползёт и выпускает вокруг себя маленьких муравьёв, которые кушают блоки рядом.',
+    description: 'Неспешно ползёт, выпускает выводок и усиливает всех союзных муравьёв в малом радиусе вокруг себя (+35% скорости, +1 урон).',
     cost: 4,
     maxRank: 1,
     requires: ['worker_dmg', 'scout_unlock']
@@ -376,9 +404,9 @@ export interface ColonyStats {
   farSense: boolean;
   compassCooldownSec: number;
   compassDuration: number;
-  worker: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number };
+  worker: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number; evolved: boolean };
   warrior: { speedMult: number; dmgBonus: number; radiusBonus: number; maxActive: number };
-  scout: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number };
+  scout: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number; poisonRank: number };
   queen: { spawnRateMult: number; broodDmgBonus: number; broodLifeMult: number; maxActive: number };
 }
 
@@ -388,7 +416,8 @@ function createDefaultSettings(): GameSettings {
     autoSwitchTrack: true,
     musicEnabled: true,
     sfxEnabled: true,
-    volume: 0.65
+    volume: 0.65,
+    autoSummon: false
   };
 }
 
@@ -664,6 +693,7 @@ export class SkillTreeManager {
     const acidBonus = this.hasMutation('acid_jaws') ? 1 : 0;
     const twinBonus = this.hasMutation('twin_workers') ? 2 : 0;
     const hasCompassMut = this.hasMutation('compass_cd');
+    const workerEvo = r('worker_evo') > 0;
 
     return {
       globalLifeMult: (1 + r('colony_life') * 0.25) * echoMult,
@@ -674,24 +704,26 @@ export class SkillTreeManager {
       queenAnomaly: this.hasMutation('queen_anomaly'),
       farSense: this.hasMutation('far_sense'),
       compassCooldownSec: hasCompassMut ? 78 : 120,
-      compassDuration: hasCompassMut ? 7.0 : 5.0,
+      compassDuration: hasCompassMut ? 9.0 : 6.5,
       worker: {
-        speedMult: (1 + r('worker_spd') * 0.22) * totalGlobalSpeed,
-        dmgBonus: r('worker_dmg'),
+        speedMult: (1 + r('worker_spd') * 0.22) * (workerEvo ? 1.25 : 1) * totalGlobalSpeed,
+        dmgBonus: r('worker_dmg') + (workerEvo ? 2 : 0),
         lifeMult: 1 + r('worker_life') * 0.35,
-        maxActive: 6 + twinBonus + r('worker_cap') * 3
+        maxActive: 6 + twinBonus + r('worker_cap') * 3 + (workerEvo ? 2 : 0),
+        evolved: workerEvo
       },
       warrior: {
-        speedMult: (1 + r('warrior_spd') * 0.22) * totalGlobalSpeed,
-        dmgBonus: r('warrior_dmg') * 2,
-        radiusBonus: r('warrior_cleave') * 0.65,
-        maxActive: 2 + r('warrior_cap') * 2
+        speedMult: (1 + r('warrior_spd') * 0.2) * totalGlobalSpeed,
+        dmgBonus: r('warrior_dmg'),
+        radiusBonus: r('warrior_cleave') * 0.45,
+        maxActive: 2 + r('warrior_cap')
       },
       scout: {
         speedMult: (1 + r('scout_spd') * 0.25) * totalGlobalSpeed,
         dmgBonus: r('scout_dmg'),
         lifeMult: 1 + r('scout_life') * 0.4,
-        maxActive: 4 + r('scout_cap') * 3
+        maxActive: 4 + r('scout_cap') * 3,
+        poisonRank: r('scout_poison')
       },
       queen: {
         spawnRateMult: (1 + r('queen_rate') * 0.25) * totalGlobalSpeed,

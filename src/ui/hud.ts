@@ -31,7 +31,7 @@ import {
 import { onlineDirectory } from '../multiplayer/onlineDirectory';
 
 const NODE_STEP = 74;
-const ORIGIN_X = 268;
+const ORIGIN_X = 270;
 const ORIGIN_Y = 192;
 const NICK_STORAGE_KEY = 'sugar_ants_nick_v1';
 const HINTS_DONE_KEY = 'sugar_ants_hints_done_v1';
@@ -105,6 +105,18 @@ function renderSkillSvg(icon: SkillIcon): string {
         <circle cx="16" cy="14" r="2.4" fill="currentColor" fill-opacity="0.7"/>
         <path d="M17 5v4M15 7h4"/>
       </svg>`;
+    case 'poison':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3 C12 3 6.5 10.2 6.5 14.5 A5.5 5.5 0 0 0 17.5 14.5 C17.5 10.2 12 3 12 3 Z" fill="currentColor" fill-opacity="0.28"/>
+        <circle cx="10.5" cy="14.5" r="1.2" fill="currentColor"/>
+        <circle cx="14" cy="16.2" r="0.9" fill="currentColor"/>
+        <circle cx="13.5" cy="12" r="0.8" fill="currentColor"/>
+      </svg>`;
+    case 'evo':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12,2 16,8 22,12 16,16 12,22 8,16 2,12 8,8" fill="currentColor" fill-opacity="0.24"/>
+        <circle cx="12" cy="12" r="3" fill="currentColor"/>
+      </svg>`;
   }
 }
 
@@ -153,6 +165,10 @@ export class HudController {
   private statDigEl = document.getElementById('stat-dig')!;
   private statSugarEl = document.getElementById('stat-sugar')!;
   private sugarChipEl = document.getElementById('sugar-chip')!;
+  private rushChipEl = document.getElementById('rush-chip')!;
+  private statRushEl = document.getElementById('stat-rush')!;
+  private autoChipEl = document.getElementById('auto-chip')!;
+  private btnBeaconEl = document.getElementById('btn-beacon')!;
   private antBarEl = document.getElementById('ant-bar')!;
   private upgradeBadgeEl = document.getElementById('upgrade-badge')!;
   private tutorialHintEl = document.getElementById('tutorial-hint')!;
@@ -578,6 +594,7 @@ export class HudController {
 
     // Classic HUD buttons
     document.getElementById('btn-menu')!.addEventListener('click', () => this.showMainMenu());
+    this.btnBeaconEl.addEventListener('click', () => this.engine.toggleBeaconMode());
     document.getElementById('btn-settings-hud')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('btn-reset-cam')!.addEventListener('click', () => this.engine.resetCamera());
     document.getElementById('btn-upgrades')!.addEventListener('click', () => this.openSkillTree());
@@ -2284,6 +2301,14 @@ export class HudController {
       this.statSugarEl.textContent = 'Поиск сахара';
     }
 
+    const rushSec = Math.ceil(this.engine.sugarRushTimer);
+    this.rushChipEl.classList.toggle('hidden', rushSec <= 0);
+    if (rushSec > 0) this.statRushEl.textContent = `${rushSec}с`;
+
+    this.autoChipEl.classList.toggle('hidden', !skillTree.state.settings.autoSummon);
+    this.btnBeaconEl.classList.toggle('beacon-active', this.engine.beaconMode);
+    this.btnBeaconEl.classList.toggle('beacon-set', Boolean(this.engine.beacon) && !this.engine.beaconMode);
+
     this.upgradeBadgeEl.classList.toggle('hidden', !skillTree.hasAffordableNode());
 
     this.renderAntBar();
@@ -2797,6 +2822,20 @@ export class HudController {
       audio.applySettings(skillTree.state.settings);
       this.renderSettingsContent();
     });
+
+    addToggle(
+      '🤖 Авто-призыв муравьёв',
+      'Автоматически выпускать Рабочих, Воинов, Разведчиков и Маток, пока есть свободные слоты',
+      s.autoSummon,
+      () => {
+        skillTree.updateSettings({ autoSummon: !s.autoSummon });
+        this.renderSettingsContent();
+        this.sync();
+        this.showToast(
+          skillTree.state.settings.autoSummon ? '🤖 Авто-призыв муравьёв включён' : '🤖 Авто-призыв выключен'
+        );
+      }
+    );
 
     const resetRow = document.createElement('div');
     resetRow.className = 'card-row';

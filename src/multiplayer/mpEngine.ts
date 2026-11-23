@@ -1,4 +1,4 @@
-import { ANT_TYPES } from '../core/ants';
+import { ANT_TYPES, QUEEN_AURA_RADIUS } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
 import { getOptimalDpr, isMobileDevice } from '../core/device';
@@ -13,6 +13,7 @@ import {
   LevelDefinition,
   PLAYER_COLORS,
   PlayableAntId,
+  ScentPoint,
   SkillNodeDef
 } from '../core/types';
 import { BLOCK_HP } from '../core/world';
@@ -144,6 +145,7 @@ export class MultiplayerEngine {
   sugarExposed = false;
 
   ants: MpAnt[] = [];
+  scentTrail: ScentPoint[] = [];
   pings: MapPing[] = [];
   worms: CoopWorm[] = [];
   particles = new ParticleSystem();
@@ -328,6 +330,7 @@ export class MultiplayerEngine {
     }
 
     this.ants = [];
+    this.scentTrail = [];
     this.pings = [];
     this.worms = [];
     this.particles.particles = [];
@@ -698,6 +701,7 @@ export class MultiplayerEngine {
   getLocalColonyStats(): ColonyStats {
     const r = (id: string) => this.getSkillRank(id);
     const achSpd = this.achievementSpeedMult;
+    const workerEvo = r('worker_evo') > 0;
     return {
       globalLifeMult: 1 + r('colony_life') * 0.25,
       globalSpeedMult: achSpd,
@@ -707,24 +711,26 @@ export class MultiplayerEngine {
       queenAnomaly: false,
       farSense: false,
       compassCooldownSec: 120,
-      compassDuration: 5.0,
+      compassDuration: 6.5,
       worker: {
-        speedMult: (1 + r('worker_spd') * 0.22) * achSpd,
-        dmgBonus: r('worker_dmg'),
+        speedMult: (1 + r('worker_spd') * 0.22) * (workerEvo ? 1.25 : 1) * achSpd,
+        dmgBonus: r('worker_dmg') + (workerEvo ? 2 : 0),
         lifeMult: 1 + r('worker_life') * 0.35,
-        maxActive: 6 + r('worker_cap') * 3
+        maxActive: 6 + r('worker_cap') * 3 + (workerEvo ? 2 : 0),
+        evolved: workerEvo
       },
       warrior: {
-        speedMult: (1 + r('warrior_spd') * 0.22) * achSpd,
-        dmgBonus: r('warrior_dmg') * 2,
-        radiusBonus: r('warrior_cleave') * 0.65,
-        maxActive: 2 + r('warrior_cap') * 2
+        speedMult: (1 + r('warrior_spd') * 0.2) * achSpd,
+        dmgBonus: r('warrior_dmg'),
+        radiusBonus: r('warrior_cleave') * 0.45,
+        maxActive: 2 + r('warrior_cap')
       },
       scout: {
         speedMult: (1 + r('scout_spd') * 0.25) * achSpd,
         dmgBonus: r('scout_dmg'),
         lifeMult: 1 + r('scout_life') * 0.4,
-        maxActive: 4 + r('scout_cap') * 3
+        maxActive: 4 + r('scout_cap') * 3,
+        poisonRank: r('scout_poison')
       },
       queen: {
         spawnRateMult: (1 + r('queen_rate') * 0.25) * achSpd,
@@ -1228,7 +1234,7 @@ export class MultiplayerEngine {
     const type = this.state.selectedAnt;
     if (type === 'compass' && this.state.compassCd > 0) {
       const sec = Math.ceil(this.state.compassCd);
-      this.callbacks.onToast(`Компас перезаряжается: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+      this.callbacks.onToast(`Ищейка перезаряжается: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
       return;
     }
 
@@ -1393,6 +1399,19 @@ export class MultiplayerEngine {
 
     const localStats = this.getLocalColonyStats();
 
+    // Decay Bloodhound (Ищейка) scent trail in Co-op
+    for (let i = this.scentTrail.length - 1; i >= 0; i--) {
+      this.scentTrail[i].life -= dt;
+      if (this.scentTrail[i].life <= 0) this.scentTrail.splice(i, 1);
+    }
+
+    // Collect Queens for tiny 13px royal aura buffing!
+    const queens: { x: number; y: number }[] = [];
+    for (let i = 0; i < this.ants.length; i++) {
+      if (this.ants[i].type === 'queen') queens.push({ x: this.ants[i].x, y: this.ants[i].y });
+    }
+    const queenAuraSq = QUEEN_AURA_RADIUS * QUEEN_AURA_RADIUS;
+
     for (let i = this.ants.length - 1; i >= 0; i--) {
       const ant = this.ants[i];
       const cfg = ANT_TYPES[ant.type];
@@ -1468,15 +1487,45 @@ export class MultiplayerEngine {
       let dmg = cfg.baseDamage;
       let radius = cfg.baseRadius;
       if (isLocal) {
-        if (ant.type === 'worker') { speedMult = localStats.worker.speedMult; dmg += localStats.worker.dmgBonus; }
+        if (ant.type === 'worker') {
+          speedMult = localStats.worker.speedMult;
+          dmg += localStats.worker.dmgBonus;
+          if (localStats.worker.evolved) radius += 0.8;
+        }
         if (ant.type === 'warrior') { speedMult = localStats.warrior.speedMult; dmg += localStats.warrior.dmgBonus; radius += localStats.warrior.radiusBonus; }
         if (ant.type === 'scout') { speedMult = localStats.scout.speedMult; dmg += localStats.scout.dmgBonus; }
         if (ant.type === 'brood') { dmg += localStats.queen.broodDmgBonus; }
+        if (ant.type === 'compass') { speedMult = localStats.globalSpeedMult; }
       }
-      if (ant.type === 'compass') dmg = 1;
+
+      // Queen tiny royal buff aura (+35% speed, +1 dmg within 13px!)
+      if (ant.type !== 'queen' && queens.length > 0) {
+        for (let q = 0; q < queens.length; q++) {
+          const qdx = ant.x - queens[q].x;
+          const qdy = ant.y - queens[q].y;
+          if (qdx * qdx + qdy * qdy <= queenAuraSq) {
+            speedMult *= 1.35;
+            dmg += 1;
+            break;
+          }
+        }
+      }
 
       if (this.sugarRushTimer > 0) {
         speedMult *= 1.8;
+      }
+
+      // Record lingering golden scent trail for Ищейка!
+      if (ant.type === 'compass') {
+        ant.trailTimer += dt;
+        if (ant.trailTimer >= 0.12) {
+          ant.trailTimer = 0;
+          const last = this.scentTrail[this.scentTrail.length - 1];
+          if (!last || Math.hypot(ant.x - last.x, ant.y - last.y) >= 2.2) {
+            this.scentTrail.push({ x: ant.x, y: ant.y, angle: ant.angle, life: 16, maxLife: 16 });
+            if (this.scentTrail.length > 180) this.scentTrail.shift();
+          }
+        }
       }
 
       const speed = cfg.baseSpeed * speedMult;
@@ -1511,6 +1560,14 @@ export class MultiplayerEngine {
           const isBotOwned = ant.ownerId.startsWith('bot_') && (!this.transport || this.transport.isHost);
           if (isLocal || isBotOwned) {
             this.digInternal(nx, ny, radius, dmg, ant.ownerId, true);
+            if (isLocal && ant.type === 'worker' && localStats.worker.evolved && Math.random() < 0.25) {
+              this.digInternal(nx, ny, 3.2, 2, ant.ownerId, true);
+              this.particles.spawn(nx, ny, 95, 255, 175, 4, 20, 0.5, 1.5);
+            }
+            if (isLocal && ant.type === 'scout' && localStats.scout.poisonRank > 0) {
+              this.digInternal(nx, ny, 1.8 + localStats.scout.poisonRank * 0.4, localStats.scout.poisonRank * 2, ant.ownerId, true);
+              this.particles.spawn(nx, ny, 125, 255, 95, 4, 18, 0.6, 1.4);
+            }
           }
           if (ant.type === 'scout') {
             ant.angle += Math.PI * 0.75 + (Math.random() - 0.5) * 0.5;
@@ -2383,15 +2440,46 @@ export class MultiplayerEngine {
       ctx.fill();
     }
 
-    // Ants with each player's chosen SKIN & COLOR (offscreen ants culled for mobile speed!)
+    // Lingering golden trajectory ribbon for Ищейка in Co-op!
+    if (this.scentTrail.length >= 2) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (let i = 1; i < this.scentTrail.length; i++) {
+        const a = this.scentTrail[i - 1];
+        const b = this.scentTrail[i];
+        if (Math.hypot(b.x - a.x, b.y - a.y) > 16) continue;
+        const alpha = Math.max(0, Math.min(1, b.life / b.maxLife));
+        ctx.strokeStyle = `rgba(255, 224, 110, ${alpha * 0.72})`;
+        ctx.lineWidth = Math.max(1.8, z * 0.55);
+        ctx.beginPath();
+        ctx.moveTo(drawX + a.x * z, drawY + a.y * z);
+        ctx.lineTo(drawX + b.x * z, drawY + b.y * z);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Queen tiny 13px royal aura rings + Ants with each player's chosen SKIN & COLOR!
+    const localWorkerEvo = this.getSkillRank('worker_evo') > 0;
     for (const ant of this.ants) {
       const sx = drawX + ant.x * z;
       const sy = drawY + ant.y * z;
+      if (ant.type === 'queen') {
+        const auraR = QUEEN_AURA_RADIUS * z;
+        ctx.strokeStyle = 'rgba(255, 200, 120, 0.34)';
+        ctx.lineWidth = Math.max(1.1, z * 0.22);
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, auraR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       if (sx < -36 || sx > this.viewW + 36 || sy < -36 || sy > this.viewH + 36) continue;
       const owner = this.getPlayer(ant.ownerId);
       const col = owner ? PLAYER_COLORS[owner.colorIndex % PLAYER_COLORS.length] : PLAYER_COLORS[0];
       const skin = owner ? owner.skin : 'classic';
-      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, z, skin, col.rgb);
+      const isEvo = ant.type === 'worker' && ant.ownerId === this.state.localPlayerId && localWorkerEvo;
+      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, z, skin, col.rgb, isEvo);
     }
 
     // Aim arrow

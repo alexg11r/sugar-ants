@@ -74,6 +74,9 @@ export interface DigResult {
   sugarHit: boolean;
   artifactFound: ArtifactDef | null;
   artRevealed: number;
+  sporeBlasts: { x: number; y: number }[];
+  sugarDustHits: { x: number; y: number }[];
+  cocoonHatches: { x: number; y: number }[];
 }
 
 export const BLOCK_HP: Record<number, number> = {
@@ -85,7 +88,10 @@ export const BLOCK_HP: Record<number, number> = {
   [CellType.HiddenArt]: 255,
   [CellType.SkillCrystal]: 10,
   [CellType.Sugar]: 1,
-  [CellType.Artifact]: 6
+  [CellType.Artifact]: 6,
+  [CellType.ExplosiveSpore]: 5,
+  [CellType.SugarDust]: 6,
+  [CellType.AncientCocoon]: 7
 };
 
 export class World {
@@ -105,6 +111,9 @@ export class World {
   artExposed: Uint8Array;
   /** 1 if this cell is genuinely reachable by ants from the nest (BFS flood-fill!) */
   reachableMask: Uint8Array;
+  /** 1 if this cell is currently corroded by Scout acid poison */
+  poisonMask: Uint8Array;
+  private poisonEntries = new Map<number, { timeLeft: number; dps: number; accum: number }>();
   noise: Uint8Array;
 
   nestX: number;
@@ -142,6 +151,7 @@ export class World {
     this.revealedMask = new Uint8Array(size);
     this.artExposed = new Uint8Array(size);
     this.reachableMask = new Uint8Array(size);
+    this.poisonMask = new Uint8Array(size);
     this.noise = new Uint8Array(size);
 
     this.nestX = Math.floor(this.width * 0.5);
@@ -510,6 +520,11 @@ export class World {
     }
     this.stats.totalCrystals = placedCrystals;
 
+    // 5b. Place Hidden Underground Finds (Explosive Spores, Sugar Dust veins & Ancient Cocoons) in BFS-reachable rock!
+    this.placeSpecialFinds(CellType.ExplosiveSpore, 9, 24);
+    this.placeSpecialFinds(CellType.SugarDust, 7, 26);
+    this.placeSpecialFinds(CellType.AncientCocoon, 6, 28);
+
     // 6. Count reachable breakable blocks & mark initial border edges
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -530,6 +545,10 @@ export class World {
   }
 
   private tryPlaceCrystal(cx: number, cy: number): boolean {
+    return this.tryPlaceCluster2x2(cx, cy, CellType.SkillCrystal);
+  }
+
+  private tryPlaceCluster2x2(cx: number, cy: number, type: CellType): boolean {
     const w = this.width;
     const h = this.height;
     if (cx < 8 || cx > w - 10 || cy < 8 || cy > h - 10) return false;
@@ -545,10 +564,26 @@ export class World {
     }
     for (let dy = 0; dy <= 1; dy++) {
       for (let dx = 0; dx <= 1; dx++) {
-        this.setBlock((cy + dy) * w + (cx + dx), CellType.SkillCrystal);
+        this.setBlock((cy + dy) * w + (cx + dx), type);
       }
     }
     return true;
+  }
+
+  private placeSpecialFinds(type: CellType, targetCount: number, minNestDist: number) {
+    const w = this.width;
+    const h = this.height;
+    let placed = 0;
+    for (let attempt = 0; attempt < targetCount * 160 && placed < targetCount; attempt++) {
+      const cx = Math.floor(w * 0.08 + Math.random() * (w * 0.84));
+      const cy = Math.floor(h * 0.08 + Math.random() * (h * 0.84));
+      if (this.reachableMask[cy * w + cx] !== 1) continue;
+      if (Math.hypot(cx - this.nestX, cy - this.nestY) < minNestDist) continue;
+      if (Math.hypot(cx - this.sugarX, cy - this.sugarY) < 18) continue;
+      if (this.tryPlaceCluster2x2(cx, cy, type)) {
+        placed++;
+      }
+    }
   }
 
   revealCircle(cx: number, cy: number, radius: number) {
@@ -625,7 +660,10 @@ export class World {
       crystalsBroken: 0,
       sugarHit: false,
       artifactFound: null,
-      artRevealed: 0
+      artRevealed: 0,
+      sporeBlasts: [],
+      sugarDustHits: [],
+      cocoonHatches: []
     };
 
     const rCeil = Math.ceil(radius);
@@ -673,13 +711,7 @@ export class World {
           result.damagedCount++;
         } else {
           revealedNewTunnel = true;
-          if (cell === CellType.SkillCrystal) {
-            this.breakCrystalCluster(x, y, result);
-          } else if (cell === CellType.Artifact) {
-            this.breakArtifactCluster(x, y, result);
-          } else {
-            this.destroyCell(x, y, result);
-          }
+          this.breakCellByType(x, y, cell, result);
         }
       }
     }
@@ -694,6 +726,139 @@ export class World {
     return result;
   }
 
+  /** Applies Scout acid corrosion to nearby breakable blocks so they keep melting over 4.5s! */
+  applyPoison(cx: number, cy: number, radius: number, dps: number, duration = 4.5) {
+    const rCeil = Math.ceil(radius);
+    const rSq = radius * radius;
+    const w = this.width;
+    let touched = false;
+    for (let dy = -rCeil; dy <= rCeil; dy++) {
+      for (let dx = -rCeil; dx <= rCeil; dx++) {
+        if (dx * dx + dy * dy > rSq) continue;
+        const x = Math.round(cx + dx);
+        const y = Math.round(cy + dy);
+        if (!this.inBounds(x, y)) continue;
+        const idx = y * w + x;
+        const c = this.cells[idx] as CellType;
+        if (c === CellType.Empty || c === CellType.HiddenArt || c === CellType.Sugar) continue;
+        const prev = this.poisonEntries.get(idx);
+        if (prev) {
+          prev.timeLeft = Math.max(prev.timeLeft, duration);
+          prev.dps = Math.max(prev.dps, dps);
+        } else {
+          this.poisonEntries.set(idx, { timeLeft: duration, dps, accum: 0 });
+          this.poisonMask[idx] = 1;
+          touched = true;
+        }
+      }
+    }
+    if (touched) this.visualVersion++;
+  }
+
+  /** Ticks all currently poisoned blocks (O(poisoned count), 0 cost when empty!) */
+  updatePoison(dt: number): DigResult {
+    const result: DigResult = {
+      hitSolid: false,
+      hitIndestructible: false,
+      dugCount: 0,
+      damagedCount: 0,
+      crystalsBroken: 0,
+      sugarHit: false,
+      artifactFound: null,
+      artRevealed: 0,
+      sporeBlasts: [],
+      sugarDustHits: [],
+      cocoonHatches: []
+    };
+    if (this.poisonEntries.size === 0) return result;
+
+    const w = this.width;
+    let changed = false;
+
+    for (const [idx, entry] of this.poisonEntries) {
+      const cell = this.cells[idx] as CellType;
+      if (cell === CellType.Empty || cell === CellType.HiddenArt || cell === CellType.Sugar) {
+        this.poisonEntries.delete(idx);
+        this.poisonMask[idx] = 0;
+        changed = true;
+        continue;
+      }
+
+      entry.timeLeft -= dt;
+      entry.accum += entry.dps * dt;
+
+      if (entry.accum >= 1) {
+        const dmg = Math.floor(entry.accum);
+        entry.accum -= dmg;
+        if (this.hp[idx] > dmg) {
+          this.hp[idx] -= dmg;
+          result.damagedCount++;
+          changed = true;
+        } else {
+          const x = idx % w;
+          const y = Math.floor(idx / w);
+          this.poisonEntries.delete(idx);
+          this.poisonMask[idx] = 0;
+          this.breakCellByType(x, y, cell, result);
+          this.revealCircle(x, y, this.revealRadius);
+          changed = true;
+          continue;
+        }
+      }
+
+      if (entry.timeLeft <= 0) {
+        this.poisonEntries.delete(idx);
+        this.poisonMask[idx] = 0;
+        changed = true;
+      }
+    }
+
+    if (changed) this.visualVersion++;
+    return result;
+  }
+
+  private breakCellByType(x: number, y: number, cell: CellType, result: DigResult) {
+    if (cell === CellType.SkillCrystal) {
+      this.breakCrystalCluster(x, y, result);
+    } else if (cell === CellType.Artifact) {
+      this.breakArtifactCluster(x, y, result);
+    } else if (cell === CellType.ExplosiveSpore) {
+      this.breakSporeCluster(x, y, result);
+    } else if (cell === CellType.SugarDust) {
+      this.breakSugarDustCluster(x, y, result);
+    } else if (cell === CellType.AncientCocoon) {
+      this.breakCocoonCluster(x, y, result);
+    } else {
+      this.destroyCell(x, y, result);
+    }
+  }
+
+  private clearCluster(sx: number, sy: number, targetType: CellType, result: DigResult): boolean {
+    const queue: [number, number][] = [[sx, sy]];
+    let brokeAny = false;
+    while (queue.length > 0) {
+      const [x, y] = queue.pop()!;
+      if (!this.inBounds(x, y)) continue;
+      const idx = y * this.width + x;
+      if (this.cells[idx] !== targetType) continue;
+
+      this.cells[idx] = CellType.Empty;
+      this.hp[idx] = 0;
+      this.maxHp[idx] = 0;
+      this.isEdge[idx] = 0;
+      if (this.poisonMask[idx]) {
+        this.poisonMask[idx] = 0;
+        this.poisonEntries.delete(idx);
+      }
+      result.dugCount++;
+      brokeAny = true;
+
+      this.updateNeighbors(x, y, result);
+      queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+    return brokeAny;
+  }
+
   private destroyCell(x: number, y: number, result: DigResult) {
     const idx = y * this.width + x;
     const cell = this.cells[idx] as CellType;
@@ -703,6 +868,10 @@ export class World {
     this.hp[idx] = 0;
     this.maxHp[idx] = 0;
     this.isEdge[idx] = 0;
+    if (this.poisonMask[idx]) {
+      this.poisonMask[idx] = 0;
+      this.poisonEntries.delete(idx);
+    }
     result.dugCount++;
 
     if (this.isTerrain(cell)) {
@@ -713,57 +882,68 @@ export class World {
   }
 
   private breakCrystalCluster(sx: number, sy: number, result: DigResult) {
-    const queue: [number, number][] = [[sx, sy]];
-    let brokeAny = false;
-
-    while (queue.length > 0) {
-      const [x, y] = queue.pop()!;
-      if (!this.inBounds(x, y)) continue;
-      const idx = y * this.width + x;
-      if (this.cells[idx] !== CellType.SkillCrystal) continue;
-
-      this.cells[idx] = CellType.Empty;
-      this.hp[idx] = 0;
-      this.maxHp[idx] = 0;
-      this.isEdge[idx] = 0;
-      result.dugCount++;
-      brokeAny = true;
-
-      this.updateNeighbors(x, y, result);
-      queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-    }
-
-    if (brokeAny) {
+    if (this.clearCluster(sx, sy, CellType.SkillCrystal, result)) {
       this.stats.crystalsCollected++;
       result.crystalsBroken++;
     }
   }
 
   private breakArtifactCluster(sx: number, sy: number, result: DigResult) {
-    const queue: [number, number][] = [[sx, sy]];
-    let brokeAny = false;
-
-    while (queue.length > 0) {
-      const [x, y] = queue.pop()!;
-      if (!this.inBounds(x, y)) continue;
-      const idx = y * this.width + x;
-      if (this.cells[idx] !== CellType.Artifact) continue;
-
-      this.cells[idx] = CellType.Empty;
-      this.hp[idx] = 0;
-      this.maxHp[idx] = 0;
-      this.isEdge[idx] = 0;
-      result.dugCount++;
-      brokeAny = true;
-
-      this.updateNeighbors(x, y, result);
-      queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-    }
-
-    if (brokeAny && this.artifactDef && !this.stats.artifactCollected) {
+    if (this.clearCluster(sx, sy, CellType.Artifact, result) && this.artifactDef && !this.stats.artifactCollected) {
       this.stats.artifactCollected = true;
       this.artifactExposed = true;
       result.artifactFound = this.artifactDef;
+    }
+  }
+
+  private breakSporeCluster(sx: number, sy: number, result: DigResult) {
+    if (!this.clearCluster(sx, sy, CellType.ExplosiveSpore, result)) return;
+    result.sporeBlasts.push({ x: sx, y: sy });
+
+    // Organic cavern blast (radius ~9.2px) that safely skips HiddenArt and exposes Sugar!
+    const blastR = 9.2;
+    const rCeil = Math.ceil(blastR);
+    for (let dy = -rCeil; dy <= rCeil; dy++) {
+      for (let dx = -rCeil; dx <= rCeil; dx++) {
+        const x = sx + dx;
+        const y = sy + dy;
+        if (!this.inBounds(x, y)) continue;
+        const idx = y * this.width + x;
+        const jitter = (this.noise[idx] / 255) * 2.1;
+        if (Math.hypot(dx, dy) + jitter > blastR) continue;
+        const c = this.cells[idx] as CellType;
+        if (c === CellType.Empty) continue;
+        if (c === CellType.HiddenArt) {
+          if (!this.artExposed[idx]) {
+            this.artExposed[idx] = 1;
+            this.stats.revealedArt++;
+            result.artRevealed++;
+          }
+          continue;
+        }
+        if (c === CellType.Sugar) {
+          this.sugarExposed = true;
+          if (!this.stats.sugarFound) {
+            this.stats.sugarFound = true;
+            result.sugarHit = true;
+          }
+          continue;
+        }
+        this.breakCellByType(x, y, c, result);
+      }
+    }
+    this.revealCircle(sx, sy, this.revealRadius + 10);
+  }
+
+  private breakSugarDustCluster(sx: number, sy: number, result: DigResult) {
+    if (this.clearCluster(sx, sy, CellType.SugarDust, result)) {
+      result.sugarDustHits.push({ x: sx, y: sy });
+    }
+  }
+
+  private breakCocoonCluster(sx: number, sy: number, result: DigResult) {
+    if (this.clearCluster(sx, sy, CellType.AncientCocoon, result)) {
+      result.cocoonHatches.push({ x: sx, y: sy });
     }
   }
 
@@ -779,6 +959,8 @@ export class World {
     }
 
     this.stats.mapCleared = true;
+    this.poisonEntries.clear();
+    this.poisonMask.fill(0);
     const total = this.width * this.height;
     for (let i = 0; i < total; i++) {
       const c = this.cells[i] as CellType;

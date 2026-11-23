@@ -5,7 +5,7 @@ import { getOptimalDpr } from '../core/device';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, WorldRenderer } from '../core/renderer';
-import { Ant, ArtifactDef, LevelDefinition, PlayableAntId } from '../core/types';
+import { Ant, ArtifactDef, LevelDefinition, PheromoneBeacon, PlayableAntId } from '../core/types';
 import { World, WorldSnapshot } from '../core/world';
 import { getArtifactForLevel } from './artifacts';
 import { SkillTreeManager } from './skillTree';
@@ -20,6 +20,7 @@ interface ActiveRunSnapshot {
   compassCooldown: number;
   selectedAnt: PlayableAntId;
   camera: Camera;
+  beacon?: PheromoneBeacon | null;
 }
 
 export interface EngineCallbacks {
@@ -49,6 +50,11 @@ export class GameEngine {
   paused = true; // Starts paused while Main Menu is open
   /** Mobile 1-finger camera pan toggle (false = 1-finger launches ants, true = 1-finger drags camera) */
   touchPanMode = false;
+  /** Pheromone beacon guiding free Workers & Queen Brood gently with smart obstacle avoidance! */
+  beacon: PheromoneBeacon | null = null;
+  beaconMode = false;
+  /** Remaining seconds of ×1.6 Sugar Dust Rush fever! */
+  sugarRushTimer = 0;
   /** True when an in-progress mid-map run exists (either restored from disk or played in this session) */
   private hasActiveRun = false;
 
@@ -60,6 +66,8 @@ export class GameEngine {
   private elapsed = 0;
   private hudSyncAccum = 0;
   private autoSaveAccum = 0;
+  private autoSummonAccum = 0;
+  private lastLaunchWorld: { x: number; y: number } | null = null;
   private fireworkAccum = 0;
   private sugarBurstTime = -1;
   private sugarBurstTimers: number[] = [];
@@ -103,6 +111,7 @@ export class GameEngine {
       this.ants.restoreState(restored.ants, restored.compassCooldown);
       this.selectedAnt = this.skillTree.isAntUnlocked(restored.selectedAnt) ? restored.selectedAnt : 'worker';
       this.camera = { ...restored.camera };
+      this.beacon = restored.beacon ? { ...restored.beacon } : null;
       this.hasActiveRun = true;
       this.renderer = new WorldRenderer(this.world.width, this.world.height);
       this.resize();
@@ -126,6 +135,7 @@ export class GameEngine {
     compassCooldown: number;
     selectedAnt: PlayableAntId;
     camera: Camera;
+    beacon: PheromoneBeacon | null;
   } | null {
     try {
       const raw = localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
@@ -150,12 +160,17 @@ export class GameEngine {
 
       const savedAnts = Array.isArray(snap.ants) ? snap.ants : [];
       const selectedAnt: PlayableAntId = snap.selectedAnt || 'worker';
+      const beacon =
+        snap.beacon && Number.isFinite(snap.beacon.x) && Number.isFinite(snap.beacon.y)
+          ? { x: snap.beacon.x, y: snap.beacon.y }
+          : null;
       return {
         world,
         ants: savedAnts,
         compassCooldown: typeof snap.compassCooldown === 'number' ? snap.compassCooldown : 0,
         selectedAnt,
-        camera: cam
+        camera: cam,
+        beacon
       };
     } catch {
       return null;
@@ -176,7 +191,8 @@ export class GameEngine {
         ants: this.ants.ants.map((a) => ({ ...a })),
         compassCooldown: this.ants.compassCooldown,
         selectedAnt: this.selectedAnt,
-        camera: { ...this.camera }
+        camera: { ...this.camera },
+        beacon: this.beacon ? { ...this.beacon } : null
       };
       localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, JSON.stringify(payload));
       this.hasActiveRun = true;
@@ -216,9 +232,35 @@ export class GameEngine {
 
   setTouchPanMode(enabled: boolean) {
     this.touchPanMode = enabled;
+    if (enabled) this.beaconMode = false;
     this.isAimingAnt = false;
     this.aimPreview = null;
     this.canvas.style.cursor = enabled ? 'grab' : 'crosshair';
+  }
+
+  toggleBeaconMode() {
+    this.beaconMode = !this.beaconMode;
+    if (this.beaconMode) {
+      this.touchPanMode = false;
+      this.isAimingAnt = false;
+      this.aimPreview = null;
+      this.canvas.style.cursor = 'cell';
+      this.callbacks.onToast(
+        this.beacon
+          ? '📍 Нажми на карту, чтобы переставить метку (или кликни по ней, чтобы убрать)'
+          : '📍 Нажми на карту — поставить феромонную метку для Рабочих и выводка'
+      );
+    } else {
+      this.canvas.style.cursor = 'crosshair';
+    }
+    this.callbacks.onHudSync();
+  }
+
+  clearBeacon() {
+    this.beacon = null;
+    this.beaconMode = false;
+    this.canvas.style.cursor = this.touchPanMode ? 'grab' : 'crosshair';
+    this.callbacks.onHudSync();
   }
 
   zoomBy(factor: number) {
@@ -333,6 +375,10 @@ export class GameEngine {
     this.clearSugarBurstTimers();
     this.sugarBurstTime = -1;
     this.cameraEaseTarget = null;
+    this.beacon = null;
+    this.beaconMode = false;
+    this.sugarRushTimer = 0;
+    this.lastLaunchWorld = null;
     this.fireworkAccum = 0;
     this.autoSaveAccum = 0;
     this.hasActiveRun = true;
@@ -404,13 +450,14 @@ export class GameEngine {
     const res = this.ants.spawnAnt(this.selectedAnt, spawn.x, spawn.y, angle, stats);
     if (res.ok) {
       this.hasActiveRun = true;
+      this.lastLaunchWorld = { x: spawn.x, y: spawn.y };
       const rgb = ANT_TYPES[this.selectedAnt].rgb;
       this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 5, 16, 0.5, 1.4);
       this.skillTree.recordCareer({ antsSpawned: 1 });
       if (this.selectedAnt === 'compass') {
         this.audio.playCompassLaunch();
         this.skillTree.unlockAchievement('use_compass');
-        this.callbacks.onToast('🧭 Компас взял след сахара!');
+        this.callbacks.onToast('🧭 Ищейка взяла след сахара! Следуй за золотым хвостом!');
       } else {
         this.audio.playSpawn();
       }
@@ -419,7 +466,7 @@ export class GameEngine {
       const sec = Math.ceil(this.ants.compassCooldown);
       const m = Math.floor(sec / 60);
       const s = String(sec % 60).padStart(2, '0');
-      this.callbacks.onToast(`Компас перезаряжается: ${m}:${s}`);
+      this.callbacks.onToast(`Ищейка перезаряжается: ${m}:${s}`);
     } else {
       const cfg = ANT_TYPES[this.selectedAnt];
       const cap = this.ants.getMaxActive(this.selectedAnt, stats);
@@ -532,8 +579,46 @@ export class GameEngine {
       }
     }
 
+    if (this.sugarRushTimer > 0) {
+      this.sugarRushTimer = Math.max(0, this.sugarRushTimer - dt);
+    }
+
     const stats = this.skillTree.getColonyStats();
-    const events = this.ants.update(simDt, this.world, this.particles, stats);
+    const rushMult = this.sugarRushTimer > 0 ? 1.6 : 1;
+    const events = this.ants.update(simDt, this.world, this.particles, stats, this.beacon, rushMult);
+
+    // Optional Auto-Summon (toggled in Settings): calmly refills empty ant slots without spam sounds!
+    if (this.skillTree.state.settings.autoSummon && !this.world.stats.mapCleared) {
+      this.autoSummonAccum += dt;
+      if (this.autoSummonAccum >= 0.65) {
+        this.autoSummonAccum = 0;
+        const order: PlayableAntId[] = [];
+        if (this.selectedAnt !== 'compass') order.push(this.selectedAnt);
+        for (const t of ['worker', 'warrior', 'scout', 'queen'] as PlayableAntId[]) {
+          if (!order.includes(t)) order.push(t);
+        }
+        for (const antType of order) {
+          if (!this.skillTree.isAntUnlocked(antType)) continue;
+          if (this.ants.countPlayerByType(antType) >= this.ants.getMaxActive(antType, stats)) continue;
+          const anchor = this.beacon || this.lastLaunchWorld || { x: this.world.nestX, y: this.world.nestY };
+          const spawn = this.world.findNearestEmpty(anchor.x, anchor.y, 28) || {
+            x: this.world.nestX,
+            y: this.world.nestY
+          };
+          const ang = this.beacon
+            ? Math.atan2(this.beacon.y - spawn.y, this.beacon.x - spawn.x) + (Math.random() - 0.5) * 0.7
+            : Math.random() * Math.PI * 2;
+          const r = this.ants.spawnAnt(antType, spawn.x, spawn.y, ang, stats);
+          if (r.ok) {
+            this.hasActiveRun = true;
+            const rgb = ANT_TYPES[antType].rgb;
+            this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 3, 12, 0.45, 1.2);
+            this.skillTree.recordCareer({ antsSpawned: 1 });
+          }
+          break;
+        }
+      }
+    }
 
     // ALL ongoing ant sounds are strictly gated by close zoom + central camera framing!
     if (events.dugPoints.length > 0) {
@@ -573,6 +658,25 @@ export class GameEngine {
       this.skillTree.recordCareer({ crystalsCollected: events.crystalsBroken });
       this.audio.playCrystal();
       this.callbacks.onToast(`♦ +${gained} очко навыков`);
+      this.callbacks.onHudSync();
+    }
+    if (events.sporeBlasts.length > 0) {
+      this.audio.playSporeBlast();
+      this.callbacks.onToast('💥 Взрывная спора расчистила пещеру!');
+      this.callbacks.onHudSync();
+    }
+    if (events.sugarDustHits.length > 0) {
+      this.sugarRushTimer = Math.max(this.sugarRushTimer, 15);
+      this.audio.playSugarDustRush();
+      this.callbacks.onToast('✨ Сахарная пыль! Скорость роя ×1.6 на 15 сек!');
+      this.callbacks.onHudSync();
+    }
+    if (events.cocoonHatches.length > 0) {
+      for (const c of events.cocoonHatches) {
+        this.ants.spawnFreeAlliesAt(c.x, c.y, stats, this.particles);
+      }
+      this.audio.playCocoonHatch();
+      this.callbacks.onToast('🥚 Древний кокон! Освобождены 3 союзных муравья!');
       this.callbacks.onHudSync();
     }
     if (events.artifactFound) {
@@ -668,7 +772,10 @@ export class GameEngine {
       this.particles,
       this.elapsed,
       this.aimPreview,
-      sugarBurst
+      sugarBurst,
+      this.ants.scentTrail,
+      this.beacon,
+      this.skillTree.getRank('worker_evo') > 0
     );
   }
 
@@ -727,10 +834,32 @@ export class GameEngine {
         return;
       }
 
-      if (e.button === 1 || e.button === 2 || this.touchPanMode) {
+      if (e.button === 1 || e.button === 2 || (this.touchPanMode && !this.beaconMode)) {
         this.isDraggingCam = true;
         this.lastDragX = e.clientX;
         this.lastDragY = e.clientY;
+        return;
+      }
+
+      // Pheromone Beacon placement mode!
+      if (this.beaconMode) {
+        const wPos = this.screenToWorld(e.clientX, e.clientY);
+        const cx = Math.max(8, Math.min(this.world.width - 8, wPos.x));
+        const cy = Math.max(8, Math.min(this.world.height - 8, wPos.y));
+        if (this.beacon && Math.hypot(cx - this.beacon.x, cy - this.beacon.y) <= 12) {
+          this.clearBeacon();
+          this.callbacks.onToast('📍 Феромонная метка снята');
+        } else {
+          this.beacon = { x: cx, y: cy };
+          this.beaconMode = false;
+          this.canvas.style.cursor = 'crosshair';
+          this.audio.ensureStarted();
+          this.audio.playBeaconPlace();
+          this.particles.spawn(cx, cy, 66, 245, 197, 14, 24, 0.9, 1.8);
+          this.saveRunProgress();
+          this.callbacks.onToast('📍 Феромонная метка установлена! Свободные рабочие и выводок тянутся туда');
+          this.callbacks.onHudSync();
+        }
         return;
       }
 
@@ -852,6 +981,9 @@ export class GameEngine {
       if (e.key === '3') this.selectAnt('scout');
       if (e.key === '4') this.selectAnt('queen');
       if (e.key === '5') this.selectAnt('compass');
+      if (e.key === 'b' || e.key === 'B' || e.key === 'и' || e.key === 'И') {
+        this.toggleBeaconMode();
+      }
       if (e.key === 'r' || e.key === 'R' || e.key === 'к' || e.key === 'К') {
         this.resetCamera();
       }

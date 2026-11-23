@@ -1,6 +1,6 @@
-import { ANT_TYPES } from './ants';
+import { ANT_TYPES, QUEEN_AURA_RADIUS } from './ants';
 import { isMobileDevice } from './device';
-import { Ant, AntSkinId, AntTypeId, CellType } from './types';
+import { Ant, AntSkinId, AntTypeId, CellType, PheromoneBeacon, ScentPoint } from './types';
 import { World } from './world';
 import { ParticleSystem } from './particles';
 
@@ -31,22 +31,23 @@ export function drawDetailedAnt(
   biteFlash: number,
   zoom: number,
   skin: AntSkinId = 'classic',
-  colorOverride?: [number, number, number]
+  colorOverride?: [number, number, number],
+  evolved = false
 ) {
   const cfg = ANT_TYPES[type];
   // Scale smoothly up to 28x close-up zoom while staying crisp and proportional to individual pixel blocks!
   const zoomScale = zoom <= 8 ? zoom * 0.62 : 4.96 + (zoom - 8) * 0.24;
-  const s = Math.max(1.8, zoomScale) * cfg.scale;
-  const [r, g, b] = colorOverride || cfg.rgb;
+  const s = Math.max(1.8, zoomScale) * cfg.scale * (evolved ? 1.12 : 1);
+  const [r, g, b] = colorOverride || (evolved ? [115, 255, 165] : cfg.rgb);
 
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(angle);
 
-  // Soft colored underglow
-  ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.2)`;
+  // Soft colored underglow (golden-emerald halo for Evolved Titan Workers!)
+  ctx.fillStyle = evolved ? 'rgba(255, 228, 110, 0.28)' : `rgba(${r}, ${g}, ${b}, 0.2)`;
   ctx.beginPath();
-  ctx.arc(0, 0, s * 3.2, 0, Math.PI * 2);
+  ctx.arc(0, 0, s * (evolved ? 3.8 : 3.2), 0, Math.PI * 2);
   ctx.fill();
 
   // 1. Six 2-jointed (bent) articulated legs with realistic tripod gait!
@@ -195,11 +196,11 @@ export function drawDetailedAnt(
     ctx.fill();
   }
 
-  // 6. Curved Mandibles (animated snap when biting!)
+  // 6. Curved Mandibles (animated snap when biting! Golden-glowing on Evolved Workers!)
   const openAmt = biteFlash > 0 ? 0.1 : 0.42;
-  const mandLen = (type === 'warrior' ? 1.55 : 0.82) * s;
-  ctx.strokeStyle = type === 'warrior' ? '#ffd166' : '#e8fff2';
-  ctx.lineWidth = Math.max(1.1, (type === 'warrior' ? 0.44 : 0.26) * s);
+  const mandLen = (type === 'warrior' ? 1.55 : evolved ? 1.15 : 0.82) * s;
+  ctx.strokeStyle = type === 'warrior' || evolved ? '#ffd859' : '#e8fff2';
+  ctx.lineWidth = Math.max(1.1, (type === 'warrior' ? 0.44 : evolved ? 0.34 : 0.26) * s);
 
   const mBaseX = headX + headRx * 0.72;
   ctx.beginPath();
@@ -306,6 +307,7 @@ export class WorldRenderer {
     const maxHp = world.maxHp;
     const isEdge = world.isEdge;
     const revealed = world.revealedMask;
+    const poison = world.poisonMask;
     const noise = world.noise;
     const artExposed = world.artExposed;
 
@@ -455,6 +457,63 @@ export class WorldRenderer {
           continue;
         }
 
+        if (cell === CellType.ExplosiveSpore) {
+          if (vis > 0.14) {
+            const pulse = 0.78 + 0.22 * Math.sin(time * 6.0 + n * 0.2);
+            const alpha = Math.min(1, (vis - 0.14) / 0.5);
+            const cr = Math.round(255 * pulse);
+            const cg = Math.round(108 * pulse);
+            const cb = Math.round(52 * pulse);
+            data[p] = Math.round(bR + (cr - bR) * alpha);
+            data[p + 1] = Math.round(bG + (cg - bG) * alpha);
+            data[p + 2] = Math.round(bB + (cb - bB) * alpha);
+            data[p + 3] = 255;
+            glow[p] = cr; glow[p + 1] = cg; glow[p + 2] = cb;
+            glow[p + 3] = Math.round(215 * alpha);
+          } else {
+            data32[idx] = bgPacked;
+          }
+          continue;
+        }
+
+        if (cell === CellType.SugarDust) {
+          if (vis > 0.14) {
+            const pulse = 0.8 + 0.2 * Math.sin(time * 5.2 + x * 0.7 + y * 0.7);
+            const alpha = Math.min(1, (vis - 0.14) / 0.5);
+            const cr = Math.round(255 * pulse);
+            const cg = Math.round(226 * pulse);
+            const cb = Math.round(92 * pulse);
+            data[p] = Math.round(bR + (cr - bR) * alpha);
+            data[p + 1] = Math.round(bG + (cg - bG) * alpha);
+            data[p + 2] = Math.round(bB + (cb - bB) * alpha);
+            data[p + 3] = 255;
+            glow[p] = cr; glow[p + 1] = cg; glow[p + 2] = cb;
+            glow[p + 3] = Math.round(220 * alpha);
+          } else {
+            data32[idx] = bgPacked;
+          }
+          continue;
+        }
+
+        if (cell === CellType.AncientCocoon) {
+          if (vis > 0.14) {
+            const wave = 0.5 + 0.5 * Math.sin(time * 4.2 + n * 0.15);
+            const alpha = Math.min(1, (vis - 0.14) / 0.5);
+            const cr = Math.round(115 + 105 * wave);
+            const cg = Math.round(245 - 110 * wave);
+            const cb = Math.round(185 + 70 * wave);
+            data[p] = Math.round(bR + (cr - bR) * alpha);
+            data[p + 1] = Math.round(bG + (cg - bG) * alpha);
+            data[p + 2] = Math.round(bB + (cb - bB) * alpha);
+            data[p + 3] = 255;
+            glow[p] = cr; glow[p + 1] = cg; glow[p + 2] = cb;
+            glow[p + 3] = Math.round(215 * alpha);
+          } else {
+            data32[idx] = bgPacked;
+          }
+          continue;
+        }
+
         if (vis <= 0.004) {
           data32[idx] = bgPacked;
           continue;
@@ -524,6 +583,18 @@ export class WorldRenderer {
           }
         }
 
+        // Toxic-lime acid shimmer on blocks corroded by Scout "Ядовитый рикошет"!
+        if (poison[idx] === 1) {
+          const acid = 0.58 + 0.25 * Math.sin(time * 7.5 + x * 0.7 + y * 0.7);
+          r = Math.round(r * (1 - acid * 0.55) + 115 * acid * 0.55);
+          g = Math.min(255, Math.round(g + (255 - g) * acid * 0.72));
+          b = Math.round(b * (1 - acid * 0.5) + 80 * acid * 0.5);
+          glow[p] = 115;
+          glow[p + 1] = 255;
+          glow[p + 2] = 95;
+          glow[p + 3] = Math.max(glow[p + 3], 185);
+        }
+
         data[p] = r;
         data[p + 1] = g;
         data[p + 2] = b;
@@ -552,7 +623,10 @@ export class WorldRenderer {
     particles: ParticleSystem,
     time: number,
     aimPreview: AimPreview | null,
-    sugarBurst: { x: number; y: number; progress: number } | null = null
+    sugarBurst: { x: number; y: number; progress: number } | null = null,
+    scentTrail: ScentPoint[] = [],
+    beacon: PheromoneBeacon | null = null,
+    workerEvolved = false
   ) {
     if (world.width !== this.width || world.height !== this.height) {
       this.resizeWorld(world.width, world.height);
@@ -734,6 +808,90 @@ export class WorldRenderer {
       ctx.stroke();
     }
 
+    // Lingering golden trajectory ribbon left by Ищейка (clearly shows direction toward Sugar!)
+    if (scentTrail.length >= 2) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (let i = 1; i < scentTrail.length; i++) {
+        const a = scentTrail[i - 1];
+        const b = scentTrail[i];
+        if (Math.hypot(b.x - a.x, b.y - a.y) > 16) continue;
+        const alpha = Math.max(0, Math.min(1, b.life / b.maxLife));
+        const ax = drawX + a.x * camera.zoom;
+        const ay = drawY + a.y * camera.zoom;
+        const bx = drawX + b.x * camera.zoom;
+        const by = drawY + b.y * camera.zoom;
+
+        ctx.strokeStyle = `rgba(255, 224, 110, ${alpha * 0.72})`;
+        ctx.lineWidth = Math.max(1.8, camera.zoom * 0.55);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+
+        // Crisp golden chevron direction tick every 4 segments so vector toward Sugar is unmistakable!
+        if (i % 4 === 0 && alpha > 0.12) {
+          const ang = Math.atan2(by - ay, bx - ax);
+          const sz = Math.max(4, camera.zoom * 1.15);
+          ctx.strokeStyle = `rgba(255, 248, 195, ${alpha * 0.9})`;
+          ctx.lineWidth = Math.max(1.3, camera.zoom * 0.3);
+          ctx.beginPath();
+          ctx.moveTo(bx - Math.cos(ang - 0.55) * sz, by - Math.sin(ang - 0.55) * sz);
+          ctx.lineTo(bx, by);
+          ctx.lineTo(bx - Math.cos(ang + 0.55) * sz, by - Math.sin(ang + 0.55) * sz);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // Pulsing Pheromone Beacon (attracts free Workers & Queen Brood!)
+    if (beacon) {
+      const bx = drawX + beacon.x * camera.zoom;
+      const by = drawY + beacon.y * camera.zoom;
+      const wave1 = (time * 0.75) % 1;
+      const wave2 = (time * 0.75 + 0.5) % 1;
+      for (const wv of [wave1, wave2]) {
+        const rad = Math.max(8, camera.zoom * (2.5 + wv * 10));
+        ctx.strokeStyle = `rgba(66, 245, 197, ${(1 - wv) * 0.72})`;
+        ctx.lineWidth = Math.max(1.4, (1 - wv) * 2.6);
+        ctx.beginPath();
+        ctx.arc(bx, by, rad, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(66, 245, 197, 0.25)';
+      ctx.beginPath();
+      ctx.arc(bx, by, Math.max(7, camera.zoom * 2.2), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#a8ffea';
+      ctx.beginPath();
+      ctx.arc(bx, by, Math.max(2.6, camera.zoom * 0.75), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Queen tiny royal buff aura rings (visualizes exact 13px buff radius!)
+    for (let i = 0; i < ants.length; i++) {
+      const ant = ants[i];
+      if (ant.type !== 'queen') continue;
+      const qx = drawX + ant.x * camera.zoom;
+      const qy = drawY + ant.y * camera.zoom;
+      const auraR = QUEEN_AURA_RADIUS * camera.zoom;
+      if (qx + auraR < -10 || qx - auraR > viewW + 10 || qy + auraR < -10 || qy - auraR > viewH + 10) continue;
+      const pulse = 0.22 + 0.12 * Math.sin(time * 3.4 + ant.id);
+      ctx.fillStyle = `rgba(224, 75, 255, ${pulse * 0.28})`;
+      ctx.beginPath();
+      ctx.arc(qx, qy, auraR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255, 200, 120, ${pulse + 0.14})`;
+      ctx.lineWidth = Math.max(1.1, camera.zoom * 0.22);
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(qx, qy, auraR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // Floating particles
     for (let i = 0; i < particles.particles.length; i++) {
       const pt = particles.particles[i];
@@ -755,7 +913,8 @@ export class WorldRenderer {
       const sx = drawX + ant.x * camera.zoom;
       const sy = drawY + ant.y * camera.zoom;
       if (sx < -36 || sx > viewW + 36 || sy < -36 || sy > viewH + 36) continue;
-      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, camera.zoom);
+      const isEvoWorker = ant.type === 'worker' && workerEvolved;
+      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, camera.zoom, 'classic', undefined, isEvoWorker);
     }
 
     // Warrior directional aiming preview

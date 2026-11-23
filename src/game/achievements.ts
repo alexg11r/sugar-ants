@@ -103,7 +103,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: 'use_compass',
     name: 'Шестое чувство',
-    description: 'Запустите Муравья-компаса на поиски сахара.',
+    description: 'Запустите Ищейку на поиски сахара.',
     icon: '🧭',
     accent: '#ffe07d',
     goal: 1,

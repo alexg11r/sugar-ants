@@ -1212,6 +1212,29 @@ body,
   box-shadow: 0 0 14px rgba(255, 243, 176, 0.22);
 }
 
+.rush-chip {
+  border-color: rgba(255, 224, 102, 0.72);
+  background: rgba(66, 50, 12, 0.85);
+  color: #ffe878;
+  box-shadow: 0 0 16px rgba(255, 216, 69, 0.35);
+}
+
+.auto-chip {
+  border-color: rgba(60, 232, 122, 0.5);
+  color: #8cffb8;
+}
+
+.icon-btn.beacon-active {
+  border-color: #42f5c5;
+  background: rgba(66, 245, 197, 0.28);
+  box-shadow: 0 0 16px rgba(66, 245, 197, 0.52);
+}
+
+.icon-btn.beacon-set {
+  border-color: rgba(66, 245, 197, 0.65);
+  background: rgba(24, 68, 56, 0.88);
+}
+
 /* =========================================================
    INTERACTIVE CONTEXTUAL TUTORIAL HINTS (reference-inspired!)
    ========================================================= */
@@ -2143,7 +2166,7 @@ body,
 
 .st-canvas-wrap {
   position: relative;
-  width: 480px;
+  width: 540px;
   height: 460px;
   flex-shrink: 0;
 }
@@ -3010,8 +3033,11 @@ body,
 }
 
 @media (max-width: 440px) {
+  #level-name {
+    max-width: 52px;
+  }
   .st-canvas-wrap {
-    transform: scale(0.64);
+    transform: scale(0.6);
   }
   .menu-subrow {
     grid-template-columns: repeat(2, 1fr);

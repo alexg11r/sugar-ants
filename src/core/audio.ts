@@ -1131,10 +1131,53 @@ export class MeditativeAudio {
     this.playToneInternal(scale[0] * 0.5, 0.32, 0.035 * clamped, 'sine', 0.08);
   }
 
-  /** Warm golden ping when launching the Compass ant */
+  /** Warm golden ping when launching the Bloodhound (Ищейка) ant */
   playCompassLaunch() {
     const scale = this.getCurrentTrack().scale;
     this.playToneInternal(scale[3], 0.35, 0.09, 'sine', 0);
     this.playToneInternal(scale[5] * 1.5, 0.6, 0.07, 'sine', 0.06);
+  }
+
+  /** Juicy soft seismic pop when an Explosive Spore blasts open a mini cavern! */
+  playSporeBlast() {
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(170, t);
+    osc.frequency.exponentialRampToValueAtTime(42, t + 0.24);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.3);
+    this.playToneInternal(440, 0.26, 0.06, 'triangle', 0.02);
+    this.playToneInternal(659.25, 0.34, 0.045, 'sine', 0.06);
+  }
+
+  /** Sparkling upward rush chime when Sugar Dust triggers colony speed fever! */
+  playSugarDustRush() {
+    const notes = [440, 554.37, 659.25, 880, 1108.73];
+    notes.forEach((f, idx) => {
+      this.playToneInternal(f, 0.45, 0.075, 'sine', idx * 0.05);
+    });
+  }
+
+  /** Organic shimmering hatch chime when an Ancient Cocoon frees 3 allied ants! */
+  playCocoonHatch() {
+    const notes = [329.63, 440, 587.33, 783.99];
+    notes.forEach((f, idx) => {
+      this.playToneInternal(f, 0.42, 0.075, idx % 2 === 0 ? 'triangle' : 'sine', idx * 0.055);
+    });
+  }
+
+  /** Subtle warm pheromone pulse when placing a Pheromone Beacon */
+  playBeaconPlace() {
+    this.playToneInternal(493.88, 0.22, 0.07, 'sine', 0);
+    this.playToneInternal(739.99, 0.32, 0.06, 'sine', 0.045);
   }
 }
