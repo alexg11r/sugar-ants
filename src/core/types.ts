@@ -67,6 +67,7 @@ export interface Ant {
   spawnTimer: number;
   legPhase: number;
   trailTimer: number;
+  fromQueen?: boolean;
 }
 
 export interface Particle {

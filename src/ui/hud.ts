@@ -152,6 +152,10 @@ export class HudController {
   private tutorialHintEl = document.getElementById('tutorial-hint')!;
   private tutorialHintIconEl = document.getElementById('tutorial-hint-icon')!;
   private tutorialHintTextEl = document.getElementById('tutorial-hint-text')!;
+  private sugarFoundOverlayEl = document.getElementById('sugar-found-overlay')!;
+  private sugarFoundSubEl = document.getElementById('sugar-found-sub')!;
+  private sugarFoundStatsEl = document.getElementById('sugar-found-stats')!;
+  private sugarFoundCtaEl = document.getElementById('sugar-found-cta') as HTMLButtonElement;
   private epicClearBannerEl = document.getElementById('epic-clear-banner')!;
   private epicClearTitleEl = document.getElementById('epic-clear-title')!;
   private epicBtnNextEl = document.getElementById('epic-btn-next') as HTMLButtonElement;
@@ -208,6 +212,7 @@ export class HudController {
   private introRafId = 0;
   private introCancelFn: (() => void) | null = null;
   private epicNextAction: (() => void) | null = null;
+  private pendingSugarLevel: LevelDefinition | null = null;
 
   // Multiplayer Lobby & Profile State
   private localNick: string;
@@ -573,6 +578,14 @@ export class HudController {
     document.getElementById('btn-achievements')!.addEventListener('click', () => this.openAchievementsModal());
     document.getElementById('btn-levels')!.addEventListener('click', () => this.openLevelsModal());
 
+    // Epic Diamond-Sugar Found Celebration CTA -> smoothly opens Mutation choice!
+    this.sugarFoundCtaEl.addEventListener('click', () => {
+      const lvl = this.pendingSugarLevel || this.engine.world.level;
+      this.pendingSugarLevel = null;
+      this.sugarFoundOverlayEl.classList.add('hidden');
+      this.openSugarMutationModal(lvl);
+    });
+
     // Epic 100% Clear Banner buttons
     document.getElementById('epic-btn-admire')!.addEventListener('click', () => {
       this.epicClearBannerEl.classList.add('hidden');
@@ -631,6 +644,13 @@ export class HudController {
 
     window.addEventListener('keydown', (e) => {
       if (document.activeElement?.tagName === 'INPUT') return;
+      if (!this.sugarFoundOverlayEl.classList.contains('hidden')) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.sugarFoundCtaEl.click();
+        }
+        return;
+      }
       if (e.key === 'Escape') {
         if (!this.modalBackdropEl.classList.contains('hidden')) {
           this.closeModal();
@@ -696,6 +716,7 @@ export class HudController {
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
     this.tutorialHintEl.classList.add('hidden');
+    this.sugarFoundOverlayEl.classList.add('hidden');
     this.epicClearBannerEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
@@ -716,6 +737,7 @@ export class HudController {
     this.menuBg.stop();
 
     this.mainMenuEl.classList.add('hidden');
+    this.sugarFoundOverlayEl.classList.add('hidden');
     this.epicClearBannerEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
@@ -760,6 +782,7 @@ export class HudController {
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
     this.tutorialHintEl.classList.add('hidden');
+    this.sugarFoundOverlayEl.classList.add('hidden');
     this.epicClearBannerEl.classList.add('hidden');
     this.gameCanvasEl.classList.add('hidden');
 
@@ -2227,10 +2250,15 @@ export class HudController {
     for (const id of PLAYABLE_ANTS) {
       const cfg = ANT_TYPES[id];
       const unlocked = skillTree.isAntUnlocked(id);
-      const activeCount = ants.countByType(id);
+      const activeCount = ants.countPlayerByType(id);
+      const queenBonus = ants.countQueenBornByType(id);
       const maxCount = ants.getMaxActive(id, colStats);
 
-      let subText = unlocked ? `${activeCount}/${maxCount}` : '—';
+      let subText = unlocked
+        ? queenBonus > 0
+          ? `${activeCount}/${maxCount} +${queenBonus}♛`
+          : `${activeCount}/${maxCount}`
+        : '—';
       let onCooldown = false;
       if (id === 'compass') {
         if (ants.compassCooldown > 0) {
@@ -2489,7 +2517,32 @@ export class HudController {
     }
   }
 
+  /** Epic "Found a Diamond!" celebration showcase before transitioning to Mutation choice! */
   openSugarFoundModal(level: LevelDefinition) {
+    if (this.mode !== 'classic') return;
+    this.pendingSugarLevel = level;
+    const { world, skillTree } = this.engine;
+    const stats = world.stats;
+    const digPct =
+      stats.totalBreakable > 0
+        ? Math.min(100, Math.round((stats.dugBreakable / stats.totalBreakable) * 100))
+        : 0;
+    const artPct =
+      stats.totalArt > 0 ? Math.min(100, Math.round((stats.revealedArt / stats.totalArt) * 100)) : 0;
+
+    this.sugarFoundSubEl.textContent = `Карта «${level.name}» покорена!`;
+    this.sugarFoundStatsEl.innerHTML = `
+      <div class="sugar-stat-pill"><strong>${digPct}%</strong><small>Прогрызено</small></div>
+      <div class="sugar-stat-pill"><strong>${artPct}%</strong><small>Картина</small></div>
+      <div class="sugar-stat-pill"><strong>${stats.crystalsCollected}</strong><small>Кристаллов</small></div>
+    `;
+
+    const hasChoices = pickMutationChoices(skillTree.state.mutations, 3).length > 0;
+    this.sugarFoundCtaEl.textContent = hasChoices ? '🧬 Выбрать мутацию →' : 'Продолжить →';
+    this.sugarFoundOverlayEl.classList.remove('hidden');
+  }
+
+  private openSugarMutationModal(level: LevelDefinition) {
     const { skillTree } = this.engine;
     const choices = pickMutationChoices(skillTree.state.mutations, 3);
 

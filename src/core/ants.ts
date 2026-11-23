@@ -110,11 +110,14 @@ export interface AntUpdateEvents {
   sugarHit: boolean;
   artifactFound: ArtifactDef | null;
   artRevealed: number;
+  artPoints: { x: number; y: number }[];
   dugPixels: number;
   damagedPixels: number;
   dugPoints: { x: number; y: number }[];
   anomalySpawned: number;
+  anomalyPoints: { x: number; y: number }[];
   antsExpired: number;
+  expiredPoints: { x: number; y: number }[];
 }
 
 export class AntManager {
@@ -126,6 +129,26 @@ export class AntManager {
     let count = 0;
     for (let i = 0; i < this.ants.length; i++) {
       if (this.ants[i].type === type) count++;
+    }
+    return count;
+  }
+
+  /** Counts ONLY player-summoned ants of a type so Queen-born anomaly ants NEVER block player slots! */
+  countPlayerByType(type: AntTypeId): number {
+    let count = 0;
+    for (let i = 0; i < this.ants.length; i++) {
+      const a = this.ants[i];
+      if (a.type === type && !a.fromQueen) count++;
+    }
+    return count;
+  }
+
+  /** Counts bonus ants of a playable type spawned by a Queen (e.g. Royal Anomaly mutation) */
+  countQueenBornByType(type: AntTypeId): number {
+    let count = 0;
+    for (let i = 0; i < this.ants.length; i++) {
+      const a = this.ants[i];
+      if (a.type === type && a.fromQueen) count++;
     }
     return count;
   }
@@ -157,7 +180,7 @@ export class AntManager {
     }
 
     const cap = this.getMaxActive(type, stats);
-    if (this.countByType(type) >= cap) return { ok: false, reason: 'cap' };
+    if (this.countPlayerByType(type) >= cap) return { ok: false, reason: 'cap' };
 
     const cfg = ANT_TYPES[type];
     let maxAge = cfg.baseLifespan;
@@ -185,7 +208,8 @@ export class AntManager {
       turnTimer: 0.4 + Math.random() * 0.6,
       spawnTimer: 1.4,
       legPhase: Math.random() * Math.PI * 2,
-      trailTimer: 0
+      trailTimer: 0,
+      fromQueen: false
     });
     return { ok: true };
   }
@@ -209,6 +233,7 @@ export class AntManager {
       const rgb = ANT_TYPES[spawnedType].rgb;
       particles.spawn(x, y, rgb[0], rgb[1], rgb[2], 12, 24, 1.0, 1.9);
       events.anomalySpawned++;
+      events.anomalyPoints.push({ x, y });
     }
 
     this.ants.push({
@@ -225,7 +250,8 @@ export class AntManager {
       turnTimer: 0.4 + Math.random() * 0.6,
       spawnTimer: 0,
       legPhase: Math.random() * Math.PI * 2,
-      trailTimer: 0
+      trailTimer: 0,
+      fromQueen: true
     });
   }
 
@@ -245,11 +271,14 @@ export class AntManager {
       sugarHit: false,
       artifactFound: null,
       artRevealed: 0,
+      artPoints: [],
       dugPixels: 0,
       damagedPixels: 0,
       dugPoints: [],
       anomalySpawned: 0,
-      antsExpired: 0
+      anomalyPoints: [],
+      antsExpired: 0,
+      expiredPoints: []
     };
 
     if (this.compassCooldown > 0) {
@@ -269,6 +298,7 @@ export class AntManager {
         particles.spawn(ant.x, ant.y, cfg.rgb[0], cfg.rgb[1], cfg.rgb[2], 5, 14, 0.75, 1.4);
         if (ant.type !== 'brood') {
           events.antsExpired++;
+          events.expiredPoints.push({ x: ant.x, y: ant.y });
         }
         this.ants.splice(i, 1);
         continue;
@@ -327,6 +357,9 @@ export class AntManager {
     }
     events.crystalsBroken += res.crystalsBroken;
     events.artRevealed += res.artRevealed;
+    if (res.artRevealed > 0) {
+      events.artPoints.push({ x, y });
+    }
     if (res.sugarHit) {
       events.sugarHit = true;
       particles.spawn(world.sugarX, world.sugarY, 255, 245, 175, 32, 42, 2.0, 2.4);

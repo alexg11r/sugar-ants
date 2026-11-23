@@ -1171,7 +1171,9 @@ export class MultiplayerEngine {
      ========================================================= */
   countAnts(ownerId: string, type: PlayableAntId): number {
     let n = 0;
-    for (const a of this.ants) if (a.ownerId === ownerId && a.type === type) n++;
+    for (const a of this.ants) {
+      if (a.ownerId === ownerId && a.type === type && !a.fromQueen) n++;
+    }
     return n;
   }
 
@@ -1380,7 +1382,10 @@ export class MultiplayerEngine {
       ant.turnTimer -= dt;
 
       if (ant.age >= ant.maxAge) {
-        if (isLocal && ant.type !== 'brood') this.audio.playAntExpire();
+        if (isLocal && ant.type !== 'brood') {
+          const expInt = this.computeAntAudioIntensity(ant.x, ant.y);
+          if (expInt > 0.04) this.audio.playAntExpire(expInt);
+        }
         this.ants.splice(i, 1);
         continue;
       }
@@ -1416,7 +1421,8 @@ export class MultiplayerEngine {
         ant.spawnTimer -= dt * (isLocal ? localStats.queen.spawnRateMult : 1);
         if (ant.spawnTimer <= 0) {
           ant.spawnTimer = 2.6;
-          this.spawnAntInternal(ant.ownerId, 'brood', ant.x, ant.y, Math.random() * Math.PI * 2);
+          const b = this.spawnAntInternal(ant.ownerId, 'brood', ant.x, ant.y, Math.random() * Math.PI * 2);
+          b.fromQueen = true;
         }
       }
 
@@ -1634,7 +1640,8 @@ export class MultiplayerEngine {
         for (const pl of this.state.players) {
           for (let k = 0; k < 4; k++) {
             const kind: PlayableAntId = k % 2 === 0 ? 'scout' : 'warrior';
-            this.spawnAntInternal(pl.id, kind, pl.baseX, pl.baseY, rng() * Math.PI * 2);
+            const bonusAnt = this.spawnAntInternal(pl.id, kind, pl.baseX, pl.baseY, rng() * Math.PI * 2);
+            bonusAnt.fromQueen = true;
           }
         }
         this.callbacks.onToast('🐜 Нашествие союзников! Из каждой базы выбежали 4 бесплатных муравья!');
@@ -1674,7 +1681,8 @@ export class MultiplayerEngine {
             turnTimer: 1.0,
             spawnTimer: 1.0,
             legPhase: 0,
-            trailTimer: 0
+            trailTimer: 0,
+            fromQueen: true
           };
           this.ants.push(q);
           this.particles.spawn(pl.baseX, pl.baseY, 235, 120, 255, 14, 24, 1.3, 2.0);
@@ -1925,7 +1933,9 @@ export class MultiplayerEngine {
           if (!this.state.sugarFound) {
             this.state.sugarFound = true;
             this.audio.playSugarFound();
-            this.particles.spawn(this.sugarX, this.sugarY, 255, 245, 175, 34, 42, 2.0, 2.4);
+            this.particles.spawn(this.sugarX, this.sugarY, 255, 252, 224, 36, 48, 2.2, 2.5);
+            this.particles.spawn(this.sugarX, this.sugarY, 175, 246, 255, 22, 40, 2.0, 2.2);
+            this.particles.spawn(this.sugarX, this.sugarY, 255, 224, 102, 26, 32, 2.4, 2.6);
 
             if (this.state.mpMode === 'versus') {
               this.state.winnerId = ownerId;
@@ -1999,18 +2009,31 @@ export class MultiplayerEngine {
     }
   }
 
-  /** Gentle eating sound ONLY when zoomed in close and near the chewing ant! */
-  private playProximityDigSound(wx: number, wy: number) {
-    const zoomFactor = Math.max(0, Math.min(1, (this.camera.zoom - 4.4) / 7.2));
-    if (zoomFactor <= 0.04) return;
-    const halfW = Math.max(1, this.viewW * 0.5);
-    const halfH = Math.max(1, this.viewH * 0.5);
+  /** Strict spatial close-zoom + central camera framing gate for ALL ant sounds in Co-op! */
+  private computeAntAudioIntensity(wx: number, wy: number): number {
+    const fitZoom = Math.min((this.viewW * 0.9) / Math.max(1, this.width), (this.viewH * 0.82) / Math.max(1, this.height));
+    const minHearZoom = Math.max(7.2, fitZoom * 2.5);
+    if (this.camera.zoom < minHearZoom) return 0;
+
+    const zoomFactor = Math.min(1, (this.camera.zoom - minHearZoom) / 7.5);
+    if (zoomFactor <= 0.02) return 0;
+
+    const halfW = Math.max(1, this.viewW * 0.44);
+    const halfH = Math.max(1, this.viewH * 0.44);
     const sx = (wx - this.camera.x) * this.camera.zoom;
     const sy = (wy - this.camera.y) * this.camera.zoom;
-    const distFrac = Math.hypot(sx / halfW, sy / halfH);
-    if (distFrac >= 1.02) return;
-    const intensity = zoomFactor * Math.pow(Math.max(0, 1 - distFrac * 0.92), 1.25);
-    if (intensity > 0.05) {
+    const nx = Math.abs(sx) / halfW;
+    const ny = Math.abs(sy) / halfH;
+    if (nx >= 1 || ny >= 1) return 0;
+    const dist = Math.hypot(nx, ny);
+    if (dist >= 1) return 0;
+    return zoomFactor * Math.pow(1 - dist, 1.4);
+  }
+
+  /** Gentle eating sound ONLY when zoomed in close and pointing camera right at the chewing ant! */
+  private playProximityDigSound(wx: number, wy: number) {
+    const intensity = this.computeAntAudioIntensity(wx, wy);
+    if (intensity > 0.04) {
       this.audio.playDigTick(intensity);
     }
   }

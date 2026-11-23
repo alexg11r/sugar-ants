@@ -1048,13 +1048,15 @@ export class MeditativeAudio {
     });
   }
 
-  playArtReveal() {
+  playArtReveal(intensity = 1) {
+    if (intensity <= 0.04) return;
     const now = performance.now();
     if (now - this.lastArtSound < 280) return;
     this.lastArtSound = now;
+    const clamped = Math.max(0.04, Math.min(1, intensity));
     const scale = this.getCurrentTrack().scale;
     const note = scale[Math.min(scale.length - 1, 4 + Math.floor(Math.random() * 4))];
-    this.playToneInternal(note * 2, 0.55, 0.05, 'sine');
+    this.playToneInternal(note * 2, 0.45, 0.045 * clamped, 'sine');
   }
 
   playCrystal() {
@@ -1064,11 +1066,40 @@ export class MeditativeAudio {
     this.playToneInternal(scale[idx + 2], 0.55, 0.1, 'sine', 0.08);
   }
 
+  /** Grand "Found a Diamond!" Sugar discovery fanfare: seismic bloom + sparkling crystal cascade + triumphant chord! */
   playSugarFound() {
-    const scale = this.getCurrentTrack().scale;
-    const chord = [scale[0], scale[2], scale[3], scale[5], scale[7] || scale[5] * 1.25];
-    chord.forEach((f, i) => {
-      this.playToneInternal(f, 1.8, 0.14, 'sine', i * 0.09);
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+
+    // 1. Deep golden bass boom & warm triumph swell
+    const sub = this.ctx.createOscillator();
+    const subG = this.ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(146.83, t);
+    sub.frequency.exponentialRampToValueAtTime(65.41, t + 0.35);
+    subG.gain.setValueAtTime(0.0001, t);
+    subG.gain.exponentialRampToValueAtTime(0.28, t + 0.015);
+    subG.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    sub.connect(subG);
+    subG.connect(this.masterGain);
+    sub.start(t);
+    sub.stop(t + 1.55);
+
+    // 2. Radiant major-9th diamond arpeggio cascade
+    const diamondNotes = [261.63, 329.63, 392.0, 493.88, 587.33, 783.99, 987.77, 1174.66, 1567.98];
+    diamondNotes.forEach((f, i) => {
+      const delay = i * 0.068;
+      this.playToneInternal(f, 1.9 - i * 0.06, i < 4 ? 0.11 : 0.09, 'sine', delay);
+      if (i >= 3) {
+        // Crystalline harmonic glint one octave higher
+        this.playToneInternal(f * 2, 0.65, 0.032, 'triangle', delay + 0.03);
+      }
+    });
+
+    // 3. Delayed triumphant brass/bell resolve chord at +0.62s
+    [523.25, 659.25, 783.99, 1046.5, 1318.51].forEach((f, idx) => {
+      this.playToneInternal(f, 2.3, 0.075, idx === 0 ? 'triangle' : 'sine', 0.62 + idx * 0.025);
     });
   }
 
@@ -1078,22 +1109,26 @@ export class MeditativeAudio {
     this.playToneInternal(scale[5], 0.42, 0.13, 'sine', 0.07);
   }
 
-  /** Subtle shimmering chime when Queen mutation spawns a special ant */
-  playMutationSpawn() {
+  /** Subtle shimmering chime when Queen mutation spawns a special ant (camera-proximity scaled!) */
+  playMutationSpawn(intensity = 1) {
+    if (intensity <= 0.04) return;
+    const clamped = Math.max(0.04, Math.min(1, intensity));
     const scale = this.getCurrentTrack().scale;
-    this.playToneInternal(scale[4], 0.35, 0.075, 'sine', 0);
-    this.playToneInternal(scale[6], 0.45, 0.065, 'sine', 0.07);
-    this.playToneInternal(scale[7] || scale[6] * 1.2, 0.55, 0.055, 'triangle', 0.14);
+    this.playToneInternal(scale[4], 0.35, 0.075 * clamped, 'sine', 0);
+    this.playToneInternal(scale[6], 0.45, 0.065 * clamped, 'sine', 0.07);
+    this.playToneInternal(scale[7] || scale[6] * 1.2, 0.55, 0.055 * clamped, 'triangle', 0.14);
   }
 
-  /** Very quiet, gentle descending sigh when a summoned ant's lifespan ends */
-  playAntExpire() {
+  /** Very quiet, gentle descending sigh when a summoned ant's lifespan ends (ONLY when close & visible!) */
+  playAntExpire(intensity = 1) {
+    if (intensity <= 0.04) return;
     const now = performance.now();
     if (now - this.lastExpireSound < 600) return;
     this.lastExpireSound = now;
+    const clamped = Math.max(0.04, Math.min(1, intensity));
     const scale = this.getCurrentTrack().scale;
-    this.playToneInternal(scale[2] * 0.5, 0.24, 0.042, 'sine', 0);
-    this.playToneInternal(scale[0] * 0.5, 0.32, 0.035, 'sine', 0.08);
+    this.playToneInternal(scale[2] * 0.5, 0.24, 0.042 * clamped, 'sine', 0);
+    this.playToneInternal(scale[0] * 0.5, 0.32, 0.035 * clamped, 'sine', 0.08);
   }
 
   /** Warm golden ping when launching the Compass ant */

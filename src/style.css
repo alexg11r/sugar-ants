@@ -1280,6 +1280,285 @@ body,
 }
 
 /* =========================================================
+   EPIC "FOUND A DIAMOND!" SUGAR DISCOVERY CELEBRATION OVERLAY
+   ========================================================= */
+.sugar-found-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(255, 220, 95, 0.24) 0%,
+    rgba(12, 22, 16, 0.72) 52%,
+    rgba(3, 8, 6, 0.9) 100%
+  );
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: hidden;
+  animation: sugar-overlay-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes sugar-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sugar-diamond-rays {
+  position: absolute;
+  width: min(115vmax, 1100px);
+  height: min(115vmax, 1100px);
+  border-radius: 50%;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(255, 232, 128, 0.16) 0deg 10deg,
+    transparent 10deg 22deg,
+    rgba(150, 244, 255, 0.1) 22deg 28deg,
+    transparent 28deg 45deg
+  );
+  mask-image: radial-gradient(circle, #000 10%, transparent 66%);
+  -webkit-mask-image: radial-gradient(circle, #000 10%, transparent 66%);
+  pointer-events: none;
+  animation: sugar-rays-spin 18s linear infinite;
+}
+
+@keyframes sugar-rays-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sugar-sparkle-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sugar-sparkle-field span {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: #fff8d4;
+  box-shadow: 0 0 12px #ffe26a, 0 0 22px #96f4ff;
+  transform: rotate(45deg);
+  opacity: 0;
+  animation: sugar-glint-float 2.6s ease-in-out infinite;
+}
+
+.sugar-sparkle-field span:nth-child(1) { left: 16%; top: 72%; animation-delay: 0s; }
+.sugar-sparkle-field span:nth-child(2) { left: 26%; top: 28%; animation-delay: 0.35s; }
+.sugar-sparkle-field span:nth-child(3) { left: 38%; top: 80%; animation-delay: 0.7s; }
+.sugar-sparkle-field span:nth-child(4) { left: 64%; top: 22%; animation-delay: 0.2s; }
+.sugar-sparkle-field span:nth-child(5) { left: 76%; top: 74%; animation-delay: 0.55s; }
+.sugar-sparkle-field span:nth-child(6) { left: 84%; top: 38%; animation-delay: 0.9s; }
+.sugar-sparkle-field span:nth-child(7) { left: 20%; top: 48%; animation-delay: 1.15s; background: #bff6ff; }
+.sugar-sparkle-field span:nth-child(8) { left: 78%; top: 56%; animation-delay: 1.45s; background: #bff6ff; }
+.sugar-sparkle-field span:nth-child(9) { left: 48%; top: 16%; animation-delay: 0.6s; }
+.sugar-sparkle-field span:nth-child(10) { left: 54%; top: 84%; animation-delay: 1.25s; }
+.sugar-sparkle-field span:nth-child(11) { left: 32%; top: 64%; animation-delay: 1.7s; background: #bff6ff; }
+.sugar-sparkle-field span:nth-child(12) { left: 68%; top: 36%; animation-delay: 2.0s; }
+
+@keyframes sugar-glint-float {
+  0%, 100% {
+    opacity: 0;
+    transform: translateY(10px) rotate(45deg) scale(0.4);
+  }
+  45% {
+    opacity: 0.95;
+    transform: translateY(-18px) rotate(45deg) scale(1.2);
+  }
+  80% {
+    opacity: 0.3;
+    transform: translateY(-34px) rotate(45deg) scale(0.7);
+  }
+}
+
+.sugar-found-card {
+  position: relative;
+  z-index: 2;
+  width: min(460px, 94vw);
+  padding: 28px 26px 26px;
+  border-radius: 22px;
+  background: linear-gradient(165deg, rgba(24, 34, 24, 0.92), rgba(7, 15, 11, 0.95));
+  border: 2px solid transparent;
+  background-image:
+    linear-gradient(165deg, rgba(22, 34, 24, 0.94), rgba(7, 15, 11, 0.96)),
+    linear-gradient(135deg, #fff6c2, #ffe066, #96f4ff, #ffe066, #fff6c2);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.8),
+    0 0 60px rgba(255, 224, 102, 0.32),
+    0 0 28px rgba(150, 244, 255, 0.22);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  animation: sugar-card-pop 0.55s cubic-bezier(0.18, 1.32, 0.32, 1) forwards;
+}
+
+@keyframes sugar-card-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.72) translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.sugar-found-badge {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 226, 106, 0.14);
+  border: 1px solid rgba(255, 232, 136, 0.5);
+  color: #fff3b0;
+}
+
+.sugar-jewel-wrap {
+  position: relative;
+  width: 118px;
+  height: 118px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0;
+}
+
+.sugar-jewel-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 232, 128, 0.6);
+  box-shadow: 0 0 24px rgba(255, 224, 102, 0.38);
+  animation: sugar-ring-pulse 2.2s ease-out infinite;
+}
+
+.sugar-jewel-ring.r2 {
+  border-color: rgba(150, 244, 255, 0.55);
+  animation-delay: 1.1s;
+}
+
+@keyframes sugar-ring-pulse {
+  0% {
+    transform: scale(0.65);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.48);
+    opacity: 0;
+  }
+}
+
+.sugar-jewel-svg {
+  position: relative;
+  z-index: 2;
+  width: 92px;
+  height: 92px;
+  filter: drop-shadow(0 0 24px rgba(255, 230, 120, 0.85)) drop-shadow(0 0 12px rgba(150, 244, 255, 0.55));
+  animation: sugar-jewel-bob 2.2s ease-in-out infinite;
+}
+
+@keyframes sugar-jewel-bob {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-6px) scale(1.06);
+  }
+}
+
+.sugar-found-title {
+  font-size: clamp(28px, 6.5vw, 38px);
+  font-weight: 900;
+  letter-spacing: 3px;
+  background: linear-gradient(180deg, #ffffff 12%, #fff3b0 55%, #ffc845 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 24px rgba(255, 224, 102, 0.6));
+}
+
+.sugar-found-sub {
+  font-size: 14px;
+  font-weight: 600;
+  color: #d8eee2;
+}
+
+.sugar-found-stats {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+
+.sugar-stat-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 232, 136, 0.24);
+  border-radius: 12px;
+  padding: 9px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.sugar-stat-pill strong {
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff6cc;
+  font-variant-numeric: tabular-nums;
+}
+
+.sugar-stat-pill small {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.sugar-found-cta {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 4px;
+  padding: 12px 20px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(135deg, #ffe46b 0%, #3ce87a 55%, #5ce8ff 100%);
+  color: #06130c;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(255, 224, 102, 0.36);
+  transition: transform 0.14s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.sugar-found-cta:hover {
+  transform: translateY(-2px) scale(1.015);
+  filter: brightness(1.08);
+  box-shadow: 0 14px 36px rgba(255, 224, 102, 0.52);
+}
+
+.sugar-found-cta:active {
+  transform: scale(0.98);
+}
+
+/* =========================================================
    EPIC 100% MAP CLEARED SHIMMERING BANNER
    ========================================================= */
 .epic-clear-banner {

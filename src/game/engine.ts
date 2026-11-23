@@ -43,6 +43,8 @@ export class GameEngine {
   private elapsed = 0;
   private hudSyncAccum = 0;
   private fireworkAccum = 0;
+  private sugarBurstTime = -1;
+  private sugarBurstTimers: number[] = [];
   private cameraEaseTarget: { x: number; y: number; zoom: number } | null = null;
   private interacted = false;
 
@@ -126,12 +128,18 @@ export class GameEngine {
   }
 
   destroy() {
+    this.clearSugarBurstTimers();
     this.skillTree.flushPendingSave();
     cancelAnimationFrame(this.rafId);
     if (this.unsubBgTick) {
       this.unsubBgTick();
       this.unsubBgTick = null;
     }
+  }
+
+  private clearSugarBurstTimers() {
+    for (const id of this.sugarBurstTimers) window.clearTimeout(id);
+    this.sugarBurstTimers = [];
   }
 
   private pickUncollectedArtifact(levelId: string): ArtifactDef | null {
@@ -183,6 +191,8 @@ export class GameEngine {
     this.world = new World(level, this.skillTree.hasMutation('far_sense'), artDef);
     this.ants.clear();
     this.particles.particles = [];
+    this.clearSugarBurstTimers();
+    this.sugarBurstTime = -1;
     this.cameraEaseTarget = null;
     this.fireworkAccum = 0;
     this.resetCamera();
@@ -274,47 +284,142 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Strict spatial camera-proximity + close-zoom audio gate for ALL ant sounds!
+   * Returns 0 (100% silent) whenever zoomed far out OR when the camera is pointed away from the ants.
+   */
+  private computeAntAudioIntensity(points: { x: number; y: number }[]): number {
+    if (points.length === 0) return 0;
+    const fitZoom = Math.min((this.viewW * 0.9) / this.world.width, (this.viewH * 0.82) / this.world.height);
+    const minHearZoom = Math.max(7.2, fitZoom * 2.5);
+    if (this.camera.zoom < minHearZoom) return 0;
+
+    const zoomFactor = Math.min(1, (this.camera.zoom - minHearZoom) / 7.5);
+    if (zoomFactor <= 0.02) return 0;
+
+    const halfW = Math.max(1, this.viewW * 0.44);
+    const halfH = Math.max(1, this.viewH * 0.44);
+    let bestProx = 0;
+
+    for (let i = 0; i < points.length; i++) {
+      const pt = points[i];
+      const sx = (pt.x - this.camera.x) * this.camera.zoom;
+      const sy = (pt.y - this.camera.y) * this.camera.zoom;
+      const nx = Math.abs(sx) / halfW;
+      const ny = Math.abs(sy) / halfH;
+      if (nx >= 1 || ny >= 1) continue;
+      const dist = Math.hypot(nx, ny);
+      if (dist < 1) {
+        const prox = Math.pow(1 - dist, 1.4);
+        if (prox > bestProx) bestProx = prox;
+      }
+    }
+    return zoomFactor * bestProx;
+  }
+
+  /** Dramatic "Found a Diamond!" in-world Sugar celebration: slow-mo + camera swoop + multi-wave diamond fireworks! */
+  private triggerEpicSugarCelebration() {
+    this.clearSugarBurstTimers();
+    this.sugarBurstTime = 0;
+
+    const { sugarX, sugarY } = this.world;
+    const fitZoom = Math.min((this.viewW * 0.88) / this.world.width, (this.viewH * 0.8) / this.world.height);
+    const targetZoom = Math.max(11.0, Math.min(16.5, fitZoom * 4.4));
+    this.cameraEaseTarget = { x: sugarX, y: sugarY, zoom: targetZoom };
+
+    // Wave 1: Pure diamond-gold explosion immediately
+    this.particles.spawn(sugarX, sugarY, 255, 252, 224, 34, 48, 2.2, 2.5);
+    this.particles.spawn(sugarX, sugarY, 175, 246, 255, 22, 38, 2.0, 2.2);
+    this.particles.spawn(sugarX, sugarY, 255, 224, 102, 26, 30, 2.4, 2.6);
+
+    // Wave 2: Secondary diamond glitter burst at +280ms
+    this.sugarBurstTimers.push(
+      window.setTimeout(() => {
+        if (this.paused) return;
+        this.particles.spawn(sugarX, sugarY, 255, 240, 155, 28, 52, 2.1, 2.3);
+        this.particles.spawn(sugarX, sugarY, 130, 238, 255, 20, 44, 1.9, 2.0);
+      }, 280)
+    );
+
+    // Wave 3: Shimmering crown halo at +620ms
+    this.sugarBurstTimers.push(
+      window.setTimeout(() => {
+        if (this.paused) return;
+        for (let k = 0; k < 6; k++) {
+          const ang = (k / 6) * Math.PI * 2;
+          this.particles.spawn(
+            sugarX + Math.cos(ang) * 7,
+            sugarY + Math.sin(ang) * 7,
+            255,
+            245,
+            180,
+            7,
+            24,
+            1.6,
+            1.9
+          );
+        }
+      }, 620)
+    );
+
+    // Open the grand Diamond-Sugar celebration overlay after the camera swoops in & bursts play out!
+    const foundLevel = this.world.level;
+    this.sugarBurstTimers.push(
+      window.setTimeout(() => {
+        this.callbacks.onSugarFound(foundLevel);
+      }, 920)
+    );
+  }
+
   private update(dt: number) {
     this.elapsed += dt;
 
-    const stats = this.skillTree.getColonyStats();
-    const events = this.ants.update(dt, this.world, this.particles, stats);
+    // Dramatic brief slow-motion hit-stop right when discovering Sugar!
+    let simDt = dt;
+    if (this.sugarBurstTime >= 0) {
+      this.sugarBurstTime += dt;
+      if (this.sugarBurstTime < 0.85) {
+        simDt = dt * 0.25;
+      } else if (this.sugarBurstTime < 1.35) {
+        const ramp = (this.sugarBurstTime - 0.85) / 0.5;
+        simDt = dt * (0.25 + ramp * 0.75);
+      }
+      if (this.sugarBurstTime >= 2.8) {
+        this.sugarBurstTime = -1;
+      }
+    }
 
+    const stats = this.skillTree.getColonyStats();
+    const events = this.ants.update(simDt, this.world, this.particles, stats);
+
+    // ALL ongoing ant sounds are strictly gated by close zoom + central camera framing!
     if (events.dugPoints.length > 0) {
-      // Gentle pleasant eating sound ONLY when zoomed in close AND the ant is near the visible screen!
-      const zoomFactor = Math.max(0, Math.min(1, (this.camera.zoom - 4.4) / 7.2));
-      if (zoomFactor > 0.04) {
-        const halfW = Math.max(1, this.viewW * 0.5);
-        const halfH = Math.max(1, this.viewH * 0.5);
-        let bestProx = 0;
-        for (let i = 0; i < events.dugPoints.length; i++) {
-          const pt = events.dugPoints[i];
-          const sx = (pt.x - this.camera.x) * this.camera.zoom;
-          const sy = (pt.y - this.camera.y) * this.camera.zoom;
-          const distFrac = Math.hypot(sx / halfW, sy / halfH);
-          if (distFrac < 1.02) {
-            const prox = Math.pow(Math.max(0, 1 - distFrac * 0.92), 1.25);
-            if (prox > bestProx) bestProx = prox;
-          }
-        }
-        const intensity = zoomFactor * bestProx;
-        if (intensity > 0.05) {
-          this.audio.playDigTick(intensity);
-        }
+      const digIntensity = this.computeAntAudioIntensity(events.dugPoints);
+      if (digIntensity > 0.04) {
+        this.audio.playDigTick(digIntensity);
       }
     }
     if (events.dugPixels > 0) {
       this.skillTree.recordCareer({ blocksDug: events.dugPixels });
     }
-    if (events.artRevealed > 0) {
-      this.audio.playArtReveal();
+    if (events.artPoints.length > 0) {
+      const artIntensity = this.computeAntAudioIntensity(events.artPoints);
+      if (artIntensity > 0.04) {
+        this.audio.playArtReveal(artIntensity);
+      }
     }
     if (events.anomalySpawned > 0) {
-      this.audio.playMutationSpawn();
+      const anomIntensity = this.computeAntAudioIntensity(events.anomalyPoints);
+      if (anomIntensity > 0.04) {
+        this.audio.playMutationSpawn(anomIntensity);
+      }
       this.callbacks.onToast('♛ Королевская аномалия: Матка родила особого муравья!');
     }
-    if (events.antsExpired > 0) {
-      this.audio.playAntExpire();
+    if (events.expiredPoints.length > 0) {
+      const expIntensity = this.computeAntAudioIntensity(events.expiredPoints);
+      if (expIntensity > 0.04) {
+        this.audio.playAntExpire(expIntensity);
+      }
     }
     if (events.crystalsBroken > 0) {
       let gained = events.crystalsBroken * (1 + stats.crystalBonus);
@@ -339,7 +444,7 @@ export class GameEngine {
       this.skillTree.markLevelCompleted(this.world.level.id);
       this.audio.playSugarFound();
       this.callbacks.onHudSync();
-      this.callbacks.onSugarFound(this.world.level);
+      this.triggerEpicSugarCelebration();
     }
 
     // Epic 100% map-cleared finale: sweep stray pixels, zoom out to showcase shimmering art & fireworks!
@@ -397,6 +502,10 @@ export class GameEngine {
   }
 
   private render() {
+    const sugarBurst =
+      this.sugarBurstTime >= 0 && this.sugarBurstTime < 2.8
+        ? { x: this.world.sugarX, y: this.world.sugarY, progress: this.sugarBurstTime / 2.8 }
+        : null;
     this.renderer.render(
       this.ctx,
       this.viewW,
@@ -406,7 +515,8 @@ export class GameEngine {
       this.ants.ants,
       this.particles,
       this.elapsed,
-      this.aimPreview
+      this.aimPreview,
+      sugarBurst
     );
   }
 
