@@ -4,15 +4,20 @@ import { subscribeBackgroundTick } from '../core/bgTicker';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, WorldRenderer } from '../core/renderer';
-import { LevelDefinition, PlayableAntId } from '../core/types';
+import { ArtifactDef, LevelDefinition, PlayableAntId } from '../core/types';
 import { World } from '../core/world';
+import { getArtifactForLevel } from './artifacts';
 import { SkillTreeManager } from './skillTree';
 
 export interface EngineCallbacks {
   onHudSync: () => void;
   onSugarFound: (level: LevelDefinition) => void;
+  onArtifactFound: (artifact: ArtifactDef) => void;
+  onMapCleared: (level: LevelDefinition) => void;
   onToast: (message: string) => void;
   onFirstInteract: () => void;
+  onZoomInteract: () => void;
+  onPanInteract: () => void;
 }
 
 export class GameEngine {
@@ -37,6 +42,8 @@ export class GameEngine {
   private lastWallMs = 0;
   private elapsed = 0;
   private hudSyncAccum = 0;
+  private fireworkAccum = 0;
+  private cameraEaseTarget: { x: number; y: number; zoom: number } | null = null;
   private interacted = false;
 
   // Pointer & multitouch state
@@ -73,7 +80,8 @@ export class GameEngine {
     const startLevel =
       LEVELS.find((l) => l.id === skillTree.state.currentLevelId && skillTree.isLevelUnlocked(l.id)) ||
       LEVELS[0];
-    this.world = new World(startLevel, skillTree.hasMutation('far_sense'));
+    const startArtifact = this.pickUncollectedArtifact(startLevel.id);
+    this.world = new World(startLevel, skillTree.hasMutation('far_sense'), startArtifact);
     this.renderer = new WorldRenderer(this.world.width, this.world.height);
 
     this.resize();
@@ -125,6 +133,34 @@ export class GameEngine {
     }
   }
 
+  private pickUncollectedArtifact(levelId: string): ArtifactDef | null {
+    const def = getArtifactForLevel(levelId);
+    if (!def || this.skillTree.hasArtifact(def.id)) return null;
+    return def;
+  }
+
+  /** Plays a satisfying pop-pop-pop particle burst around the nest when entering a fresh map! */
+  playNestRevealBurst() {
+    const { nestX, nestY } = this.world;
+    [0, 1, 2].forEach((step) => {
+      setTimeout(() => {
+        if (this.paused) return;
+        this.audio.playRevealPop(step);
+        this.particles.spawn(nestX, nestY, 95, 255, 165, 8 + step * 4, 18 + step * 8, 0.7, 1.5);
+      }, step * 110);
+    });
+  }
+
+  /** Smoothly eases the camera out to frame the entire shimmering masterpiece */
+  easeCameraToFullMap() {
+    const fitZoom = Math.min((this.viewW * 0.88) / this.world.width, (this.viewH * 0.74) / this.world.height);
+    this.cameraEaseTarget = {
+      x: this.world.width * 0.5,
+      y: this.world.height * 0.5,
+      zoom: Math.max(1.3, Math.min(4.2, fitZoom))
+    };
+  }
+
   loadLevel(levelId: string, resetSkills = true) {
     if (!this.skillTree.isLevelUnlocked(levelId)) {
       this.callbacks.onToast('Сначала пройдите предыдущий уровень!');
@@ -135,14 +171,18 @@ export class GameEngine {
       this.skillTree.resetTreeForNewLevel(level.id);
       this.selectedAnt = 'worker';
     }
-    this.world = new World(level, this.skillTree.hasMutation('far_sense'));
+    const artDef = this.pickUncollectedArtifact(level.id);
+    this.world = new World(level, this.skillTree.hasMutation('far_sense'), artDef);
     this.ants.clear();
     this.particles.particles = [];
+    this.cameraEaseTarget = null;
+    this.fireworkAccum = 0;
     this.resetCamera();
     this.callbacks.onHudSync();
 
-    if (resetSkills && this.skillTree.hasMutation('start_sp_3')) {
-      this.callbacks.onToast(`${level.name} • Мутация: старт с ♦ 3 очками!`);
+    const startSp = this.skillTree.state.skillPoints;
+    if (resetSkills && startSp > 0) {
+      this.callbacks.onToast(`${level.name} • Старт с ♦ ${startSp} очк. навыков!`);
     } else {
       this.callbacks.onToast(`Уровень: ${level.name}`);
     }
@@ -252,11 +292,63 @@ export class GameEngine {
       this.callbacks.onToast(`♦ +${gained} очко навыков`);
       this.callbacks.onHudSync();
     }
+    if (events.artifactFound) {
+      const art = events.artifactFound;
+      if (this.skillTree.collectArtifact(art.id)) {
+        this.audio.playArtifactFound();
+        this.callbacks.onHudSync();
+        this.callbacks.onArtifactFound(art);
+      }
+    }
     if (events.sugarHit) {
       this.skillTree.markLevelCompleted(this.world.level.id);
       this.audio.playSugarFound();
       this.callbacks.onHudSync();
       this.callbacks.onSugarFound(this.world.level);
+    }
+
+    // Epic 100% map-cleared finale: sweep stray pixels, zoom out to showcase shimmering art & fireworks!
+    if (events.dugPixels > 0 && this.world.checkAndFinishClear()) {
+      this.skillTree.markLevelCompleted(this.world.level.id);
+      this.audio.playEpicClearFanfare();
+      this.easeCameraToFullMap();
+      for (let b = 0; b < 6; b++) {
+        const fx = this.world.width * (0.2 + Math.random() * 0.6);
+        const fy = this.world.height * (0.2 + Math.random() * 0.6);
+        this.particles.spawn(fx, fy, 120 + Math.random() * 135, 160 + Math.random() * 95, 255, 22, 46, 2.2, 2.4);
+      }
+      this.callbacks.onHudSync();
+      this.callbacks.onMapCleared(this.world.level);
+    }
+
+    // Ongoing celebratory shimmer sparkles while admiring a 100% cleared iridescent map!
+    if (this.world.stats.mapCleared) {
+      this.fireworkAccum += dt;
+      if (this.fireworkAccum >= 0.9) {
+        this.fireworkAccum = 0;
+        const fx = this.world.width * (0.16 + Math.random() * 0.68);
+        const fy = this.world.height * (0.16 + Math.random() * 0.68);
+        const hue = Math.random() * Math.PI * 2;
+        const r = Math.round(170 + 85 * Math.sin(hue));
+        const g = Math.round(170 + 85 * Math.sin(hue + 2.1));
+        const b = Math.round(170 + 85 * Math.sin(hue + 4.2));
+        this.particles.spawn(fx, fy, r, g, b, 10, 28, 1.7, 1.9);
+      }
+    }
+
+    // Smooth camera showcase easing (cancelled immediately if user pans/zooms manually)
+    if (this.cameraEaseTarget) {
+      const k = Math.min(1, dt * 3.5);
+      this.camera.x += (this.cameraEaseTarget.x - this.camera.x) * k;
+      this.camera.y += (this.cameraEaseTarget.y - this.camera.y) * k;
+      this.camera.zoom += (this.cameraEaseTarget.zoom - this.camera.zoom) * k;
+      if (
+        Math.abs(this.cameraEaseTarget.x - this.camera.x) < 0.4 &&
+        Math.abs(this.cameraEaseTarget.y - this.camera.y) < 0.4 &&
+        Math.abs(this.cameraEaseTarget.zoom - this.camera.zoom) < 0.02
+      ) {
+        this.cameraEaseTarget = null;
+      }
     }
 
     this.particles.update(dt);
@@ -294,12 +386,14 @@ export class GameEngine {
       (e) => {
         if (this.paused) return;
         e.preventDefault();
+        this.cameraEaseTarget = null;
         const factor = e.deltaY < 0 ? 1.12 : 0.89;
         const before = this.screenToWorld(e.clientX, e.clientY);
         this.camera.zoom = Math.max(1.2, Math.min(12, this.camera.zoom * factor));
         const after = this.screenToWorld(e.clientX, e.clientY);
         this.camera.x += before.x - after.x;
         this.camera.y += before.y - after.y;
+        this.callbacks.onZoomInteract();
       },
       { passive: false }
     );
@@ -347,6 +441,7 @@ export class GameEngine {
       this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
       if (this.activePointers.size === 2) {
+        this.cameraEaseTarget = null;
         const pts = Array.from(this.activePointers.values());
         const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
         const midX = (pts[0].x + pts[1].x) * 0.5;
@@ -354,11 +449,13 @@ export class GameEngine {
 
         if (this.pinchStartDist > 0) {
           const scale = dist / this.pinchStartDist;
+          if (Math.abs(scale - 1) > 0.06) this.callbacks.onZoomInteract();
           this.camera.zoom = Math.max(1.2, Math.min(12, this.pinchStartZoom * scale));
         }
 
         const dx = midX - this.lastDragX;
         const dy = midY - this.lastDragY;
+        if (Math.hypot(dx, dy) > 4) this.callbacks.onPanInteract();
         this.camera.x -= dx / this.camera.zoom;
         this.camera.y -= dy / this.camera.zoom;
         this.lastDragX = midX;
@@ -367,8 +464,10 @@ export class GameEngine {
       }
 
       if (this.isDraggingCam) {
+        this.cameraEaseTarget = null;
         const dx = e.clientX - this.lastDragX;
         const dy = e.clientY - this.lastDragY;
+        if (Math.hypot(dx, dy) > 4) this.callbacks.onPanInteract();
         this.camera.x -= dx / this.camera.zoom;
         this.camera.y -= dy / this.camera.zoom;
         this.lastDragX = e.clientX;

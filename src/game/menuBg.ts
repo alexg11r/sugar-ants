@@ -19,7 +19,9 @@ export class MenuBackground {
   private rafId = 0;
   private running = false;
   private lastTime = 0;
+  private elapsed = 0;
   private pointer: { x: number; y: number; active: boolean } = { x: 0, y: 0, active: false };
+  private motes: { x: number; y: number; r: number; spd: number; phase: number; gold: boolean }[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -65,6 +67,15 @@ export class MenuBackground {
       turnTimer: 0.6 + Math.random() * 1.4,
       trail: []
     }));
+
+    this.motes = Array.from({ length: 34 }, (_, i) => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      r: 1.2 + Math.random() * 2.2,
+      spd: 7 + Math.random() * 14,
+      phase: Math.random() * Math.PI * 2,
+      gold: i % 4 === 0
+    }));
   }
 
   start() {
@@ -88,8 +99,18 @@ export class MenuBackground {
   }
 
   private update(dt: number) {
+    this.elapsed += dt;
     const w = window.innerWidth;
     const h = window.innerHeight;
+
+    for (const m of this.motes) {
+      m.y -= m.spd * dt;
+      m.x += Math.sin(this.elapsed * 0.8 + m.phase) * 8 * dt;
+      if (m.y < -12) {
+        m.y = h + 12;
+        m.x = Math.random() * w;
+      }
+    }
 
     for (const ant of this.ants) {
       ant.turnTimer -= dt;
@@ -146,15 +167,44 @@ export class MenuBackground {
     const h = window.innerHeight;
     const ctx = this.ctx;
 
-    // Deep emerald cavern background with radial vignette
+    // Deep emerald cavern background + rotating hypnotic sunburst rays (inspired by minimalist pixel hits!)
     ctx.fillStyle = UNEXPLORED_BG_HEX;
     ctx.fillRect(0, 0, w, h);
 
-    const grad = ctx.createRadialGradient(w * 0.5, h * 0.45, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
-    grad.addColorStop(0, 'rgba(6, 15, 11, 0.35)');
-    grad.addColorStop(1, 'rgba(2, 6, 4, 0.88)');
+    const cx = w * 0.5;
+    const cy = h * 0.46;
+    const maxR = Math.hypot(w, h) * 0.78;
+    const rayCount = 24;
+    const rot = this.elapsed * 0.055;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    for (let i = 0; i < rayCount; i++) {
+      const a0 = (i / rayCount) * Math.PI * 2;
+      const a1 = a0 + (Math.PI * 2) / (rayCount * 2.15);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, maxR, a0, a1);
+      ctx.closePath();
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(42, 165, 96, 0.09)' : 'rgba(255, 224, 120, 0.032)';
+      ctx.fill();
+    }
+    ctx.restore();
+
+    const grad = ctx.createRadialGradient(cx, cy, 30, cx, cy, maxR * 0.92);
+    grad.addColorStop(0, 'rgba(20, 70, 44, 0.14)');
+    grad.addColorStop(0.55, 'rgba(5, 16, 11, 0.45)');
+    grad.addColorStop(1, 'rgba(2, 6, 4, 0.92)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
+
+    // Floating pixel spore motes
+    for (const m of this.motes) {
+      const a = 0.22 + 0.25 * Math.sin(this.elapsed * 2.1 + m.phase);
+      ctx.fillStyle = m.gold ? `rgba(255, 232, 135, ${a})` : `rgba(88, 245, 155, ${a})`;
+      const s = Math.max(2, Math.round(m.r * 1.7));
+      ctx.fillRect(Math.round(m.x), Math.round(m.y), s, s);
+    }
 
     // Subtle glowing faint pheromone trails
     for (const ant of this.ants) {

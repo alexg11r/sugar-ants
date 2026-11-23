@@ -1479,6 +1479,23 @@ export class MultiplayerEngine {
       }
     }
 
+    if (this.state.allCleared && Math.random() < dt * 1.4) {
+      const fx = this.width * (0.16 + Math.random() * 0.68);
+      const fy = this.height * (0.16 + Math.random() * 0.68);
+      const hue = Math.random() * Math.PI * 2;
+      this.particles.spawn(
+        fx,
+        fy,
+        Math.round(170 + 85 * Math.sin(hue)),
+        Math.round(170 + 85 * Math.sin(hue + 2.1)),
+        Math.round(170 + 85 * Math.sin(hue + 4.2)),
+        10,
+        28,
+        1.7,
+        1.9
+      );
+    }
+
     this.particles.update(dt);
 
     // Flush exact destroyed block indices (~7Hz) so all screens stay 100% pixel-identical!
@@ -1699,6 +1716,15 @@ export class MultiplayerEngine {
       }
 
       this.revealCircle(x, y, 22);
+    }
+
+    if (
+      !this.state.allCleared &&
+      this.state.totalBreakable > 100 &&
+      (this.state.dugBreakable >= this.state.totalBreakable * 0.99 ||
+        this.state.totalBreakable - this.state.dugBreakable <= 18)
+    ) {
+      this.triggerEpicCoopClear();
     }
   }
 
@@ -1944,16 +1970,47 @@ export class MultiplayerEngine {
 
     if (dugAny) {
       this.revealCircle(cx, cy, 24);
-      // Check if 99%+ of all breakable blocks are eaten in Co-op!
+      // Check if 99%+ of all breakable blocks are eaten in Co-op -> Epic iridescent shimmer finale!
       if (
         !this.state.allCleared &&
         this.state.totalBreakable > 100 &&
-        this.state.dugBreakable >= this.state.totalBreakable * 0.99
+        (this.state.dugBreakable >= this.state.totalBreakable * 0.99 ||
+          this.state.totalBreakable - this.state.dugBreakable <= 18)
       ) {
-        this.state.allCleared = true;
-        this.callbacks.onAllBlocksCleared();
+        this.triggerEpicCoopClear();
       }
     }
+  }
+
+  private triggerEpicCoopClear() {
+    this.state.allCleared = true;
+    const total = this.width * this.height;
+    for (let i = 0; i < total; i++) {
+      const c = this.cells[i] as CellType;
+      if (
+        (c === CellType.SoftSoil || c === CellType.Clay || c === CellType.Stone || c === CellType.Obsidian) &&
+        this.reachableMask[i] === 1
+      ) {
+        this.cells[i] = CellType.Empty;
+        this.hp[i] = 0;
+        this.maxHp[i] = 0;
+        this.isEdge[i] = 0;
+      } else if (c === CellType.HiddenArt) {
+        this.artExposed[i] = 1;
+      }
+    }
+    this.state.dugBreakable = this.state.totalBreakable;
+    this.audio.playEpicClearFanfare();
+    const fitZoom = Math.min((this.viewW * 0.88) / this.width, (this.viewH * 0.74) / this.height);
+    this.camera.x = this.width * 0.5;
+    this.camera.y = this.height * 0.5;
+    this.camera.zoom = Math.max(1.2, Math.min(3.8, fitZoom));
+    for (let b = 0; b < 6; b++) {
+      const fx = this.width * (0.2 + Math.random() * 0.6);
+      const fy = this.height * (0.2 + Math.random() * 0.6);
+      this.particles.spawn(fx, fy, 130 + Math.random() * 125, 170 + Math.random() * 85, 255, 22, 46, 2.2, 2.4);
+    }
+    this.callbacks.onAllBlocksCleared();
   }
 
   private findNearestEmpty(tx: number, ty: number, maxR = 26): { x: number; y: number } | null {
@@ -2006,9 +2063,19 @@ export class MultiplayerEngine {
           data[p] = eR; data[p + 1] = eG; data[p + 2] = eB; data[p + 3] = 255;
           continue;
         }
-        if (c === CellType.HiddenArt && artExposed[idx] === 1) {
-          data[p] = 255; data[p + 1] = 255; data[p + 2] = 255; data[p + 3] = 255;
-          glow[p] = agR; glow[p + 1] = agG; glow[p + 2] = agB; glow[p + 3] = 220;
+        if (c === CellType.HiddenArt && (artExposed[idx] === 1 || this.state.allCleared)) {
+          if (this.state.allCleared) {
+            const phase = x * 0.032 + y * 0.022 - this.elapsed * 2.6;
+            const gleam = Math.pow(Math.max(0, Math.sin(x * 0.028 - y * 0.018 - this.elapsed * 3.4)), 8);
+            const irR = Math.min(255, Math.round(188 + 67 * Math.sin(phase) + gleam * 115));
+            const irG = Math.min(255, Math.round(192 + 63 * Math.sin(phase + 2.094) + gleam * 115));
+            const irB = Math.min(255, Math.round(198 + 57 * Math.sin(phase + 4.188) + gleam * 115));
+            data[p] = irR; data[p + 1] = irG; data[p + 2] = irB; data[p + 3] = 255;
+            glow[p] = irR; glow[p + 1] = irG; glow[p + 2] = irB; glow[p + 3] = Math.min(255, Math.round(215 + gleam * 40));
+          } else {
+            data[p] = 255; data[p + 1] = 255; data[p + 2] = 255; data[p + 3] = 255;
+            glow[p] = agR; glow[p + 1] = agG; glow[p + 2] = agB; glow[p + 3] = 220;
+          }
           continue;
         }
         if (c === CellType.Sugar && this.sugarExposed) {
@@ -2073,8 +2140,8 @@ export class MultiplayerEngine {
 
     ctx.globalCompositeOperation = 'lighter';
     ctx.imageSmoothingEnabled = true;
-    ctx.filter = `blur(${Math.max(4, Math.min(10, z * 1.5))}px)`;
-    ctx.globalAlpha = 0.56;
+    ctx.filter = `blur(${Math.max(4, Math.min(12, z * (this.state.allCleared ? 1.9 : 1.5)))}px)`;
+    ctx.globalAlpha = this.state.allCleared ? 0.85 : 0.56;
     ctx.drawImage(this.glowCanvas, drawX, drawY, drawW, drawH);
     ctx.filter = 'none';
     ctx.globalAlpha = 1;

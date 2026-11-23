@@ -6,7 +6,8 @@ export const enum CellType {
   Obsidian = 4,     // HP 36
   HiddenArt = 5,    // Indestructible glowing white hidden picture (including frame & easter eggs)
   SkillCrystal = 6, // HP 10 - special crystal granting +1 Skill Point (only visible near tunnels)
-  Sugar = 7         // Goal block: completely hidden until exposed!
+  Sugar = 7,        // Goal block: completely hidden until exposed!
+  Artifact = 8      // Secret collectible artifact (e.g. Креветочка Руся) -> permanent +1 SP!
 }
 
 export type PlayableAntId = 'worker' | 'warrior' | 'scout' | 'queen' | 'compass';
@@ -148,12 +149,22 @@ export interface GameSettings {
   volume: number;
 }
 
+export interface ArtifactDef {
+  id: string;
+  levelId: string;
+  name: string;
+  description: string;
+  accent: string;
+  rgb: [number, number, number];
+}
+
 export interface SaveState {
   skillPoints: number;
   nodeRanks: Record<string, number>;
   completedLevels: string[];
   mutationClaimedLevels: string[];
   mutations: MutationId[];
+  artifacts: string[];
   currentLevelId: string;
   settings: GameSettings;
 }
@@ -187,6 +198,8 @@ export interface WorldStats {
   totalArt: number;
   revealedArt: number;
   sugarFound: boolean;
+  mapCleared: boolean;
+  artifactCollected: boolean;
   crystalsCollected: number;
   totalCrystals: number;
 }

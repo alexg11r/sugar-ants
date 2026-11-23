@@ -807,11 +807,189 @@ export class MeditativeAudio {
 
   playDigTick() {
     const now = performance.now();
-    if (now - this.lastDigSound < 210) return;
+    if (now - this.lastDigSound < 115) return;
     this.lastDigSound = now;
-    const scale = this.getCurrentTrack().scale;
-    const note = scale[Math.floor(Math.random() * scale.length)];
-    this.playToneInternal(note * 0.5, 0.16, 0.032, 'triangle');
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+
+    // Crisp tactile pixel-pop crunch inspired by minimalist digging ASMR!
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const base = 240 + Math.random() * 190;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(base, t);
+    osc.frequency.exponentialRampToValueAtTime(base * 0.45, t + 0.048);
+
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.052, t + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.06);
+  }
+
+  /** Crisp wooden/pixel UI hover blip (like reference menu!) */
+  playUiHover() {
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(480, t);
+    osc.frequency.exponentialRampToValueAtTime(640, t + 0.032);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.055, t + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.038);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.045);
+  }
+
+  /** Snappy tactile button click sound */
+  playUiClick() {
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(340, t);
+    osc.frequency.exponentialRampToValueAtTime(160, t + 0.045);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1400;
+
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.075, t + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.052);
+
+    osc.connect(lp);
+    lp.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.06);
+  }
+
+  /** Studio splash bounce + sparkling pixel shimmer */
+  playSplashLogo() {
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+    // Soft bouncy impact thump
+    const thump = this.ctx.createOscillator();
+    const tg = this.ctx.createGain();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(175, t);
+    thump.frequency.exponentialRampToValueAtTime(48, t + 0.22);
+    tg.gain.setValueAtTime(0.0001, t);
+    tg.gain.exponentialRampToValueAtTime(0.2, t + 0.01);
+    tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+    thump.connect(tg);
+    tg.connect(this.masterGain);
+    thump.start(t);
+    thump.stop(t + 0.28);
+
+    // Shimmering digital sparkle ticks
+    const freqs = [880, 1174.66, 1396.91, 1760, 2093];
+    freqs.forEach((f, idx) => {
+      this.playToneInternal(f, 0.14, 0.04, 'triangle', 0.06 + idx * 0.045);
+    });
+  }
+
+  /** Dramatic 3-beat pre-game intro impact + rising harmonic tension (0: blocks, 1: 1 sugar, 2: FIND IT!) */
+  playIntroBeat(beat: 0 | 1 | 2) {
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+
+    // Cinematic sub-bass impact hit
+    const sub = this.ctx.createOscillator();
+    const subG = this.ctx.createGain();
+    sub.type = 'sine';
+    const startF = beat === 0 ? 96 : beat === 1 ? 112 : 132;
+    const endF = beat === 0 ? 36 : beat === 1 ? 42 : 48;
+    sub.frequency.setValueAtTime(startF, t);
+    sub.frequency.exponentialRampToValueAtTime(endF, t + 0.38);
+    subG.gain.setValueAtTime(0.0001, t);
+    subG.gain.exponentialRampToValueAtTime(0.28, t + 0.012);
+    subG.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+    sub.connect(subG);
+    subG.connect(this.masterGain);
+    sub.start(t);
+    sub.stop(t + 0.7);
+
+    // Rising tension chord pad (steps higher on each beat!)
+    const chords: number[][] = [
+      [110, 164.81, 220],         // Beat 0: deep A minor/5th
+      [130.81, 196.0, 261.63],    // Beat 1: C major lift
+      [146.83, 220.0, 293.66, 369.99] // Beat 2: radiant D major peak
+    ];
+    for (const f of chords[beat]) {
+      const osc = this.ctx.createOscillator();
+      const lp = this.ctx.createBiquadFilter();
+      const g = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(f, t);
+      osc.frequency.exponentialRampToValueAtTime(f * 1.03, t + 1.15);
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(320 + beat * 240, t);
+      lp.frequency.exponentialRampToValueAtTime(750 + beat * 420, t + 1.05);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.042 + beat * 0.012, t + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.25);
+      osc.connect(lp);
+      lp.connect(g);
+      g.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + 1.3);
+    }
+  }
+
+  /** Crisp organic pop-pop-pop when initial nest chamber opens */
+  playRevealPop(step: number) {
+    this.ensureStarted();
+    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    const f = 220 + step * 75;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f * 0.8, t);
+    osc.frequency.exponentialRampToValueAtTime(f * 1.35, t + 0.055);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.11, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.09);
+  }
+
+  /** Subtle joyful ding when completing a tutorial hint step */
+  playHintDone() {
+    this.playToneInternal(587.33, 0.22, 0.075, 'sine', 0);
+    this.playToneInternal(880, 0.34, 0.085, 'sine', 0.06);
+  }
+
+  /** Magical shimmering arpeggio when discovering a Secret Collectible Artifact (e.g. Креветочка Руся!) */
+  playArtifactFound() {
+    const notes = [523.25, 659.25, 783.99, 987.77, 1174.66, 1567.98];
+    notes.forEach((f, idx) => {
+      this.playToneInternal(f, 0.95, 0.11, idx % 2 === 0 ? 'sine' : 'triangle', idx * 0.075);
+    });
+  }
+
+  /** Grand euphoric iridescent fanfare when a map reaches 100% cleared! */
+  playEpicClearFanfare() {
+    const chord = [261.63, 329.63, 392.0, 493.88, 587.33, 783.99, 1046.5, 1318.5];
+    chord.forEach((f, idx) => {
+      this.playToneInternal(f, 2.4, 0.12, 'sine', idx * 0.085);
+      this.playToneInternal(f * 0.5, 2.0, 0.05, 'triangle', idx * 0.085 + 0.04);
+    });
   }
 
   playArtReveal() {

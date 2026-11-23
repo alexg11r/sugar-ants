@@ -1,5 +1,5 @@
 import { computeReachableMask, isReachableTerrainSquare } from './reachability';
-import { CellType, LevelDefinition, WorldStats } from './types';
+import { ArtifactDef, CellType, LevelDefinition, WorldStats } from './types';
 
 export interface DigResult {
   hitSolid: boolean;
@@ -8,6 +8,7 @@ export interface DigResult {
   damagedCount: number;
   crystalsBroken: number;
   sugarHit: boolean;
+  artifactFound: ArtifactDef | null;
   artRevealed: number;
 }
 
@@ -19,7 +20,8 @@ export const BLOCK_HP: Record<number, number> = {
   [CellType.Obsidian]: 36,
   [CellType.HiddenArt]: 255,
   [CellType.SkillCrystal]: 10,
-  [CellType.Sugar]: 1
+  [CellType.Sugar]: 1,
+  [CellType.Artifact]: 6
 };
 
 export class World {
@@ -47,13 +49,19 @@ export class World {
   sugarY: number;
   sugarExposed = false;
 
+  artifactDef: ArtifactDef | null = null;
+  artifactX = -1;
+  artifactY = -1;
+  artifactExposed = false;
+
   stats: WorldStats;
 
-  constructor(level: LevelDefinition, farSenseMutation = false) {
+  constructor(level: LevelDefinition, farSenseMutation = false, artifactToSpawn: ArtifactDef | null = null) {
     this.level = level;
     this.width = level.width;
     this.height = level.height;
     this.revealRadius = farSenseMutation ? 36 : 22;
+    this.artifactDef = artifactToSpawn;
 
     const size = this.width * this.height;
     this.cells = new Uint8Array(size);
@@ -76,6 +84,8 @@ export class World {
       totalArt: 0,
       revealedArt: 0,
       sugarFound: false,
+      mapCleared: false,
+      artifactCollected: false,
       crystalsCollected: 0,
       totalCrystals: 0
     };
@@ -204,6 +214,45 @@ export class World {
           const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
           if (this.cells[idx] !== CellType.HiddenArt) {
             this.setBlock(idx, CellType.Sugar);
+          }
+        }
+      }
+    }
+
+    // 4b. Place Secret Collectible Artifact (e.g. Креветочка Руся on Map 1!) strictly inside BFS-reachable territory!
+    if (this.artifactDef) {
+      let placedArt = false;
+      for (let attempt = 0; attempt < 900; attempt++) {
+        const ax = Math.floor(w * 0.1 + Math.random() * (w * 0.8));
+        const ay = Math.floor(h * 0.1 + Math.random() * (h * 0.78));
+        if (Math.hypot(ax - this.nestX, ay - this.nestY) < 36) continue;
+        if (Math.hypot(ax - this.sugarX, ay - this.sugarY) < 24) continue;
+        if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, ax, ay, 4)) continue;
+        this.artifactX = ax;
+        this.artifactY = ay;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            this.setBlock((ay + dy) * w + (ax + dx), CellType.Artifact);
+          }
+        }
+        placedArt = true;
+        break;
+      }
+      if (!placedArt) {
+        for (let y = 10; y < h - 10 && !placedArt; y += 3) {
+          for (let x = 10; x < w - 10; x += 3) {
+            if (Math.hypot(x - this.nestX, y - this.nestY) < 26) continue;
+            if (Math.hypot(x - this.sugarX, y - this.sugarY) < 16) continue;
+            if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, 2)) continue;
+            this.artifactX = x;
+            this.artifactY = y;
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                this.setBlock((y + dy) * w + (x + dx), CellType.Artifact);
+              }
+            }
+            placedArt = true;
+            break;
           }
         }
       }
@@ -351,6 +400,7 @@ export class World {
       damagedCount: 0,
       crystalsBroken: 0,
       sugarHit: false,
+      artifactFound: null,
       artRevealed: 0
     };
 
@@ -401,6 +451,8 @@ export class World {
           revealedNewTunnel = true;
           if (cell === CellType.SkillCrystal) {
             this.breakCrystalCluster(x, y, result);
+          } else if (cell === CellType.Artifact) {
+            this.breakArtifactCluster(x, y, result);
           } else {
             this.destroyCell(x, y, result);
           }
@@ -460,6 +512,66 @@ export class World {
     }
   }
 
+  private breakArtifactCluster(sx: number, sy: number, result: DigResult) {
+    const queue: [number, number][] = [[sx, sy]];
+    let brokeAny = false;
+
+    while (queue.length > 0) {
+      const [x, y] = queue.pop()!;
+      if (!this.inBounds(x, y)) continue;
+      const idx = y * this.width + x;
+      if (this.cells[idx] !== CellType.Artifact) continue;
+
+      this.cells[idx] = CellType.Empty;
+      this.hp[idx] = 0;
+      this.maxHp[idx] = 0;
+      this.isEdge[idx] = 0;
+      result.dugCount++;
+      brokeAny = true;
+
+      this.updateNeighbors(x, y, result);
+      queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+
+    if (brokeAny && this.artifactDef && !this.stats.artifactCollected) {
+      this.stats.artifactCollected = true;
+      this.artifactExposed = true;
+      result.artifactFound = this.artifactDef;
+    }
+  }
+
+  /**
+   * When >=99% (or <=18 pixels left) of reachable terrain is cleared, sweeps the last few stray pixels,
+   * reveals 100% of the HiddenArt masterpiece, and enables the iridescent shimmer finale!
+   */
+  checkAndFinishClear(): boolean {
+    if (this.stats.mapCleared || this.stats.totalBreakable < 100) return false;
+    const rem = this.stats.totalBreakable - this.stats.dugBreakable;
+    if (this.stats.dugBreakable < this.stats.totalBreakable * 0.99 && rem > 18) {
+      return false;
+    }
+
+    this.stats.mapCleared = true;
+    const total = this.width * this.height;
+    for (let i = 0; i < total; i++) {
+      const c = this.cells[i] as CellType;
+      if (this.isTerrain(c) && this.reachableMask[i] === 1) {
+        this.cells[i] = CellType.Empty;
+        this.hp[i] = 0;
+        this.maxHp[i] = 0;
+        this.isEdge[i] = 0;
+      } else if (c === CellType.HiddenArt) {
+        this.artExposed[i] = 1;
+      }
+      if (this.reachableMask[i] === 1) {
+        this.revealedMask[i] = 255;
+      }
+    }
+    this.stats.dugBreakable = this.stats.totalBreakable;
+    this.stats.revealedArt = this.stats.totalArt;
+    return true;
+  }
+
   private updateNeighbors(x: number, y: number, result: DigResult) {
     const w = this.width;
     const h = this.height;
@@ -484,6 +596,8 @@ export class World {
             this.stats.sugarFound = true;
             result.sugarHit = true;
           }
+        } else if (nCell === CellType.Artifact) {
+          this.artifactExposed = true;
         }
       }
     }

@@ -396,6 +396,7 @@ function createDefaultSave(): SaveState {
     completedLevels: [],
     mutationClaimedLevels: [],
     mutations: [],
+    artifacts: [],
     currentLevelId: 'prism',
     settings: createDefaultSettings()
   };
@@ -424,6 +425,7 @@ export class SkillTreeManager {
           ? parsed.mutationClaimedLevels
           : [],
         mutations: Array.isArray(parsed.mutations) ? (parsed.mutations as MutationId[]) : [],
+        artifacts: Array.isArray(parsed.artifacts) ? (parsed.artifacts as string[]) : [],
         currentLevelId: typeof parsed.currentLevelId === 'string' ? parsed.currentLevelId : def.currentLevelId,
         settings: { ...createDefaultSettings(), ...(parsed.settings || {}) }
       };
@@ -447,12 +449,27 @@ export class SkillTreeManager {
     this.save();
   }
 
-  /** Resets skill tree & skill points for a fresh level run, applying permanent mutations! */
+  /** Resets skill tree & skill points for a fresh level run, applying permanent mutations & secret artifacts! */
   resetTreeForNewLevel(levelId: string) {
     this.state.currentLevelId = levelId;
     this.state.nodeRanks = { worker_root: 1 };
-    this.state.skillPoints = this.hasMutation('start_sp_3') ? 3 : 0;
+    const mutBonus = this.hasMutation('start_sp_3') ? 3 : 0;
+    const artifactBonus = this.state.artifacts.length;
+    this.state.skillPoints = mutBonus + artifactBonus;
     this.save();
+  }
+
+  hasArtifact(id: string): boolean {
+    return this.state.artifacts.includes(id);
+  }
+
+  /** Permanently records a discovered collectible artifact and grants +1 immediate SP (+1 permanent starting SP!) */
+  collectArtifact(id: string): boolean {
+    if (this.state.artifacts.includes(id)) return false;
+    this.state.artifacts.push(id);
+    this.state.skillPoints += 1;
+    this.save();
+    return true;
   }
 
   hasMutation(id: MutationId): boolean {

@@ -1,5 +1,5 @@
 import { ColonyStats } from '../game/skillTree';
-import { Ant, AntTypeConfig, AntTypeId, CellType, PlayableAntId } from './types';
+import { Ant, AntTypeConfig, AntTypeId, ArtifactDef, CellType, PlayableAntId } from './types';
 import { World } from './world';
 import { ParticleSystem } from './particles';
 
@@ -108,6 +108,7 @@ export const PLAYABLE_ANTS: PlayableAntId[] = ['worker', 'warrior', 'scout', 'qu
 export interface AntUpdateEvents {
   crystalsBroken: number;
   sugarHit: boolean;
+  artifactFound: ArtifactDef | null;
   artRevealed: number;
   dugPixels: number;
   damagedPixels: number;
@@ -241,6 +242,7 @@ export class AntManager {
     const events: AntUpdateEvents = {
       crystalsBroken: 0,
       sugarHit: false,
+      artifactFound: null,
       artRevealed: 0,
       dugPixels: 0,
       damagedPixels: 0,
@@ -323,6 +325,12 @@ export class AntManager {
     if (res.sugarHit) {
       events.sugarHit = true;
       particles.spawn(world.sugarX, world.sugarY, 255, 245, 175, 32, 42, 2.0, 2.4);
+    }
+    if (res.artifactFound) {
+      events.artifactFound = res.artifactFound;
+      const [ar, ag, ab] = res.artifactFound.rgb;
+      particles.spawn(x, y, ar, ag, ab, 36, 46, 2.2, 2.6);
+      particles.spawn(x, y, 255, 245, 185, 22, 34, 1.8, 2.0);
     }
     if (res.crystalsBroken > 0) {
       particles.spawn(x, y, 75, 235, 255, 16, 30, 1.3, 2.0);

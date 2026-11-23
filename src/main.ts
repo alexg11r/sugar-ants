@@ -4,11 +4,9 @@ import { GameEngine } from './game/engine';
 import { MenuBackground } from './game/menuBg';
 import { SkillTreeManager } from './game/skillTree';
 import { MultiplayerEngine } from './multiplayer/mpEngine';
-import { StoryEngine } from './story/storyEngine';
 import { HudController } from './ui/hud';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
-const storyCanvas = document.getElementById('story-canvas') as HTMLCanvasElement;
 const mpCanvas = document.getElementById('mp-canvas') as HTMLCanvasElement;
 const menuBgCanvas = document.getElementById('menu-bg-canvas') as HTMLCanvasElement;
 
@@ -21,14 +19,12 @@ let hud: HudController;
 const engine = new GameEngine(canvas, skillTree, audio, {
   onHudSync: () => hud?.sync(),
   onSugarFound: (level) => hud?.openSugarFoundModal(level),
+  onArtifactFound: (artifact) => hud?.openArtifactFoundModal(artifact),
+  onMapCleared: (level) => hud?.showClassicEpicClearBanner(level),
   onToast: (msg) => hud?.showToast(msg),
-  onFirstInteract: () => hud?.hideHint()
-});
-
-const story = new StoryEngine(storyCanvas, audio, {
-  onHudSync: () => hud?.syncStoryHud(),
-  onToast: (msg) => hud?.showToast(msg),
-  onVictory: (level, hasNext) => hud?.openStoryVictoryModal(level, hasNext)
+  onFirstInteract: () => hud?.notifyTutorialAction('launch'),
+  onZoomInteract: () => hud?.notifyTutorialAction('zoom'),
+  onPanInteract: () => hud?.notifyTutorialAction('pan')
 });
 
 const mp = new MultiplayerEngine(mpCanvas, audio, {
@@ -37,8 +33,8 @@ const mp = new MultiplayerEngine(mpCanvas, audio, {
   onSystemChat: (text) => hud?.pushSystemChat(text),
   onVersusEnd: (winnerNick, iWon) => hud?.openMpVersusEndModal(winnerNick, iWon),
   onVoteUpdate: () => hud?.syncMpVoteBanner(),
-  onAllBlocksCleared: () => hud?.openMpAllClearedModal()
+  onAllBlocksCleared: () => hud?.showMpEpicClearBanner()
 });
 
-hud = new HudController(engine, story, mp, menuBg);
+hud = new HudController(engine, mp, menuBg);
 engine.start();

@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#0c2015" />
+    <meta name="theme-color" content="#08170f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -16,10 +16,48 @@
   <body>
     <div id="app">
       <canvas id="game-canvas"></canvas>
-      <canvas id="story-canvas" class="hidden"></canvas>
       <canvas id="mp-canvas" class="hidden"></canvas>
 
-      <!-- Top HUD -->
+      <!-- Studio Splash Screen (like reference intro!) -->
+      <div id="splash-overlay" class="splash-overlay">
+        <div class="sunburst-rays splash-rays"></div>
+        <div class="splash-center">
+          <div class="splash-emblem" aria-hidden="true">
+            <svg viewBox="0 0 24 24" shape-rendering="crispEdges">
+              <!-- Pixel glowing ant crest -->
+              <rect x="6" y="2" width="2" height="2" fill="#63ffa0" />
+              <rect x="16" y="2" width="2" height="2" fill="#63ffa0" />
+              <rect x="8" y="4" width="2" height="2" fill="#3ce87a" />
+              <rect x="14" y="4" width="2" height="2" fill="#3ce87a" />
+              <rect x="8" y="6" width="8" height="5" fill="#3ce87a" />
+              <rect x="9" y="8" width="2" height="2" fill="#07140d" />
+              <rect x="13" y="8" width="2" height="2" fill="#07140d" />
+              <rect x="9" y="11" width="6" height="4" fill="#2bc466" />
+              <rect x="4" y="11" width="5" height="2" fill="#3ce87a" />
+              <rect x="15" y="11" width="5" height="2" fill="#3ce87a" />
+              <rect x="3" y="15" width="5" height="2" fill="#2bc466" />
+              <rect x="16" y="15" width="5" height="2" fill="#2bc466" />
+              <rect x="7" y="15" width="10" height="7" fill="#3ce87a" />
+              <rect x="9" y="17" width="6" height="2" fill="#ffe680" />
+            </svg>
+          </div>
+          <div class="splash-title">GrAx</div>
+          <div class="splash-sub">STUDIO</div>
+        </div>
+        <div class="intro-skip-note">Нажмите, чтобы пропустить</div>
+      </div>
+
+      <!-- Dramatic 3-Beat Pre-Game Intro Sequence -->
+      <div id="game-intro-overlay" class="game-intro-overlay hidden">
+        <div id="intro-rays" class="sunburst-rays intro-rays"></div>
+        <div id="intro-stage" class="intro-stage">
+          <div id="intro-big" class="intro-big">50 000</div>
+          <div id="intro-small" class="intro-small">БЛОКОВ</div>
+        </div>
+        <div class="intro-skip-note">Нажмите, чтобы пропустить</div>
+      </div>
+
+      <!-- Top HUD (Classic Mode) -->
       <header id="hud-top" class="hud-top hidden">
         <div class="hud-group hud-left">
           <button id="btn-menu" class="icon-btn" title="Главное меню">☰</button>
@@ -31,10 +69,13 @@
           <button id="btn-mutations" class="pill-btn pill-mut" title="Активные мутации">
             <span>🧬 <span id="stat-mut-count">0</span></span>
           </button>
+          <button id="btn-artifacts" class="pill-btn pill-art" title="Секретные находки (+1 стартовое очко навыков)">
+            <span>🏺 <span id="stat-artifacts-count">0/5</span></span>
+          </button>
         </div>
 
         <div class="hud-group hud-stats">
-          <div class="stat-chip" title="Очки навыков (из кристаллов в тоннелях)">
+          <div class="stat-chip" title="Очки навыков (из кристаллов и находок)">
             <span class="stat-icon icon-sp">♦</span>
             <span id="stat-sp">0</span>
           </div>
@@ -58,15 +99,30 @@
         </div>
       </header>
 
-      <!-- Subtle floating hint -->
-      <div id="hint-banner" class="hint-banner hidden">
-        Тапни или потяни от гнезда — выпустить муравья • ПКМ / 2 пальца — камера • Колесо — зум
+      <!-- Interactive Step-by-Step Contextual Hint (like reference!) -->
+      <div id="tutorial-hint" class="tutorial-hint hidden">
+        <div id="tutorial-hint-icon" class="tutorial-hint-icon"></div>
+        <div id="tutorial-hint-text" class="tutorial-hint-text"></div>
+      </div>
+
+      <!-- Epic 100% Map Cleared Non-Blocking Finale Banner -->
+      <div id="epic-clear-banner" class="epic-clear-banner hidden">
+        <div class="epic-clear-glow"></div>
+        <div class="epic-clear-info">
+          <div class="epic-clear-badge">✨ ШЕДЕВР ОТКРЫТ НА 100% ✨</div>
+          <div id="epic-clear-title" class="epic-clear-title">Призма Света</div>
+          <div class="epic-clear-sub">Все блоки прогрызены — картина сияет во всей красе!</div>
+        </div>
+        <div class="epic-clear-actions">
+          <button id="epic-btn-admire" class="action-btn">Любоваться</button>
+          <button id="epic-btn-next" class="action-btn primary">Следующая карта →</button>
+        </div>
       </div>
 
       <!-- Toast notifications -->
       <div id="toast-container" class="toast-container"></div>
 
-      <!-- Bottom Dock -->
+      <!-- Bottom Dock (Classic Mode) -->
       <footer id="hud-bottom" class="hud-bottom hidden">
         <div class="dock-inner">
           <div id="ant-bar" class="ant-bar"></div>
@@ -79,54 +135,80 @@
         </div>
       </footer>
 
-      <!-- Interactive Main Menu Overlay -->
+      <!-- Stylish Minimalist Interactive Main Menu (No Story Mode!) -->
       <section id="main-menu" class="main-menu">
         <canvas id="menu-bg-canvas" class="menu-bg-canvas"></canvas>
-        <div class="menu-content">
-          <div class="menu-brand">
-            <div class="menu-badge">МЕДИТАТИВНАЯ СИМУЛЯЦИЯ КОЛОНИИ</div>
-            <h1 class="menu-title">SUGAR ANTS</h1>
-            <p class="menu-sub">Прогрызай туннели, открывай скрытые картины и эволюционируй колонию</p>
+
+        <div class="menu-stage">
+          <!-- Sculptural Framed Title Lockup (reference-inspired!) -->
+          <div class="menu-logo-lockup">
+            <div class="menu-logo-crest" aria-hidden="true">
+              <svg viewBox="0 0 36 36" shape-rendering="crispEdges">
+                <!-- Glowing golden sugar cube + radiant spark -->
+                <rect x="10" y="9" width="16" height="16" fill="#ffe680" />
+                <rect x="12" y="11" width="12" height="12" fill="#fff7cc" />
+                <rect x="14" y="13" width="4" height="4" fill="#ffffff" />
+                <rect x="17" y="2" width="2" height="5" fill="#63ffa0" />
+                <rect x="17" y="29" width="2" height="5" fill="#63ffa0" />
+                <rect x="2" y="17" width="5" height="2" fill="#63ffa0" />
+                <rect x="29" y="17" width="5" height="2" fill="#63ffa0" />
+              </svg>
+            </div>
+
+            <div class="menu-title-frame">
+              <span class="frame-corner tl"></span>
+              <span class="frame-corner tr"></span>
+              <span class="frame-corner bl"></span>
+              <span class="frame-corner br"></span>
+              <div class="menu-title-top">SUGAR</div>
+              <div class="menu-title-bottom">ANTS</div>
+              <div class="menu-title-sweep"></div>
+            </div>
+
+            <div class="menu-tagline">МЕДИТАТИВНАЯ СИМУЛЯЦИЯ КОЛОНИИ</div>
           </div>
 
-          <div class="menu-actions">
-            <button id="menu-play-classic" class="menu-btn menu-btn-primary">
-              <span class="menu-btn-icon">▶</span>
-              <span class="menu-btn-text">
-                <strong>Классический режим</strong>
-                <small id="menu-continue-sub">Продолжить • Призма Света</small>
-              </span>
+          <!-- Crisp Centered Tactile Menu Buttons -->
+          <div class="menu-stack">
+            <button id="menu-play-classic" class="mbtn mbtn-play">
+              <span class="mbtn-accent">▶</span>
+              <span class="mbtn-label">ИГРАТЬ</span>
+              <span id="menu-continue-sub" class="mbtn-meta">Призма Света</span>
             </button>
 
-            <button id="menu-play-story" class="menu-btn menu-btn-story">
-              <span class="menu-btn-icon">🌿</span>
-              <span class="menu-btn-text">
-                <strong>Сюжетный режим</strong>
-                <small>Забытая ферма: тли, личинки и побег к сахару</small>
-              </span>
+            <button id="menu-play-mp" class="mbtn mbtn-mp">
+              <span class="mbtn-accent">⚔</span>
+              <span class="mbtn-label">МУЛЬТИПЛЕЕР</span>
+              <span class="mbtn-meta">Кооп • 1v1 • ИИ</span>
             </button>
 
-            <button id="menu-play-mp" class="menu-btn menu-btn-mp">
-              <span class="menu-btn-icon">⚔</span>
-              <span class="menu-btn-text">
-                <strong>Мультиплеер</strong>
-                <small>Онлайн 1v1, Кооп по коду комнаты или ИИ-соперник</small>
-              </span>
+            <button id="menu-btn-artifacts" class="mbtn mbtn-art">
+              <span class="mbtn-accent">🏺</span>
+              <span class="mbtn-label">СЕКРЕТНЫЕ НАХОДКИ</span>
+              <span id="menu-art-count" class="mbtn-meta">0/5 • +0 ♦</span>
             </button>
 
-            <div class="menu-row-btns">
-              <button id="menu-btn-levels" class="menu-btn-small">🗺 Уровни</button>
-              <button id="menu-btn-mutations" class="menu-btn-small">🧬 Мутации</button>
-              <button id="menu-btn-settings" class="menu-btn-small">⚙ Настройки</button>
+            <div class="menu-subrow">
+              <button id="menu-btn-levels" class="mbtn-mini">
+                <span>🗺</span><span>Карты</span>
+                <small id="menu-progress-count">0/5</small>
+              </button>
+              <button id="menu-btn-mutations" class="mbtn-mini">
+                <span>🧬</span><span>Мутации</span>
+                <small id="menu-mut-count">0</small>
+              </button>
+              <button id="menu-btn-settings" class="mbtn-mini">
+                <span>⚙</span><span>Настройки</span>
+              </button>
+              <button id="menu-btn-credits" class="mbtn-mini">
+                <span>✦</span><span>Авторы</span>
+              </button>
             </div>
           </div>
 
-          <div class="menu-footer-note">
-            Пройдено уровней: <strong id="menu-progress-count">0/5</strong> • Мутаций: <strong id="menu-mut-count">0</strong>
-          </div>
-
-          <div class="menu-credits">
-            <span class="credits-author">made by <strong>GrAx</strong></span>
+          <!-- Clean Minimal Footer -->
+          <div class="menu-bottom-bar">
+            <span class="credits-author">v1.2 • made by <strong>GrAx</strong></span>
             <a
               href="https://t.me/alexstress1"
               target="_blank"
@@ -152,7 +234,6 @@
             </div>
           </div>
 
-          <!-- Dedicated non-overlapping inspector panel -->
           <aside class="st-inspector-panel">
             <div id="st-tooltip" class="st-tooltip">
               <div id="st-tt-cat" class="st-tt-cat">Дерево навыков</div>
@@ -173,46 +254,6 @@
           </aside>
         </div>
       </div>
-
-      <!-- Story Mode HUD -->
-      <header id="story-hud-top" class="hud-top hidden">
-        <div class="hud-group hud-left">
-          <button id="story-btn-menu" class="icon-btn" title="Главное меню">☰</button>
-          <button id="story-btn-chapters" class="pill-btn" title="Выбор главы сюжета">
-            <span class="dot-accent" style="background:#f5c26b;box-shadow:0 0 8px #f5c26b;"></span>
-            <span id="story-chapter-name">Глава 1: Стеклянная ферма</span>
-            <span class="chevron">▾</span>
-          </button>
-        </div>
-
-        <div class="hud-group hud-stats">
-          <div class="stat-chip" title="Нектар (производят пастухи тлей)">
-            <span>🍯</span><span id="story-nectar">16</span>
-          </div>
-          <div class="stat-chip" title="Личинки (растят няньки)">
-            <span>🥚</span><span id="story-larvae">6</span>
-          </div>
-          <div class="stat-chip" title="Крупицы (добываются при копании)">
-            <span>🪨</span><span id="story-minerals">0</span>
-          </div>
-          <div class="stat-chip" title="Сытость колонии">
-            <span>❤</span><span id="story-satiety">72%</span>
-          </div>
-        </div>
-
-        <div class="hud-group hud-right">
-          <button id="story-btn-settings" class="icon-btn" title="Настройки и саундтрек">⚙</button>
-          <button id="story-btn-reset-cam" class="icon-btn" title="Центрировать камеру">⌖</button>
-        </div>
-      </header>
-
-      <footer id="story-hud-bottom" class="hud-bottom hidden">
-        <div class="dock-inner story-dock">
-          <div id="story-diggers" class="ant-bar"></div>
-          <div class="dock-divider"></div>
-          <div id="story-economy" class="ant-bar"></div>
-        </div>
-      </footer>
 
       <!-- Multiplayer HUD -->
       <header id="mp-hud-top" class="hud-top hidden">
@@ -281,7 +322,7 @@
         </div>
       </footer>
 
-      <!-- Generic Modal Backdrop (Levels / Sugar+Mutations / Settings / Story) -->
+      <!-- Generic Modal Backdrop (Levels / Sugar+Mutations / Artifacts / Settings / Credits / Lobby) -->
       <div id="modal-backdrop" class="modal-backdrop hidden">
         <div id="modal-card" class="modal-card">
           <div class="modal-header">

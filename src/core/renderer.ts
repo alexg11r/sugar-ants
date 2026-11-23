@@ -326,21 +326,67 @@ export class WorldRenderer {
         }
 
         if (cell === CellType.HiddenArt) {
-          if (artExposed[idx] === 1) {
-            data[p] = 255;
-            data[p + 1] = 255;
-            data[p + 2] = 255;
-            data[p + 3] = 255;
+          if (artExposed[idx] === 1 || world.stats.mapCleared) {
+            if (world.stats.mapCleared) {
+              // EPIC 100% CLEARED IRIDESCENT SHIMMER WAVE!
+              const phase = x * 0.032 + y * 0.022 - time * 2.6;
+              const gleam = Math.pow(Math.max(0, Math.sin(x * 0.028 - y * 0.018 - time * 3.4)), 8);
+              const irR = Math.min(255, Math.round(188 + 67 * Math.sin(phase) + gleam * 115));
+              const irG = Math.min(255, Math.round(192 + 63 * Math.sin(phase + 2.094) + gleam * 115));
+              const irB = Math.min(255, Math.round(198 + 57 * Math.sin(phase + 4.188) + gleam * 115));
+              data[p] = irR;
+              data[p + 1] = irG;
+              data[p + 2] = irB;
+              data[p + 3] = 255;
 
-            glow[p] = agR;
-            glow[p + 1] = agG;
-            glow[p + 2] = agB;
-            glow[p + 3] = 220;
+              glow[p] = irR;
+              glow[p + 1] = irG;
+              glow[p + 2] = irB;
+              glow[p + 3] = Math.min(255, Math.round(215 + gleam * 40));
+            } else {
+              data[p] = 255;
+              data[p + 1] = 255;
+              data[p + 2] = 255;
+              data[p + 3] = 255;
+
+              glow[p] = agR;
+              glow[p + 1] = agG;
+              glow[p + 2] = agB;
+              glow[p + 3] = 220;
+            }
           } else {
             const shade = Math.round(((n & 7) - 3) * vis);
             data[p] = bR + shade;
             data[p + 1] = bG + shade;
             data[p + 2] = bB + shade;
+            data[p + 3] = 255;
+          }
+          continue;
+        }
+
+        // Secret Collectible Artifact (e.g. Креветочка Руся!): coral-gold magical shimmer inside tunnel vision!
+        if (cell === CellType.Artifact) {
+          if (vis > 0.1 || world.artifactExposed) {
+            const [ar, ag, ab] = world.artifactDef ? world.artifactDef.rgb : [255, 130, 148];
+            const pulse = 0.78 + 0.22 * Math.sin(time * 5.2 + x * 0.6 + y * 0.6);
+            const alpha = world.artifactExposed ? 1 : Math.min(1, (vis - 0.1) / 0.45);
+            const cr = Math.min(255, Math.round(ar * pulse + 35));
+            const cg = Math.min(255, Math.round(ag * pulse + 25));
+            const cb = Math.min(255, Math.round(ab * pulse + 25));
+
+            data[p] = Math.round(bR + (cr - bR) * alpha);
+            data[p + 1] = Math.round(bG + (cg - bG) * alpha);
+            data[p + 2] = Math.round(bB + (cb - bB) * alpha);
+            data[p + 3] = 255;
+
+            glow[p] = cr;
+            glow[p + 1] = cg;
+            glow[p + 2] = cb;
+            glow[p + 3] = Math.round(245 * alpha);
+          } else {
+            data[p] = bR;
+            data[p + 1] = bG;
+            data[p + 2] = bB;
             data[p + 3] = 255;
           }
           continue;
@@ -482,14 +528,41 @@ export class WorldRenderer {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.offscreen, drawX, drawY, drawW, drawH);
 
-    // Soft bloom pass for HiddenArt, revealed SkillCrystals, Sugar & heavy damage
+    // Soft bloom pass for HiddenArt (boosted iridescent glow on 100% clear!), Crystals, Artifacts & Sugar
     ctx.globalCompositeOperation = 'lighter';
     ctx.imageSmoothingEnabled = true;
-    ctx.filter = `blur(${Math.max(4, Math.min(10, camera.zoom * 1.5))}px)`;
-    ctx.globalAlpha = 0.58;
+    ctx.filter = `blur(${Math.max(4, Math.min(12, camera.zoom * (world.stats.mapCleared ? 1.9 : 1.5)))}px)`;
+    ctx.globalAlpha = world.stats.mapCleared ? 0.85 : 0.58;
     ctx.drawImage(this.glowCanvas, drawX, drawY, drawW, drawH);
     ctx.filter = 'none';
     ctx.globalAlpha = 1;
+
+    // Magical pulsing halo around a revealed uncollected Secret Artifact!
+    if (
+      world.artifactDef &&
+      !world.stats.artifactCollected &&
+      world.artifactX > 0 &&
+      (world.artifactExposed || world.revealedMask[world.artifactY * w + world.artifactX] > 55)
+    ) {
+      const ax = drawX + (world.artifactX + 0.5) * camera.zoom;
+      const ay = drawY + (world.artifactY + 0.5) * camera.zoom;
+      const [ar, ag, ab] = world.artifactDef.rgb;
+      const ringR = Math.max(8, camera.zoom * (2.6 + 0.65 * Math.sin(time * 4)));
+      ctx.strokeStyle = `rgba(${ar}, ${ag}, ${ab}, 0.72)`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(ax, ay, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Orbiting golden sparkle dots
+      for (let s = 0; s < 3; s++) {
+        const ang = time * 2.6 + (s * Math.PI * 2) / 3;
+        ctx.fillStyle = '#fff5c2';
+        ctx.beginPath();
+        ctx.arc(ax + Math.cos(ang) * ringR, ay + Math.sin(ang) * ringR, Math.max(1.5, camera.zoom * 0.4), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
 
     // Nest pulse ring
     const nestScreenX = drawX + world.nestX * camera.zoom;

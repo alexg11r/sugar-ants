@@ -3,11 +3,13 @@ import { SOUNDTRACKS } from '../core/audio';
 import { LEVELS } from '../core/levels';
 import {
   AntSkinId,
+  ArtifactDef,
   LevelDefinition,
   PLAYER_COLORS,
   SkillIcon,
   SkillNodeDef
 } from '../core/types';
+import { SECRET_ARTIFACTS, renderArtifactSvg } from '../game/artifacts';
 import { GameEngine } from '../game/engine';
 import { MenuBackground } from '../game/menuBg';
 import { getMutationDef, pickMutationChoices } from '../game/mutations';
@@ -24,12 +26,12 @@ import {
   SyncedVotePayload
 } from '../multiplayer/mpTransport';
 import { onlineDirectory } from '../multiplayer/onlineDirectory';
-import { STORY_LEVELS, StoryEngine, StoryLevelDef } from '../story/storyEngine';
 
 const NODE_STEP = 74;
 const ORIGIN_X = 268;
 const ORIGIN_Y = 192;
 const NICK_STORAGE_KEY = 'sugar_ants_nick_v1';
+const HINTS_DONE_KEY = 'sugar_ants_hints_done_v1';
 
 const SKIN_OPTIONS: { id: AntSkinId; name: string }[] = [
   { id: 'classic', name: 'Классик' },
@@ -105,18 +107,24 @@ function renderSkillSvg(icon: SkillIcon): string {
 
 export class HudController {
   private engine: GameEngine;
-  private story: StoryEngine;
   private mp: MultiplayerEngine;
   private menuBg: MenuBackground;
   private mpTransport: MpTransport | null = null;
 
   private gameCanvasEl = document.getElementById('game-canvas')!;
-  private storyCanvasEl = document.getElementById('story-canvas')!;
   private mpCanvasEl = document.getElementById('mp-canvas')!;
+
+  // Splash & 3-Beat Pre-Game Intro elements
+  private splashOverlayEl = document.getElementById('splash-overlay')!;
+  private introOverlayEl = document.getElementById('game-intro-overlay')!;
+  private introStageEl = document.getElementById('intro-stage')!;
+  private introBigEl = document.getElementById('intro-big')!;
+  private introSmallEl = document.getElementById('intro-small')!;
 
   // Main Menu elements
   private mainMenuEl = document.getElementById('main-menu')!;
   private menuContinueSubEl = document.getElementById('menu-continue-sub')!;
+  private menuArtCountEl = document.getElementById('menu-art-count')!;
   private menuProgressCountEl = document.getElementById('menu-progress-count')!;
   private menuMutCountEl = document.getElementById('menu-mut-count')!;
 
@@ -125,6 +133,7 @@ export class HudController {
   private hudBottomEl = document.getElementById('hud-bottom')!;
   private levelNameEl = document.getElementById('level-name')!;
   private statMutCountEl = document.getElementById('stat-mut-count')!;
+  private statArtifactsCountEl = document.getElementById('stat-artifacts-count')!;
   private statSpEl = document.getElementById('stat-sp')!;
   private statArtEl = document.getElementById('stat-art')!;
   private statDigEl = document.getElementById('stat-dig')!;
@@ -132,19 +141,13 @@ export class HudController {
   private sugarChipEl = document.getElementById('sugar-chip')!;
   private antBarEl = document.getElementById('ant-bar')!;
   private upgradeBadgeEl = document.getElementById('upgrade-badge')!;
-  private hintBannerEl = document.getElementById('hint-banner')!;
+  private tutorialHintEl = document.getElementById('tutorial-hint')!;
+  private tutorialHintIconEl = document.getElementById('tutorial-hint-icon')!;
+  private tutorialHintTextEl = document.getElementById('tutorial-hint-text')!;
+  private epicClearBannerEl = document.getElementById('epic-clear-banner')!;
+  private epicClearTitleEl = document.getElementById('epic-clear-title')!;
+  private epicBtnNextEl = document.getElementById('epic-btn-next') as HTMLButtonElement;
   private toastContainerEl = document.getElementById('toast-container')!;
-
-  // Story Mode HUD elements
-  private storyHudTopEl = document.getElementById('story-hud-top')!;
-  private storyHudBottomEl = document.getElementById('story-hud-bottom')!;
-  private storyChapterNameEl = document.getElementById('story-chapter-name')!;
-  private storyNectarEl = document.getElementById('story-nectar')!;
-  private storyLarvaeEl = document.getElementById('story-larvae')!;
-  private storyMineralsEl = document.getElementById('story-minerals')!;
-  private storySatietyEl = document.getElementById('story-satiety')!;
-  private storyDiggersEl = document.getElementById('story-diggers')!;
-  private storyEconomyEl = document.getElementById('story-economy')!;
 
   // Multiplayer HUD elements
   private mpHudTopEl = document.getElementById('mp-hud-top')!;
@@ -186,12 +189,16 @@ export class HudController {
   private modalTitleEl = document.getElementById('modal-title')!;
   private modalBodyEl = document.getElementById('modal-body')!;
 
-  private mode: 'menu' | 'classic' | 'story' | 'mp' = 'menu';
+  private mode: 'menu' | 'classic' | 'mp' = 'menu';
   private skillTreeOpen = false;
   private lastRenderedSp = -1;
   private selectedNodeId: string = 'worker_root';
   private lastBoughtNodeId: string | null = null;
   private hasStartedOnce = false;
+  private tutorialStep: 'launch' | 'zoom' | 'pan' | 'done' = 'launch';
+  private introTimers: number[] = [];
+  private introCancelFn: (() => void) | null = null;
+  private epicNextAction: (() => void) | null = null;
 
   // Multiplayer Lobby & Profile State
   private localNick: string;
@@ -218,14 +225,16 @@ export class HudController {
     fallbackTimer: number;
   } | null = null;
 
-  constructor(engine: GameEngine, story: StoryEngine, mp: MultiplayerEngine, menuBg: MenuBackground) {
+  constructor(engine: GameEngine, mp: MultiplayerEngine, menuBg: MenuBackground) {
     this.engine = engine;
-    this.story = story;
     this.mp = mp;
     this.menuBg = menuBg;
 
     this.localNick =
       localStorage.getItem(NICK_STORAGE_KEY) || `Муравей-${Math.floor(10 + Math.random() * 89)}`;
+    if (localStorage.getItem(HINTS_DONE_KEY) === '1') {
+      this.tutorialStep = 'done';
+    }
 
     this.engine.audio.onTrackAutoSwitch = (track) => {
       this.engine.skillTree.updateSettings({ soundtrack: track.id });
@@ -233,28 +242,160 @@ export class HudController {
     };
 
     this.bindButtons();
+    this.bindUiSounds();
     this.syncMenuSummary();
     this.showMainMenu();
+    this.playStartupSplash();
+  }
+
+  /** Crisp tactile UI hover & click SFX across all buttons (like the reference menu!) */
+  private bindUiSounds() {
+    let lastHovered: Element | null = null;
+    const selector = '.mbtn, .mbtn-mini, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
+    document.addEventListener('pointerover', (e) => {
+      if ((e as PointerEvent).pointerType === 'touch') return;
+      const btn = (e.target as HTMLElement | null)?.closest(selector);
+      if (btn && btn !== lastHovered && !(btn as HTMLButtonElement).disabled) {
+        lastHovered = btn;
+        this.engine.audio.playUiHover();
+      } else if (!btn) {
+        lastHovered = null;
+      }
+    });
+    document.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement | null)?.closest(selector);
+      if (btn && !(btn as HTMLButtonElement).disabled) {
+        this.engine.audio.playUiClick();
+      }
+    });
+  }
+
+  /** Studio Splash Screen (GrAx STUDIO) smoothly dissolving into the stylish Main Menu */
+  private playStartupSplash() {
+    const el = this.splashOverlayEl;
+    if (!el) return;
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      el.classList.add('fade-out');
+      setTimeout(() => el.classList.add('hidden'), 460);
+    };
+
+    el.addEventListener('click', () => {
+      this.engine.audio.ensureStarted();
+      finish();
+    }, { once: true });
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') {
+        finish();
+        window.removeEventListener('keydown', onKey);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+
+    setTimeout(() => this.engine.audio.playSplashLogo(), 120);
+    setTimeout(() => {
+      window.removeEventListener('keydown', onKey);
+      finish();
+    }, 2050);
+  }
+
+  /** Dramatic 3-beat pre-game intro ("50 000 БЛОКОВ" -> "1 КУСОЧЕК САХАРА" -> "НАЙДИ КУСОЧЕК САХАРА") */
+  private playPreGameIntro(onComplete: () => void) {
+    this.cancelPreGameIntro();
+
+    const totalBlocks = this.engine.world.stats.totalBreakable;
+    const rounded = Math.max(1000, Math.round(totalBlocks / 100) * 100);
+    const formattedBlocks = rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+    const el = this.introOverlayEl;
+    el.classList.remove('hidden', 'fade-out', 'beat-0', 'beat-1', 'beat-2');
+
+    const beats: { big: string; small: string; cls: string; beat: 0 | 1 | 2; atMs: number }[] = [
+      { big: formattedBlocks, small: 'БЛОКОВ', cls: 'beat-0', beat: 0, atMs: 40 },
+      { big: '1', small: 'КУСОЧЕК САХАРА', cls: 'beat-1', beat: 1, atMs: 1380 },
+      { big: 'НАЙДИ', small: 'КУСОЧЕК САХАРА', cls: 'beat-2', beat: 2, atMs: 2720 }
+    ];
+
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      this.clearIntroTimers();
+      window.removeEventListener('keydown', onKey);
+      el.removeEventListener('click', finish);
+      this.introCancelFn = null;
+      el.classList.add('fade-out');
+      setTimeout(() => el.classList.add('hidden'), 320);
+      onComplete();
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') {
+        finish();
+      }
+    };
+
+    this.introCancelFn = finish;
+    el.addEventListener('click', finish);
+    window.addEventListener('keydown', onKey);
+
+    for (const b of beats) {
+      const tid = window.setTimeout(() => {
+        if (done) return;
+        el.classList.remove('beat-0', 'beat-1', 'beat-2');
+        el.classList.add(b.cls);
+        this.introBigEl.textContent = b.big;
+        this.introSmallEl.textContent = b.small;
+        this.introStageEl.classList.remove('punch');
+        void this.introStageEl.offsetWidth;
+        this.introStageEl.classList.add('punch');
+        this.engine.audio.playIntroBeat(b.beat);
+      }, b.atMs);
+      this.introTimers.push(tid);
+    }
+
+    this.introTimers.push(window.setTimeout(finish, 4100));
+  }
+
+  private clearIntroTimers() {
+    for (const t of this.introTimers) window.clearTimeout(t);
+    this.introTimers = [];
+  }
+
+  private cancelPreGameIntro() {
+    this.clearIntroTimers();
+    if (this.introCancelFn) {
+      const fn = this.introCancelFn;
+      this.introCancelFn = null;
+      fn();
+    }
+    this.introOverlayEl.classList.add('hidden');
   }
 
   private bindButtons() {
     // Main menu buttons
     document.getElementById('menu-play-classic')!.addEventListener('click', () => {
       this.engine.audio.ensureStarted();
-      if (!this.hasStartedOnce) {
+      const firstLaunch = !this.hasStartedOnce;
+      if (firstLaunch) {
         this.hasStartedOnce = true;
         const targetLvl = this.engine.skillTree.state.currentLevelId;
         this.engine.loadLevel(
           this.engine.skillTree.isLevelUnlocked(targetLvl) ? targetLvl : LEVELS[0].id,
           true
         );
+        this.menuBg.stop();
+        this.mainMenuEl.classList.add('hidden');
+        this.playPreGameIntro(() => {
+          this.enterClassicGame();
+          this.engine.playNestRevealBurst();
+        });
+      } else {
+        this.enterClassicGame();
       }
-      this.enterClassicGame();
-    });
-
-    document.getElementById('menu-play-story')!.addEventListener('click', () => {
-      this.engine.audio.ensureStarted();
-      this.enterStoryMode(0);
     });
 
     document.getElementById('menu-play-mp')!.addEventListener('click', () => {
@@ -262,9 +403,11 @@ export class HudController {
       this.openMultiplayerLobbyModal();
     });
 
+    document.getElementById('menu-btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
     document.getElementById('menu-btn-levels')!.addEventListener('click', () => this.openLevelsModal());
     document.getElementById('menu-btn-mutations')!.addEventListener('click', () => this.openMutationsModal());
     document.getElementById('menu-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
+    document.getElementById('menu-btn-credits')!.addEventListener('click', () => this.openCreditsModal());
 
     // Classic HUD buttons
     document.getElementById('btn-menu')!.addEventListener('click', () => this.showMainMenu());
@@ -272,13 +415,17 @@ export class HudController {
     document.getElementById('btn-reset-cam')!.addEventListener('click', () => this.engine.resetCamera());
     document.getElementById('btn-upgrades')!.addEventListener('click', () => this.openSkillTree());
     document.getElementById('btn-mutations')!.addEventListener('click', () => this.openMutationsModal());
+    document.getElementById('btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
     document.getElementById('btn-levels')!.addEventListener('click', () => this.openLevelsModal());
 
-    // Story HUD buttons
-    document.getElementById('story-btn-menu')!.addEventListener('click', () => this.showMainMenu());
-    document.getElementById('story-btn-chapters')!.addEventListener('click', () => this.openStoryChaptersModal());
-    document.getElementById('story-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
-    document.getElementById('story-btn-reset-cam')!.addEventListener('click', () => this.story.resetCamera());
+    // Epic 100% Clear Banner buttons
+    document.getElementById('epic-btn-admire')!.addEventListener('click', () => {
+      this.epicClearBannerEl.classList.add('hidden');
+    });
+    this.epicBtnNextEl.addEventListener('click', () => {
+      this.epicClearBannerEl.classList.add('hidden');
+      this.epicNextAction?.();
+    });
 
     // Multiplayer HUD buttons
     document.getElementById('mp-btn-menu')!.addEventListener('click', () => {
@@ -389,15 +536,12 @@ export class HudController {
     this.mode = 'menu';
     this.closeSkillTree();
     this.engine.paused = true;
-    this.story.stop();
     this.mp.stop();
 
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
-    this.hintBannerEl.classList.add('hidden');
-    this.storyHudTopEl.classList.add('hidden');
-    this.storyHudBottomEl.classList.add('hidden');
-    this.storyCanvasEl.classList.add('hidden');
+    this.tutorialHintEl.classList.add('hidden');
+    this.epicClearBannerEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
     this.mpVoteBannerEl.classList.add('hidden');
@@ -413,14 +557,11 @@ export class HudController {
   enterClassicGame() {
     this.mode = 'classic';
     this.closeModal();
-    this.story.stop();
     this.mp.stop();
     this.menuBg.stop();
 
     this.mainMenuEl.classList.add('hidden');
-    this.storyHudTopEl.classList.add('hidden');
-    this.storyHudBottomEl.classList.add('hidden');
-    this.storyCanvasEl.classList.add('hidden');
+    this.epicClearBannerEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
     this.mpVoteBannerEl.classList.add('hidden');
@@ -430,36 +571,9 @@ export class HudController {
     this.gameCanvasEl.classList.remove('hidden');
     this.hudTopEl.classList.remove('hidden');
     this.hudBottomEl.classList.remove('hidden');
-    this.hintBannerEl.classList.remove('hidden');
     this.engine.paused = false;
     this.sync();
-  }
-
-  enterStoryMode(levelIndex = 0) {
-    this.mode = 'story';
-    this.closeModal();
-    this.closeSkillTree();
-    this.engine.paused = true;
-    this.mp.stop();
-    this.menuBg.stop();
-
-    this.mainMenuEl.classList.add('hidden');
-    this.hudTopEl.classList.add('hidden');
-    this.hudBottomEl.classList.add('hidden');
-    this.hintBannerEl.classList.add('hidden');
-    this.gameCanvasEl.classList.add('hidden');
-    this.mpHudTopEl.classList.add('hidden');
-    this.mpHudBottomEl.classList.add('hidden');
-    this.mpVoteBannerEl.classList.add('hidden');
-    this.mpChatBoxEl.classList.add('hidden');
-    this.mpCanvasEl.classList.add('hidden');
-
-    this.storyCanvasEl.classList.remove('hidden');
-    this.storyHudTopEl.classList.remove('hidden');
-    this.storyHudBottomEl.classList.remove('hidden');
-
-    this.story.startLevel(levelIndex);
-    this.syncStoryHud();
+    this.renderTutorialHint();
   }
 
   enterMultiplayerMatch(opts: {
@@ -485,24 +599,24 @@ export class HudController {
     this.closeModal();
     this.closeSkillTree();
     this.engine.paused = true;
-    this.story.stop();
     this.menuBg.stop();
 
     this.mainMenuEl.classList.add('hidden');
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
-    this.hintBannerEl.classList.add('hidden');
+    this.tutorialHintEl.classList.add('hidden');
+    this.epicClearBannerEl.classList.add('hidden');
     this.gameCanvasEl.classList.add('hidden');
-    this.storyHudTopEl.classList.add('hidden');
-    this.storyHudBottomEl.classList.add('hidden');
-    this.storyCanvasEl.classList.add('hidden');
 
     this.mpCanvasEl.classList.remove('hidden');
     this.mpHudTopEl.classList.remove('hidden');
     this.mpHudBottomEl.classList.remove('hidden');
     this.mpChatBoxEl.classList.remove('hidden');
 
-    this.mp.startMatch(opts);
+    // Permanently discovered secret artifacts also grant +1 starting SP each in Co-op!
+    const artifactBonus = this.engine.skillTree.state.artifacts.length;
+    const baseSp = opts.startingSp ?? 3;
+    this.mp.startMatch({ ...opts, startingSp: baseSp + artifactBonus });
     this.syncMpHud();
     this.syncMpVoteBanner();
     this.renderChatLogs();
@@ -511,13 +625,81 @@ export class HudController {
   private syncMenuSummary() {
     const { skillTree } = this.engine;
     const lvl = LEVELS.find((l) => l.id === skillTree.state.currentLevelId) || LEVELS[0];
-    this.menuContinueSubEl.textContent = `${this.hasStartedOnce ? 'Продолжить' : 'Начать'} • ${lvl.name}`;
+    this.menuContinueSubEl.textContent = lvl.name;
     this.menuProgressCountEl.textContent = `${skillTree.state.completedLevels.length}/${LEVELS.length}`;
     this.menuMutCountEl.textContent = String(skillTree.state.mutations.length);
+    const artCnt = skillTree.state.artifacts.length;
+    this.menuArtCountEl.textContent = `${artCnt}/${SECRET_ARTIFACTS.length} • +${artCnt} ♦`;
   }
 
-  hideHint() {
-    this.hintBannerEl.classList.add('fade-out');
+  /* =========================================================
+     INTERACTIVE 3-STEP CONTEXTUAL TUTORIAL HINTS (like reference!)
+     ========================================================= */
+  notifyTutorialAction(action: 'launch' | 'zoom' | 'pan') {
+    if (this.mode !== 'classic' || this.tutorialStep === 'done') return;
+    if (action !== this.tutorialStep) return;
+
+    this.engine.audio.playHintDone();
+    if (this.tutorialStep === 'launch') {
+      this.tutorialStep = 'zoom';
+    } else if (this.tutorialStep === 'zoom') {
+      this.tutorialStep = 'pan';
+    } else if (this.tutorialStep === 'pan') {
+      this.tutorialStep = 'done';
+      try {
+        localStorage.setItem(HINTS_DONE_KEY, '1');
+      } catch {
+        // Ignore
+      }
+    }
+    this.renderTutorialHint();
+  }
+
+  private renderTutorialHint() {
+    if (this.mode !== 'classic' || this.tutorialStep === 'done') {
+      this.tutorialHintEl.classList.add('hidden');
+      return;
+    }
+
+    const isTouch = window.matchMedia('(pointer: coarse)').matches;
+    this.tutorialHintEl.classList.remove('hidden');
+    this.tutorialHintEl.style.animation = 'none';
+    void this.tutorialHintEl.offsetWidth;
+    this.tutorialHintEl.style.animation = '';
+
+    if (this.tutorialStep === 'launch') {
+      this.tutorialHintIconEl.innerHTML = `<svg viewBox="0 0 28 28" fill="none">
+        <circle cx="9" cy="19" r="3.2" fill="#3ce87a"/>
+        <line x1="12" y1="16" x2="21" y2="7" stroke="#ffe26a" stroke-width="2" stroke-dasharray="3 2.5"/>
+        <polygon points="23,5 17,6.5 21.5,11" fill="#ffe26a"/>
+        <path d="M16 17l3.2 8.5 1.7-3.1 3.1-1.7L16 17z" fill="#ffffff" stroke="#08140d" stroke-width="1"/>
+      </svg>`;
+      this.tutorialHintTextEl.textContent = isTouch
+        ? 'Тапни или потяни от гнезда — выпустить муравья'
+        : 'Нажми или потяни — выпустить муравья';
+    } else if (this.tutorialStep === 'zoom') {
+      // Crisp pixel Mouse with highlighted scrolling wheel (exact reference style!)
+      this.tutorialHintIconEl.innerHTML = `<svg viewBox="0 0 28 28" shape-rendering="crispEdges">
+        <rect x="8" y="3" width="12" height="22" rx="5" fill="#102419" stroke="#e8fff2" stroke-width="2"/>
+        <line x1="8" y1="12" x2="20" y2="12" stroke="#e8fff2" stroke-width="1.5"/>
+        <line x1="14" y1="3" x2="14" y2="12" stroke="#e8fff2" stroke-width="1.5"/>
+        <rect x="12.5" y="5.5" width="3" height="5.5" rx="1" fill="#ffad42"/>
+      </svg>`;
+      this.tutorialHintTextEl.textContent = isTouch
+        ? 'Щипок двумя пальцами — зум камеры'
+        : 'Колесо мыши — приблизить / отдалить';
+    } else if (this.tutorialStep === 'pan') {
+      // Crisp pixel Mouse with highlighted Right Mouse Button (exact reference style!)
+      this.tutorialHintIconEl.innerHTML = `<svg viewBox="0 0 28 28" shape-rendering="crispEdges">
+        <rect x="8" y="3" width="12" height="22" rx="5" fill="#102419" stroke="#e8fff2" stroke-width="2"/>
+        <path d="M14 4h2.5a3.5 3.5 0 0 1 3.5 3.5V12h-6V4z" fill="#ffad42"/>
+        <line x1="8" y1="12" x2="20" y2="12" stroke="#e8fff2" stroke-width="1.5"/>
+        <line x1="14" y1="3" x2="14" y2="12" stroke="#e8fff2" stroke-width="1.5"/>
+      </svg>`;
+      this.tutorialHintTextEl.textContent = isTouch
+        ? 'Два пальца — двигать камеру'
+        : 'Зажми ПКМ — двигать камеру';
+    }
   }
 
   showToast(message: string) {
@@ -1653,156 +1835,118 @@ export class HudController {
     this.modalBodyEl.appendChild(actions);
   }
 
-  openMpAllClearedModal() {
-    this.openModal('🌟 Карта очищена на 100%!');
-    this.modalBodyEl.innerHTML = `
-      <div class="story-preview-box">
-        <p><strong>Невероятно! Ваши колонии съели все блоки и полностью открыли скрытый узор!</strong></p>
-      </div>
-    `;
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'action-btn primary';
-    nextBtn.textContent = 'Перейти на следующую карту →';
-    nextBtn.addEventListener('click', () => {
-      this.closeModal();
+  showClassicEpicClearBanner(level: LevelDefinition) {
+    const idx = LEVELS.findIndex((l) => l.id === level.id);
+    const nextLvl = LEVELS[(idx + 1) % LEVELS.length];
+    this.epicClearTitleEl.textContent = level.name;
+    this.epicBtnNextEl.textContent = `Далее: ${nextLvl.name} →`;
+    this.epicNextAction = () => {
+      this.engine.loadLevel(nextLvl.id, true);
+      this.engine.paused = true;
+      this.playPreGameIntro(() => {
+        this.enterClassicGame();
+        this.engine.playNestRevealBurst();
+      });
+    };
+    this.epicClearBannerEl.classList.remove('hidden');
+  }
+
+  showMpEpicClearBanner() {
+    this.epicClearTitleEl.textContent = this.mp.state.level.name;
+    this.epicBtnNextEl.textContent = 'Следующая карта →';
+    this.epicNextAction = () => {
       this.mp.advanceToNextCoopLevel();
-    });
-    this.modalBodyEl.appendChild(nextBtn);
+    };
+    this.epicClearBannerEl.classList.remove('hidden');
   }
 
   /* =========================================================
-     STORY MODE HUD (3 CHAPTERS + DEEP ECONOMY!)
+     SECRET COLLECTIBLE ARTIFACTS (КРЕВЕТОЧКА РУСЯ & др.) + CREDITS
      ========================================================= */
-  syncStoryHud() {
-    if (this.mode !== 'story') return;
-    const st = this.story.state;
-    const lvl = this.story.getCurrentLevel();
-
-    this.storyChapterNameEl.textContent = lvl.name;
-    this.storyNectarEl.textContent = String(Math.floor(st.nectar));
-    this.storyLarvaeEl.textContent = String(Math.floor(st.larvae));
-    this.storyMineralsEl.textContent = String(Math.floor(st.minerals));
-    this.storySatietyEl.textContent = `${Math.round(st.satiety)}%`;
-
-    this.storyDiggersEl.innerHTML = '';
-    const diggers: { id: 'worker' | 'warrior' | 'scout' | 'queen'; unlocked: boolean; cost: string }[] = [
-      { id: 'worker', unlocked: true, cost: '1🥚 2🍯' },
-      { id: 'warrior', unlocked: st.warriorUnlocked, cost: st.warriorUnlocked ? '3🥚 4🍯' : '🔒14🍯 5🥚' },
-      { id: 'scout', unlocked: st.scoutUnlocked, cost: st.scoutUnlocked ? '2🥚 2🍯' : '🔒11🍯 4🥚' },
-      { id: 'queen', unlocked: st.queenUnlocked, cost: st.queenUnlocked ? '5🥚 8🍯' : '🔒22🍯 8🥚' }
-    ];
-
-    for (const d of diggers) {
-      const cfg = ANT_TYPES[d.id];
-      const btn = document.createElement('button');
-      btn.className = `ant-btn${st.selectedDigger === d.id && d.unlocked ? ' active' : ''}${d.unlocked ? '' : ' locked'}`;
-      btn.style.setProperty('--ant-color', cfg.color);
-      btn.innerHTML = `
-        <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg(d.id === 'queen' ? 'queen' : 'ant')}</span>
-        <span class="ant-name">${d.unlocked ? cfg.shortName : '🔒 ' + cfg.shortName}</span>
-        <span class="ant-count">${d.cost}</span>
-      `;
-      btn.addEventListener('click', () => {
-        if (d.unlocked) this.story.selectDigger(d.id);
-        else if (d.id !== 'worker' && !this.story.unlockDigger(d.id)) {
-          this.showToast(`Недостаточно ресурсов для открытия «${cfg.name}»`);
-        }
-      });
-      this.storyDiggersEl.appendChild(btn);
-    }
-
-    this.storyEconomyEl.innerHTML = '';
-    const aphidMin = 5 + st.aphidHerders * 5;
-    const aphidLarv = 2 + st.aphidHerders;
-    const nurseNec = 9 + st.nurses * 7;
-    const nurseMin = 4 + st.nurses * 4;
-    const panNec = 8 + st.pantryLevel * 8;
-    const panMin = 8 + st.pantryLevel * 8;
-    const jawNec = 10 + st.jawLevel * 10;
-    const jawMin = 8 + st.jawLevel * 9;
-    const pherNec = 12 + st.pheromoneLevel * 12;
-    const pherLarv = 3 + st.pheromoneLevel * 2;
-
-    const ecoActions = [
-      { title: `🌿 Тли ×${st.aphidHerders}`, sub: `${aphidMin}🪨 ${aphidLarv}🥚`, ok: st.minerals >= aphidMin && st.larvae >= aphidLarv, fn: () => this.story.hireAphidHerder() },
-      { title: `🥚 Няньки ×${st.nurses}`, sub: `${nurseNec}🍯 ${nurseMin}🪨`, ok: st.nectar >= nurseNec && st.minerals >= nurseMin, fn: () => this.story.hireNurse() },
-      { title: `🏠 Склад +${st.pantryLevel}`, sub: `${panNec}🍯 ${panMin}🪨`, ok: st.nectar >= panNec && st.minerals >= panMin, fn: () => this.story.upgradePantry() },
-      { title: `⚡ Жвалы +${st.jawLevel}`, sub: `${jawNec}🍯 ${jawMin}🪨`, ok: st.nectar >= jawNec && st.minerals >= jawMin, fn: () => this.story.upgradeJaws() },
-      { title: `🏃 Скорость +${st.pheromoneLevel}`, sub: `${pherNec}🍯 ${pherLarv}🥚`, ok: st.nectar >= pherNec && st.larvae >= pherLarv, fn: () => this.story.upgradePheromones() }
-    ];
-
-    for (const eco of ecoActions) {
-      const btn = document.createElement('button');
-      btn.className = 'eco-btn';
-      btn.disabled = !eco.ok;
-      btn.innerHTML = `<strong>${eco.title}</strong><small>${eco.sub}</small>`;
-      btn.addEventListener('click', eco.fn);
-      this.storyEconomyEl.appendChild(btn);
-    }
-  }
-
-  openStoryChaptersModal() {
-    this.openModal('🌿 Главы сюжетного режима');
-    this.modalBodyEl.innerHTML = '';
-
-    STORY_LEVELS.forEach((lvl, idx) => {
-      const isCur = this.story.state.levelIndex === idx;
-      const row = document.createElement('div');
-      row.className = 'card-row';
-      row.innerHTML = `
-        <div class="card-row-info">
-          <div class="card-row-title">${lvl.name}</div>
-          <div class="card-row-desc">${lvl.intro}</div>
-        </div>
-      `;
-      const btn = document.createElement('button');
-      btn.className = `action-btn${isCur ? '' : ' primary'}`;
-      btn.textContent = isCur ? 'Заново' : 'Играть';
-      btn.addEventListener('click', () => {
-        this.closeModal();
-        this.enterStoryMode(idx);
-      });
-      row.appendChild(btn);
-      this.modalBodyEl.appendChild(row);
-    });
-  }
-
-  openStoryVictoryModal(level: StoryLevelDef, hasNext: boolean) {
-    this.openModal(`🎉 ${level.name} — пройдена!`);
+  openArtifactFoundModal(artifact: ArtifactDef) {
+    this.openModal('✨ Секретная находка обнаружена!');
     this.modalBodyEl.innerHTML = `
-      <div class="story-preview-box">
-        <p><strong>Муравьи выбрались из фермы и добрались до кусочка сахара!</strong></p>
-        <p style="margin-top:8px;color:var(--text-muted);font-size:13px;">
-          ${hasNext ? 'Впереди следующая глава с более глубокой фермой и новыми преградами!' : 'Вы прошли все 3 главы сюжетного режима — колония полностью спасена!'}
+      <div class="artifact-hero">
+        <div class="artifact-hero-icon" style="--art-color:${artifact.accent}">
+          ${renderArtifactSvg(artifact.id)}
+        </div>
+        <h3 style="font-size:20px;color:${artifact.accent};margin:0;">${escapeHtml(artifact.name)}</h3>
+        <p style="font-size:13.5px;color:#d8eee2;line-height:1.5;max-width:340px;">
+          ${escapeHtml(artifact.description)}
         </p>
+        <div class="badge-done" style="font-size:12.5px;padding:6px 14px;">
+          ♦ Постоянный бонус: +1 очко навыков (сейчас и на старте каждой карты!)
+        </div>
       </div>
     `;
-    const actions = document.createElement('div');
-    actions.style.display = 'flex';
-    actions.style.gap = '10px';
-    actions.style.justifyContent = 'flex-end';
+    const btn = document.createElement('button');
+    btn.className = 'action-btn primary';
+    btn.style.marginTop = '10px';
+    btn.style.width = '100%';
+    btn.textContent = 'Забрать в коллекцию';
+    btn.addEventListener('click', () => this.closeModal());
+    this.modalBodyEl.appendChild(btn);
+  }
 
-    const menuBtn = document.createElement('button');
-    menuBtn.className = 'action-btn';
-    menuBtn.textContent = 'В меню';
-    menuBtn.addEventListener('click', () => {
-      this.closeModal();
-      this.showMainMenu();
-    });
-    actions.appendChild(menuBtn);
+  openArtifactsModal() {
+    const owned = this.engine.skillTree.state.artifacts;
+    this.openModal(`🏺 Секретные находки (${owned.length}/${SECRET_ARTIFACTS.length})`);
+    this.modalBodyEl.innerHTML = '';
 
-    if (hasNext) {
-      const nextBtn = document.createElement('button');
-      nextBtn.className = 'action-btn primary';
-      nextBtn.textContent = `Далее: Глава ${level.chapter + 1} →`;
-      nextBtn.addEventListener('click', () => {
-        this.closeModal();
-        this.enterStoryMode(level.chapter); // chapter is 1-based, so next index = chapter
-      });
-      actions.appendChild(nextBtn);
+    const summary = document.createElement('div');
+    summary.className = 'story-preview-box';
+    summary.innerHTML = `
+      <p><strong>Постоянный бонус коллекции: ♦ +${owned.length} к стартовым очкам навыков</strong></p>
+      <p style="margin-top:4px;font-size:12.5px;color:var(--text-muted);">
+        На каждой из 5 карт спрятан уникальный коллекционный артефакт. Найдите его муравьями, чтобы навсегда получать +1 очко навыков!
+      </p>
+    `;
+    this.modalBodyEl.appendChild(summary);
+
+    for (const art of SECRET_ARTIFACTS) {
+      const found = owned.includes(art.id);
+      const lvlName = LEVELS.find((l) => l.id === art.levelId)?.name || art.levelId;
+      const card = document.createElement('div');
+      card.className = `artifact-card ${found ? 'found' : 'locked'}`;
+      card.style.setProperty('--art-color', art.accent);
+      card.innerHTML = `
+        <div class="artifact-icon-box">${renderArtifactSvg(art.id)}</div>
+        <div class="card-row-info">
+          <div class="card-row-title">
+            <span style="color:${found ? art.accent : 'var(--text-muted)'}">${found ? escapeHtml(art.name) : '??? (Секретная находка)'}</span>
+            ${found ? '<span class="badge-done">+1 ♦ навсегда</span>' : ''}
+          </div>
+          <div class="card-row-desc">
+            ${found ? escapeHtml(art.description) : `Спрятано в породе на карте «${lvlName}»`}
+          </div>
+        </div>
+      `;
+      this.modalBodyEl.appendChild(card);
     }
+  }
 
-    this.modalBodyEl.appendChild(actions);
+  openCreditsModal() {
+    this.openModal('✦ Авторы — Sugar Ants');
+    this.modalBodyEl.innerHTML = `
+      <div class="credits-roll-box">
+        <div class="credits-roll-inner">
+          <div style="font-size:22px;font-weight:900;letter-spacing:4px;color:#7bffb3;">SUGAR ANTS</div>
+          <div style="font-size:12px;color:var(--text-muted);">Медитативная симуляция колонии</div>
+          <div style="margin-top:8px;font-size:11px;letter-spacing:2px;color:#ffe26a;">АВТОР И ИДЕЯ</div>
+          <div style="font-size:18px;font-weight:800;color:#ffffff;">GrAx</div>
+          <div style="margin-top:8px;font-size:11px;letter-spacing:2px;color:#5ce8ff;">САУНДТРЕК И СИНТЕЗ</div>
+          <div style="font-size:13px;color:#d6ede0;">Процедурный Web Audio движок<br/>Эмбиент • Трип-хоп • IDM</div>
+          <div style="margin-top:8px;font-size:11px;letter-spacing:2px;color:#ff8ea0;">ОСОБАЯ БЛАГОДАРНОСТЬ</div>
+          <div style="font-size:14px;font-weight:700;color:#ffc2cb;">🦐 Креветочке Русе</div>
+          <div style="font-size:12px;color:var(--text-muted);">и всем игрокам онлайн-коопа!</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center;margin-top:12px;">
+        <a href="https://t.me/alexstress1" target="_blank" rel="noopener noreferrer" class="tg-donate-btn" style="padding:8px 16px;font-size:13px;">
+          <span>✈</span><span>Telegram автора • Скиньте на сижки пж</span>
+        </a>
+      </div>
+    `;
   }
 
   /* =========================================================
@@ -1814,6 +1958,7 @@ export class HudController {
 
     this.levelNameEl.textContent = world.level.name;
     this.statMutCountEl.textContent = String(skillTree.state.mutations.length);
+    this.statArtifactsCountEl.textContent = `${skillTree.state.artifacts.length}/${SECRET_ARTIFACTS.length}`;
     this.statSpEl.textContent = String(skillTree.state.skillPoints);
 
     const artPct =
@@ -2101,8 +2246,15 @@ export class HudController {
       btn.addEventListener('click', () => {
         this.engine.audio.ensureStarted();
         this.hasStartedOnce = true;
+        this.closeModal();
         this.engine.loadLevel(lvl.id, true);
-        this.enterClassicGame();
+        this.engine.paused = true;
+        this.menuBg.stop();
+        this.mainMenuEl.classList.add('hidden');
+        this.playPreGameIntro(() => {
+          this.enterClassicGame();
+          this.engine.playNestRevealBurst();
+        });
       });
       row.appendChild(btn);
       this.modalBodyEl.appendChild(row);
@@ -2302,8 +2454,14 @@ export class HudController {
     resetBtn.addEventListener('click', () => {
       skillTree.resetAllProgress();
       this.hasStartedOnce = false;
+      this.tutorialStep = 'launch';
+      try {
+        localStorage.removeItem(HINTS_DONE_KEY);
+      } catch {
+        // Ignore
+      }
       this.engine.loadLevel(LEVELS[0].id, true);
-      this.showToast('Прогресс сброшен');
+      this.showToast('Прогресс, мутации и находки сброшены');
       this.sync();
       this.closeModal();
     });
