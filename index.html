@@ -121,7 +121,6 @@
         </div>
 
         <div class="hud-group hud-right">
-          <button id="btn-beacon" class="icon-btn" title="Феромонная метка (B): направить Рабочих и выводок">📍</button>
           <button id="btn-settings-hud" class="icon-btn" title="Настройки и саундтрек">⚙</button>
           <button id="btn-reset-cam" class="icon-btn" title="Центрировать камеру">⌖</button>
         </div>
@@ -188,9 +187,22 @@
       <!-- Toast notifications -->
       <div id="toast-container" class="toast-container"></div>
 
+      <!-- Left-Side Pheromone Beacon Action Control (30s active, 2m cooldown!) -->
+      <div id="beacon-dock" class="beacon-left-dock hidden">
+        <button id="btn-beacon" class="beacon-fab" title="Феромонная метка (B): 30 сек, кулдаун 2 мин">
+          <span class="beacon-fab-key">B</span>
+          <span class="beacon-fab-icon">📍</span>
+          <span id="beacon-fab-label" class="beacon-fab-label">Метка</span>
+          <span id="beacon-fab-status" class="beacon-fab-status">Готов</span>
+        </button>
+      </div>
+
       <!-- Mobile Touch Camera Controls (Classic: auto-visible on touch/mobile screens!) -->
       <div id="touch-cam-controls" class="touch-cam-controls hidden">
-        <button id="btn-touch-pan" class="touch-cam-btn" title="Режим камеры (1 палец двигает карту)">✋</button>
+        <button id="btn-touch-pan" class="touch-cam-btn touch-cam-mode" title="Режим камеры (1 палец двигает карту)">
+          <span id="btn-touch-pan-icon" class="touch-cam-ico">🐜</span>
+          <span id="btn-touch-pan-lbl" class="touch-cam-lbl">Запуск</span>
+        </button>
         <button id="btn-zoom-in" class="touch-cam-btn" title="Приблизить">＋</button>
         <button id="btn-zoom-out" class="touch-cam-btn" title="Отдалить">－</button>
       </div>
@@ -255,10 +267,10 @@
               <span id="menu-continue-sub" class="mbtn-meta">Призма Света</span>
             </button>
 
-            <button id="menu-play-mp" class="mbtn mbtn-mp">
+            <button id="menu-play-mp" class="mbtn mbtn-mp mbtn-mp-dev" aria-disabled="true">
               <span class="mbtn-accent">⚔</span>
-              <span id="menu-mp-label" class="mbtn-label">МУЛЬТИПЛЕЕР</span>
-              <span id="menu-mp-meta" class="mbtn-meta">Кооп • 1v1 • ИИ</span>
+              <span id="menu-mp-label" class="mbtn-label">КООП-РЕЖИМ</span>
+              <span id="menu-mp-meta" class="mbtn-meta mbtn-meta-dev">🚧 В разработке</span>
             </button>
 
             <button id="menu-btn-artifacts" class="mbtn mbtn-art">

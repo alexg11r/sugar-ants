@@ -60,8 +60,12 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   tagline: { ru: 'МЕДИТАТИВНАЯ СИМУЛЯЦИЯ КОЛОНИИ', en: 'MEDITATIVE COLONY SIMULATION' },
   play: { ru: 'ИГРАТЬ', en: 'PLAY' },
   continueRun: { ru: 'ПРОДОЛЖИТЬ', en: 'CONTINUE' },
-  multiplayer: { ru: 'МУЛЬТИПЛЕЕР', en: 'MULTIPLAYER' },
-  mpMeta: { ru: 'Кооп • 1v1 • ИИ', en: 'Co-op • 1v1 • AI' },
+  multiplayer: { ru: 'КООП-РЕЖИМ', en: 'CO-OP MODE' },
+  mpMeta: { ru: '🚧 В разработке', en: '🚧 In Development' },
+  mpInDevToast: {
+    ru: '🚧 Кооп-режим пока в разработке — скоро вернётся!',
+    en: '🚧 Co-op mode is currently in development — coming soon!'
+  },
   secretFinds: { ru: 'СЕКРЕТНЫЕ НАХОДКИ', en: 'SECRET FINDS' },
   achievements: { ru: 'АЧИВКИ', en: 'ACHIEVEMENTS' },
   maps: { ru: 'Карты', en: 'Maps' },
@@ -85,7 +89,14 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   tipSugar: { ru: 'Статус поиска сахара', en: 'Sugar hunt status' },
   tipRush: { ru: 'Сахарная лихорадка: скорость ×1.6!', en: 'Sugar Rush: ×1.6 colony speed!' },
   tipAuto: { ru: 'Авто-призыв муравьёв включён', en: 'Auto-summon ants active' },
-  tipBeacon: { ru: 'Феромонная метка (B): направить Рабочих и выводок', en: 'Pheromone Beacon (B): guide Workers & Brood' },
+  tipBeacon: {
+    ru: 'Феромонная метка (B): 30 сек, кулдаун 2 мин — притягивает Рабочих и выводок',
+    en: 'Pheromone Beacon (B): 30s active, 2m cooldown — draws Workers & Brood'
+  },
+  beaconLabel: { ru: 'Метка', en: 'Beacon' },
+  beaconAim: { ru: 'На карту', en: 'Tap map' },
+  touchModeLaunch: { ru: 'Запуск', en: 'Launch' },
+  touchModePan: { ru: 'Камера', en: 'Pan' },
   tipSettings: { ru: 'Настройки и саундтрек', en: 'Settings & Soundtrack' },
   tipCenterCam: { ru: 'Центрировать камеру', en: 'Center Camera' },
   tipTouchPan: { ru: 'Режим камеры (1 палец двигает карту)', en: 'Camera Pan mode (1-finger drag)' },
@@ -116,8 +127,8 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   hintLaunchDesktop: { ru: 'Нажми или потяни — выпустить муравья', en: 'Click or drag to launch an ant' },
   hintZoomTouch: { ru: 'Щипок двумя пальцами — зум камеры', en: 'Pinch with two fingers to zoom camera' },
   hintZoomDesktop: { ru: 'Колесо мыши — приблизить / отдалить', en: 'Scroll wheel to zoom in / out' },
-  hintPanTouch: { ru: 'Два пальца — двигать камеру', en: 'Drag with two fingers to pan camera' },
-  hintPanDesktop: { ru: 'Зажми ПКМ — двигать камеру', en: 'Hold Right-Click to pan camera' },
+  hintPanTouch: { ru: 'Два пальца или кнопка ✋ — двигать камеру', en: 'Two fingers or ✋ button to pan camera' },
+  hintPanDesktop: { ru: 'ПКМ или WASD / стрелки — двигать камеру', en: 'Right-Click or WASD / Arrows to pan' },
 
   // Sugar Found Celebration & Epic Clear
   sugarBadge: { ru: '✦ ГЛАВНАЯ НАХОДКА КАРТЫ ✦', en: '✦ GRAND MAP DISCOVERY ✦' },
@@ -284,17 +295,25 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   toastLevelStart: { ru: 'Уровень: {name}', en: 'Map: {name}' },
   toastResumeRun: { ru: '▶ Продолжаем: {name} ({pct}%)', en: '▶ Resuming: {name} ({pct}%)' },
   toastBeaconMove: {
-    ru: '📍 Нажми на карту, чтобы переставить метку (или кликни по ней, чтобы убрать)',
-    en: '📍 Tap map to move beacon (or click it to remove)'
+    ru: '📍 Нажми на карту — поставить метку на 30 сек (кулдаун 2 мин)',
+    en: '📍 Tap the map to place a 30s Beacon (2 min cooldown)'
   },
   toastBeaconPlace: {
-    ru: '📍 Нажми на карту — поставить феромонную метку для Рабочих и выводка',
-    en: '📍 Tap map to place a Pheromone Beacon for Workers & Brood'
+    ru: '📍 Нажми на карту — поставить феромонную метку на 30 сек',
+    en: '📍 Tap the map to place a Pheromone Beacon for 30s'
   },
-  toastBeaconCleared: { ru: '📍 Феромонная метка снята', en: '📍 Pheromone Beacon removed' },
+  toastBeaconActive: {
+    ru: '📍 Метка активна ещё {sec}с — рабочие и выводок идут к ней!',
+    en: '📍 Beacon active for {sec}s more — Workers & Brood are heading there!'
+  },
+  toastBeaconCd: {
+    ru: '📍 Феромонная метка перезаряжается: {time}',
+    en: '📍 Pheromone Beacon recharging: {time}'
+  },
+  toastBeaconCleared: { ru: '📍 Феромонная метка рассеялась', en: '📍 Pheromone Beacon dissipated' },
   toastBeaconSet: {
-    ru: '📍 Феромонная метка установлена! Свободные рабочие и выводок тянутся туда',
-    en: '📍 Pheromone Beacon placed! Free Workers & Brood are drawn toward it'
+    ru: '📍 Метка поставлена на 30 сек! Рабочие и выводок тянутся туда',
+    en: '📍 Beacon active for 30s! Free Workers & Brood are drawn there'
   },
   toastBloodhoundGo: {
     ru: '🧭 Ищейка взяла след сахара! Следуй за золотым хвостом!',

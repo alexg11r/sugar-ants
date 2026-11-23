@@ -12,6 +12,8 @@ import { getArtifactForLevel } from './artifacts';
 import { SkillTreeManager } from './skillTree';
 
 const ACTIVE_RUN_STORAGE_KEY = 'sugar_ants_active_run_v1';
+export const BEACON_DURATION_SEC = 30;
+export const BEACON_COOLDOWN_SEC = 120;
 
 interface ActiveRunSnapshot {
   v: 1;
@@ -22,6 +24,7 @@ interface ActiveRunSnapshot {
   selectedAnt: PlayableAntId;
   camera: Camera;
   beacon?: PheromoneBeacon | null;
+  beaconCooldown?: number;
   runElapsedSec?: number;
 }
 
@@ -52,15 +55,18 @@ export class GameEngine {
   paused = true; // Starts paused while Main Menu is open
   /** Mobile 1-finger camera pan toggle (false = 1-finger launches ants, true = 1-finger drags camera) */
   touchPanMode = false;
-  /** Pheromone beacon guiding free Workers & Queen Brood gently with smart obstacle avoidance! */
+  /** Pheromone beacon guiding free Workers & Queen Brood gently for 30s (2 min cooldown)! */
   beacon: PheromoneBeacon | null = null;
   beaconMode = false;
+  beaconCooldown = 0;
   /** Remaining seconds of ×1.6 Sugar Dust Rush fever! */
   sugarRushTimer = 0;
   /** Elapsed active seconds in the current level run (for personal speed records!) */
   runElapsedSec = 0;
   /** True when an in-progress mid-map run exists (either restored from disk or played in this session) */
   private hasActiveRun = false;
+  /** Held keyboard keys for smooth PC WASD / Arrow camera panning */
+  private heldKeys = new Set<string>();
 
   private viewW = 1;
   private viewH = 1;
@@ -116,6 +122,7 @@ export class GameEngine {
       this.selectedAnt = this.skillTree.isAntUnlocked(restored.selectedAnt) ? restored.selectedAnt : 'worker';
       this.camera = { ...restored.camera };
       this.beacon = restored.beacon ? { ...restored.beacon } : null;
+      this.beaconCooldown = restored.beaconCooldown;
       this.runElapsedSec = restored.runElapsedSec;
       this.hasActiveRun = true;
       this.renderer = new WorldRenderer(this.world.width, this.world.height);
@@ -141,6 +148,7 @@ export class GameEngine {
     selectedAnt: PlayableAntId;
     camera: Camera;
     beacon: PheromoneBeacon | null;
+    beaconCooldown: number;
     runElapsedSec: number;
   } | null {
     try {
@@ -166,9 +174,20 @@ export class GameEngine {
 
       const savedAnts = Array.isArray(snap.ants) ? snap.ants : [];
       const selectedAnt: PlayableAntId = snap.selectedAnt || 'worker';
-      const beacon =
+      const beacon: PheromoneBeacon | null =
         snap.beacon && Number.isFinite(snap.beacon.x) && Number.isFinite(snap.beacon.y)
-          ? { x: snap.beacon.x, y: snap.beacon.y }
+          ? {
+              x: snap.beacon.x,
+              y: snap.beacon.y,
+              timeLeft:
+                typeof snap.beacon.timeLeft === 'number' && snap.beacon.timeLeft > 0
+                  ? Math.min(BEACON_DURATION_SEC, snap.beacon.timeLeft)
+                  : BEACON_DURATION_SEC,
+              maxDuration:
+                typeof snap.beacon.maxDuration === 'number' && snap.beacon.maxDuration > 0
+                  ? snap.beacon.maxDuration
+                  : BEACON_DURATION_SEC
+            }
           : null;
       return {
         world,
@@ -177,6 +196,10 @@ export class GameEngine {
         selectedAnt,
         camera: cam,
         beacon,
+        beaconCooldown:
+          typeof snap.beaconCooldown === 'number' && Number.isFinite(snap.beaconCooldown)
+            ? Math.max(0, Math.min(BEACON_COOLDOWN_SEC, snap.beaconCooldown))
+            : 0,
         runElapsedSec: typeof snap.runElapsedSec === 'number' && Number.isFinite(snap.runElapsedSec) ? snap.runElapsedSec : 0
       };
     } catch {
@@ -200,6 +223,7 @@ export class GameEngine {
         selectedAnt: this.selectedAnt,
         camera: { ...this.camera },
         beacon: this.beacon ? { ...this.beacon } : null,
+        beaconCooldown: this.beaconCooldown,
         runElapsedSec: this.runElapsedSec
       };
       localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, JSON.stringify(payload));
@@ -247,16 +271,28 @@ export class GameEngine {
   }
 
   toggleBeaconMode() {
-    this.beaconMode = !this.beaconMode;
     if (this.beaconMode) {
-      this.touchPanMode = false;
-      this.isAimingAnt = false;
-      this.aimPreview = null;
-      this.canvas.style.cursor = 'cell';
-      this.callbacks.onToast(this.beacon ? t('toastBeaconMove') : t('toastBeaconPlace'));
-    } else {
-      this.canvas.style.cursor = 'crosshair';
+      this.beaconMode = false;
+      this.canvas.style.cursor = this.touchPanMode ? 'grab' : 'crosshair';
+      this.callbacks.onHudSync();
+      return;
     }
+    if (this.beacon && this.beacon.timeLeft > 0) {
+      this.callbacks.onToast(t('toastBeaconActive', { sec: Math.ceil(this.beacon.timeLeft) }));
+      return;
+    }
+    if (this.beaconCooldown > 0) {
+      const sec = Math.ceil(this.beaconCooldown);
+      const time = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+      this.callbacks.onToast(t('toastBeaconCd', { time }));
+      return;
+    }
+    this.beaconMode = true;
+    this.touchPanMode = false;
+    this.isAimingAnt = false;
+    this.aimPreview = null;
+    this.canvas.style.cursor = 'cell';
+    this.callbacks.onToast(t('toastBeaconPlace'));
     this.callbacks.onHudSync();
   }
 
@@ -292,7 +328,18 @@ export class GameEngine {
         rem -= step;
       }
       if (rawDt > 60) {
-        this.ants.compassCooldown = Math.max(0, this.ants.compassCooldown - (rawDt - 60));
+        const extra = rawDt - 60;
+        this.ants.compassCooldown = Math.max(0, this.ants.compassCooldown - extra);
+        if (this.beacon) {
+          this.beacon.timeLeft -= extra;
+          if (this.beacon.timeLeft <= 0) {
+            const overflow = -this.beacon.timeLeft;
+            this.beacon = null;
+            this.beaconCooldown = Math.max(0, BEACON_COOLDOWN_SEC - overflow);
+          }
+        } else if (this.beaconCooldown > 0) {
+          this.beaconCooldown = Math.max(0, this.beaconCooldown - extra);
+        }
         this.callbacks.onHudSync();
       }
     };
@@ -385,6 +432,7 @@ export class GameEngine {
     this.cameraEaseTarget = null;
     this.beacon = null;
     this.beaconMode = false;
+    this.beaconCooldown = 0;
     this.sugarRushTimer = 0;
     this.runElapsedSec = 0;
     this.lastLaunchWorld = null;
@@ -593,6 +641,37 @@ export class GameEngine {
 
     if (this.sugarRushTimer > 0) {
       this.sugarRushTimer = Math.max(0, this.sugarRushTimer - dt);
+    }
+
+    // Pheromone Beacon 30s active duration -> 2 min (120s) cooldown!
+    if (this.beacon) {
+      this.beacon.timeLeft -= dt;
+      if (this.beacon.timeLeft <= 0) {
+        this.particles.spawn(this.beacon.x, this.beacon.y, 66, 245, 197, 8, 16, 0.7, 1.4);
+        this.beacon = null;
+        this.beaconCooldown = BEACON_COOLDOWN_SEC;
+        this.callbacks.onHudSync();
+      }
+    } else if (this.beaconCooldown > 0) {
+      this.beaconCooldown = Math.max(0, this.beaconCooldown - dt);
+    }
+
+    // Smooth PC keyboard camera panning (WASD / ЦФЫВ / Arrow keys!)
+    if (this.heldKeys.size > 0) {
+      let kx = 0;
+      let ky = 0;
+      if (this.heldKeys.has('KeyA') || this.heldKeys.has('ArrowLeft')) kx -= 1;
+      if (this.heldKeys.has('KeyD') || this.heldKeys.has('ArrowRight')) kx += 1;
+      if (this.heldKeys.has('KeyW') || this.heldKeys.has('ArrowUp')) ky -= 1;
+      if (this.heldKeys.has('KeyS') || this.heldKeys.has('ArrowDown')) ky += 1;
+      if (kx !== 0 || ky !== 0) {
+        const len = Math.hypot(kx, ky);
+        const panWorldSpeed = (340 / Math.max(1.2, this.camera.zoom)) * dt;
+        this.cameraEaseTarget = null;
+        this.camera.x += (kx / len) * panWorldSpeed;
+        this.camera.y += (ky / len) * panWorldSpeed;
+        this.callbacks.onPanInteract();
+      }
     }
 
     const stats = this.skillTree.getColonyStats();
@@ -861,25 +940,25 @@ export class GameEngine {
         return;
       }
 
-      // Pheromone Beacon placement mode!
+      // Pheromone Beacon placement mode (30s active duration -> 2 min cooldown!)
       if (this.beaconMode) {
         const wPos = this.screenToWorld(e.clientX, e.clientY);
         const cx = Math.max(8, Math.min(this.world.width - 8, wPos.x));
         const cy = Math.max(8, Math.min(this.world.height - 8, wPos.y));
-        if (this.beacon && Math.hypot(cx - this.beacon.x, cy - this.beacon.y) <= 12) {
-          this.clearBeacon();
-          this.callbacks.onToast(t('toastBeaconCleared'));
-        } else {
-          this.beacon = { x: cx, y: cy };
-          this.beaconMode = false;
-          this.canvas.style.cursor = 'crosshair';
-          this.audio.ensureStarted();
-          this.audio.playBeaconPlace();
-          this.particles.spawn(cx, cy, 66, 245, 197, 14, 24, 0.9, 1.8);
-          this.saveRunProgress();
-          this.callbacks.onToast(t('toastBeaconSet'));
-          this.callbacks.onHudSync();
-        }
+        this.beacon = {
+          x: cx,
+          y: cy,
+          timeLeft: BEACON_DURATION_SEC,
+          maxDuration: BEACON_DURATION_SEC
+        };
+        this.beaconMode = false;
+        this.canvas.style.cursor = 'crosshair';
+        this.audio.ensureStarted();
+        this.audio.playBeaconPlace();
+        this.particles.spawn(cx, cy, 66, 245, 197, 16, 26, 0.95, 1.9);
+        this.saveRunProgress();
+        this.callbacks.onToast(t('toastBeaconSet'));
+        this.callbacks.onHudSync();
         return;
       }
 
@@ -996,17 +1075,38 @@ export class GameEngine {
 
     window.addEventListener('keydown', (e) => {
       if (this.paused) return;
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      if (
+        e.code === 'KeyW' ||
+        e.code === 'KeyA' ||
+        e.code === 'KeyS' ||
+        e.code === 'KeyD' ||
+        e.code === 'ArrowUp' ||
+        e.code === 'ArrowDown' ||
+        e.code === 'ArrowLeft' ||
+        e.code === 'ArrowRight'
+      ) {
+        this.heldKeys.add(e.code);
+      }
       if (e.key === '1') this.selectAnt('worker');
       if (e.key === '2') this.selectAnt('warrior');
       if (e.key === '3') this.selectAnt('scout');
       if (e.key === '4') this.selectAnt('queen');
       if (e.key === '5') this.selectAnt('compass');
+      if (e.key === '+' || e.key === '=') this.zoomBy(1.18);
+      if (e.key === '-' || e.key === '_') this.zoomBy(0.84);
       if (e.key === 'b' || e.key === 'B' || e.key === 'и' || e.key === 'И') {
         this.toggleBeaconMode();
       }
       if (e.key === 'r' || e.key === 'R' || e.key === 'к' || e.key === 'К') {
         this.resetCamera();
       }
+    });
+    window.addEventListener('keyup', (e) => {
+      this.heldKeys.delete(e.code);
+    });
+    window.addEventListener('blur', () => {
+      this.heldKeys.clear();
     });
   }
 }

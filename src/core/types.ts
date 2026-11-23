@@ -95,6 +95,8 @@ export interface ScentPoint {
 export interface PheromoneBeacon {
   x: number;
   y: number;
+  timeLeft: number;
+  maxDuration: number;
 }
 
 export interface Particle {

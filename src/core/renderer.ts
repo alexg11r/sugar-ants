@@ -846,25 +846,41 @@ export class WorldRenderer {
       ctx.restore();
     }
 
-    // Pulsing Pheromone Beacon (attracts free Workers & Queen Brood!)
+    // Pulsing Pheromone Beacon (attracts free Workers & Queen Brood for 30s with radial countdown ring!)
     if (beacon) {
       const bx = drawX + beacon.x * camera.zoom;
       const by = drawY + beacon.y * camera.zoom;
+      const frac = Math.max(0, Math.min(1, beacon.timeLeft / Math.max(1, beacon.maxDuration)));
+      const fade = beacon.timeLeft < 3 ? Math.max(0.25, beacon.timeLeft / 3) : 1;
       const wave1 = (time * 0.75) % 1;
       const wave2 = (time * 0.75 + 0.5) % 1;
       for (const wv of [wave1, wave2]) {
         const rad = Math.max(8, camera.zoom * (2.5 + wv * 10));
-        ctx.strokeStyle = `rgba(66, 245, 197, ${(1 - wv) * 0.72})`;
+        ctx.strokeStyle = `rgba(66, 245, 197, ${(1 - wv) * 0.7 * fade})`;
         ctx.lineWidth = Math.max(1.4, (1 - wv) * 2.6);
         ctx.beginPath();
         ctx.arc(bx, by, rad, 0, Math.PI * 2);
         ctx.stroke();
       }
-      ctx.fillStyle = 'rgba(66, 245, 197, 0.25)';
+      // Crisp radial remaining-time arc right around the beacon!
+      const ringR = Math.max(11, camera.zoom * 3.1);
+      ctx.strokeStyle = `rgba(66, 245, 197, ${0.22 * fade})`;
+      ctx.lineWidth = Math.max(1.8, camera.zoom * 0.32);
+      ctx.beginPath();
+      ctx.arc(bx, by, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(145, 255, 224, ${0.92 * fade})`;
+      ctx.lineWidth = Math.max(2.2, camera.zoom * 0.38);
+      ctx.beginPath();
+      ctx.arc(bx, by, ringR, -Math.PI * 0.5, -Math.PI * 0.5 + frac * Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = `rgba(66, 245, 197, ${0.26 * fade})`;
       ctx.beginPath();
       ctx.arc(bx, by, Math.max(7, camera.zoom * 2.2), 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#a8ffea';
+      ctx.fillStyle = `rgba(168, 255, 234, ${fade})`;
       ctx.beginPath();
       ctx.arc(bx, by, Math.max(2.6, camera.zoom * 0.75), 0, Math.PI * 2);
       ctx.fill();

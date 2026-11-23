@@ -167,6 +167,11 @@ export class HudController {
   private hudBottomEl = document.getElementById('hud-bottom')!;
   private touchCamControlsEl = document.getElementById('touch-cam-controls')!;
   private btnTouchPanEl = document.getElementById('btn-touch-pan')!;
+  private btnTouchPanIconEl = document.getElementById('btn-touch-pan-icon')!;
+  private btnTouchPanLblEl = document.getElementById('btn-touch-pan-lbl')!;
+  private beaconDockEl = document.getElementById('beacon-dock')!;
+  private beaconFabLabelEl = document.getElementById('beacon-fab-label')!;
+  private beaconFabStatusEl = document.getElementById('beacon-fab-status')!;
   private mpTouchCamControlsEl = document.getElementById('mp-touch-cam-controls')!;
   private mpBtnTouchPanEl = document.getElementById('mp-btn-touch-pan')!;
   private levelNameEl = document.getElementById('level-name')!;
@@ -356,6 +361,8 @@ export class HudController {
     setTitle('auto-chip', t('tipAuto'));
     setText('auto-chip-text', t('autoShort'));
     setTitle('btn-beacon', t('tipBeacon'));
+    this.beaconFabLabelEl.textContent = t('beaconLabel');
+    this.syncTouchPanButton();
     setTitle('btn-settings-hud', t('tipSettings'));
     setTitle('btn-reset-cam', t('tipCenterCam'));
     setTitle('btn-touch-pan', t('tipTouchPan'));
@@ -407,11 +414,18 @@ export class HudController {
     }
   }
 
+  private syncTouchPanButton() {
+    const pan = this.engine.touchPanMode;
+    this.btnTouchPanEl.classList.toggle('pan-active', pan);
+    this.btnTouchPanIconEl.textContent = pan ? '✋' : '🐜';
+    this.btnTouchPanLblEl.textContent = pan ? t('touchModePan') : t('touchModeLaunch');
+  }
+
   /** Crisp tactile UI hover & click SFX across all buttons (like the reference menu!) */
   private bindUiSounds() {
     let lastHovered: Element | null = null;
     const selector =
-      '.mbtn, .mbtn-mini, .menu-lang-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
+      '.mbtn, .mbtn-mini, .menu-lang-btn, .beacon-fab, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
     document.addEventListener('pointerover', (e) => {
       if ((e as PointerEvent).pointerType === 'touch') return;
       const btn = (e.target as HTMLElement | null)?.closest(selector);
@@ -712,7 +726,7 @@ export class HudController {
 
     document.getElementById('menu-play-mp')!.addEventListener('click', () => {
       this.engine.audio.ensureStarted();
-      this.openMultiplayerLobbyModal();
+      this.showToast(t('mpInDevToast'));
     });
 
     document.getElementById('menu-btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
@@ -739,8 +753,7 @@ export class HudController {
     this.btnTouchPanEl.addEventListener('click', () => {
       const next = !this.engine.touchPanMode;
       this.engine.setTouchPanMode(next);
-      this.btnTouchPanEl.classList.toggle('pan-active', next);
-      this.btnTouchPanEl.textContent = next ? '✋' : '🐜';
+      this.syncTouchPanButton();
       this.showToast(next ? t('toastTouchPanOn') : t('toastTouchPanOff'));
     });
     document.getElementById('btn-zoom-in')!.addEventListener('click', () => this.engine.zoomBy(1.32));
@@ -836,11 +849,21 @@ export class HudController {
         }
         return;
       }
+      if (e.key === 'Tab' || e.key === 'e' || e.key === 'E' || e.key === 'у' || e.key === 'У') {
+        if (this.mode === 'classic' && this.modalBackdropEl.classList.contains('hidden')) {
+          e.preventDefault();
+          if (this.skillTreeOpen) this.closeSkillTree();
+          else this.openSkillTree();
+        }
+        return;
+      }
       if (e.key === 'Escape') {
         if (!this.modalBackdropEl.classList.contains('hidden')) {
           this.closeModal();
         } else if (this.skillTreeOpen) {
           this.closeSkillTree();
+        } else if (this.mode === 'classic' && this.engine.beaconMode) {
+          this.engine.toggleBeaconMode();
         } else if (this.mode !== 'menu') {
           this.showMainMenu();
         }
@@ -904,6 +927,7 @@ export class HudController {
 
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
+    this.beaconDockEl.classList.add('hidden');
     this.touchCamControlsEl.classList.add('hidden');
     this.mpTouchCamControlsEl.classList.add('hidden');
     this.tutorialHintEl.classList.add('hidden');
@@ -940,9 +964,9 @@ export class HudController {
     this.gameCanvasEl.classList.remove('hidden');
     this.hudTopEl.classList.remove('hidden');
     this.hudBottomEl.classList.remove('hidden');
+    this.beaconDockEl.classList.remove('hidden');
     this.touchCamControlsEl.classList.remove('hidden');
-    this.btnTouchPanEl.classList.toggle('pan-active', this.engine.touchPanMode);
-    this.btnTouchPanEl.textContent = this.engine.touchPanMode ? '✋' : '🐜';
+    this.syncTouchPanButton();
     this.engine.paused = false;
     this.sync();
     this.renderTutorialHint();
@@ -977,6 +1001,7 @@ export class HudController {
     this.mainMenuEl.classList.add('hidden');
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
+    this.beaconDockEl.classList.add('hidden');
     this.touchCamControlsEl.classList.add('hidden');
     this.tutorialHintEl.classList.add('hidden');
     this.sugarFoundOverlayEl.classList.add('hidden');
@@ -2656,6 +2681,10 @@ export class HudController {
       const card = document.createElement('div');
       card.className = `ach-card ${isDone ? 'unlocked' : 'locked'}`;
       card.style.setProperty('--ach-color', ach.accent);
+      const wipNote =
+        !isDone && ach.id === 'coop_play'
+          ? ` (${getLang() === 'en' ? 'in development' : 'в разработке'})`
+          : '';
       card.innerHTML = `
         <div class="ach-icon-box">${ach.icon}</div>
         <div class="card-row-info" style="flex:1;min-width:0;">
@@ -2663,7 +2692,7 @@ export class HudController {
             <span style="color:${isDone ? ach.accent : 'var(--text-main)'}">${escapeHtml(loc(ach.name, ach.nameEn))}</span>
             ${isDone ? '<span class="badge-done">✓ +1% ⚡</span>' : '<span style="font-size:11px;color:var(--text-muted);">+1% ⚡</span>'}
           </div>
-          <div class="card-row-desc">${escapeHtml(loc(ach.description, ach.descriptionEn))}</div>
+          <div class="card-row-desc">${escapeHtml(loc(ach.description, ach.descriptionEn))}${wipNote}</div>
           ${
             !isDone && ach.goal > 1
               ? `<div class="ach-mini-bar">
@@ -2740,8 +2769,24 @@ export class HudController {
     if (rushSec > 0) this.statRushEl.textContent = `${rushSec}${t('secShort')}`;
 
     this.autoChipEl.classList.toggle('hidden', !skillTree.state.settings.autoSummon);
+    this.syncTouchPanButton();
+
+    // Left-side Pheromone Beacon button (30s active duration -> 2m cooldown!)
+    const beaconActive = Boolean(this.engine.beacon && this.engine.beacon.timeLeft > 0);
+    const beaconCd = !beaconActive && this.engine.beaconCooldown > 0;
     this.btnBeaconEl.classList.toggle('beacon-active', this.engine.beaconMode);
-    this.btnBeaconEl.classList.toggle('beacon-set', Boolean(this.engine.beacon) && !this.engine.beaconMode);
+    this.btnBeaconEl.classList.toggle('beacon-set', beaconActive && !this.engine.beaconMode);
+    this.btnBeaconEl.classList.toggle('beacon-cooldown', beaconCd && !this.engine.beaconMode);
+    if (this.engine.beaconMode) {
+      this.beaconFabStatusEl.textContent = t('beaconAim');
+    } else if (beaconActive && this.engine.beacon) {
+      this.beaconFabStatusEl.textContent = `${Math.ceil(this.engine.beacon.timeLeft)}${t('secShort')}`;
+    } else if (beaconCd) {
+      const sec = Math.ceil(this.engine.beaconCooldown);
+      this.beaconFabStatusEl.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    } else {
+      this.beaconFabStatusEl.textContent = t('ready');
+    }
 
     this.upgradeBadgeEl.classList.toggle('hidden', !skillTree.hasAffordableNode());
 
