@@ -1,6 +1,7 @@
 import { ANT_TYPES } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
+import { getOptimalDpr, isMobileDevice } from '../core/device';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { computeReachableMask, computeReachableWithDist, isReachableTerrainSquare } from '../core/reachability';
@@ -156,9 +157,17 @@ export class MultiplayerEngine {
   private offscreen: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
   private imgData: ImageData;
+  private imgData32: Uint32Array;
   private glowCanvas: HTMLCanvasElement;
   private glowCtx: CanvasRenderingContext2D;
   private glowImgData: ImageData;
+  private glowData32: Uint32Array;
+  private bloomCanvas: HTMLCanvasElement;
+  private bloomCtx: CanvasRenderingContext2D;
+  private bloomW = 1;
+  private bloomH = 1;
+  private lastRebuildMs = 0;
+  touchPanMode = false;
 
   private viewW = 1;
   private viewH = 1;
@@ -205,10 +214,15 @@ export class MultiplayerEngine {
     this.offscreen = document.createElement('canvas');
     this.offCtx = this.offscreen.getContext('2d')!;
     this.imgData = this.offCtx.createImageData(1, 1);
+    this.imgData32 = new Uint32Array(this.imgData.data.buffer);
 
     this.glowCanvas = document.createElement('canvas');
     this.glowCtx = this.glowCanvas.getContext('2d')!;
     this.glowImgData = this.glowCtx.createImageData(1, 1);
+    this.glowData32 = new Uint32Array(this.glowImgData.data.buffer);
+
+    this.bloomCanvas = document.createElement('canvas');
+    this.bloomCtx = this.bloomCanvas.getContext('2d')!;
 
     this.state = this.createEmptyState('coop', false, 'local', LEVELS[0], []);
     this.resize();
@@ -285,9 +299,16 @@ export class MultiplayerEngine {
     this.offscreen.width = this.width;
     this.offscreen.height = this.height;
     this.imgData = this.offCtx.createImageData(this.width, this.height);
+    this.imgData32 = new Uint32Array(this.imgData.data.buffer);
     this.glowCanvas.width = this.width;
     this.glowCanvas.height = this.height;
     this.glowImgData = this.glowCtx.createImageData(this.width, this.height);
+    this.glowData32 = new Uint32Array(this.glowImgData.data.buffer);
+    this.bloomW = Math.max(1, Math.ceil(this.width * 0.35));
+    this.bloomH = Math.max(1, Math.ceil(this.height * 0.35));
+    this.bloomCanvas.width = this.bloomW;
+    this.bloomCanvas.height = this.bloomH;
+    this.lastRebuildMs = 0;
 
     // Keep exact synced base coords when joining mid-game, or assign fresh ring bases on match start
     const playersWithBases =
@@ -2089,13 +2110,26 @@ export class MultiplayerEngine {
     return null;
   }
 
+  setTouchPanMode(enabled: boolean) {
+    this.touchPanMode = enabled;
+    this.isAiming = false;
+    this.aimPreview = null;
+    this.canvas.style.cursor = enabled ? 'grab' : 'crosshair';
+  }
+
+  zoomBy(factor: number) {
+    this.camera.zoom = Math.max(1.0, Math.min(28, this.camera.zoom * factor));
+  }
+
   /* =========================================================
-     RENDERER (STYLED BASES + PLAYER SKINS + COLORS + PINGS)
+     RENDERER (MOBILE-OPTIMIZED + STYLED BASES + SKINS + PINGS)
      ========================================================= */
-  private render() {
+  private rebuildTextures(mobile: boolean) {
     const { width: w, height: h, cells, hp, maxHp, isEdge, revealedMask, artExposed, noise } = this;
     const data = this.imgData.data;
+    const data32 = this.imgData32;
     const glow = this.glowImgData.data;
+    const glow32 = this.glowData32;
     const pal = this.state.level.palette;
     const [bR, bG, bB] = pal.bgRgb;
     const [eR, eG, eB] = pal.emptyRgb;
@@ -2105,22 +2139,35 @@ export class MultiplayerEngine {
     const [oR, oG, oB] = pal.obsidianRgb;
     const [agR, agG, agB] = pal.artGlowRgb;
 
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const idx = y * w + x;
-        const p = idx * 4;
-        const c = cells[idx] as CellType;
-        const n = noise[idx];
-        const vis = revealedMask[idx] / 255;
+    const bgPacked = ((255 << 24) | (bB << 16) | (bG << 8) | bR) >>> 0;
+    const emptyPacked = ((255 << 24) | (eB << 16) | (eG << 8) | eR) >>> 0;
+    const cleared = this.state.allCleared;
+    const sugarExp = this.sugarExposed;
 
-        glow[p] = glow[p + 1] = glow[p + 2] = glow[p + 3] = 0;
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const idx = row + x;
+        const c = cells[idx] as CellType;
+        glow32[idx] = 0;
 
         if (c === CellType.Empty) {
-          data[p] = eR; data[p + 1] = eG; data[p + 2] = eB; data[p + 3] = 255;
+          data32[idx] = emptyPacked;
           continue;
         }
-        if (c === CellType.HiddenArt && (artExposed[idx] === 1 || this.state.allCleared)) {
-          if (this.state.allCleared) {
+
+        const revByte = revealedMask[idx];
+        if (revByte === 0 && !cleared && !(c === CellType.HiddenArt && artExposed[idx] === 1) && !(c === CellType.Sugar && sugarExp)) {
+          data32[idx] = bgPacked;
+          continue;
+        }
+
+        const p = idx * 4;
+        const n = noise[idx];
+        const vis = revByte / 255;
+
+        if (c === CellType.HiddenArt && (artExposed[idx] === 1 || cleared)) {
+          if (cleared) {
             const phase = x * 0.032 + y * 0.022 - this.elapsed * 2.6;
             const gleam = Math.pow(Math.max(0, Math.sin(x * 0.028 - y * 0.018 - this.elapsed * 3.4)), 8);
             const irR = Math.min(255, Math.round(188 + 67 * Math.sin(phase) + gleam * 115));
@@ -2134,7 +2181,7 @@ export class MultiplayerEngine {
           }
           continue;
         }
-        if (c === CellType.Sugar && this.sugarExposed) {
+        if (c === CellType.Sugar && sugarExp) {
           data[p] = 255; data[p + 1] = 244; data[p + 2] = 170; data[p + 3] = 255;
           glow[p] = 255; glow[p + 1] = 230; glow[p + 2] = 120; glow[p + 3] = 255;
           continue;
@@ -2149,7 +2196,7 @@ export class MultiplayerEngine {
           continue;
         }
         if (vis <= 0.004) {
-          data[p] = bR; data[p + 1] = bG; data[p + 2] = bB; data[p + 3] = 255;
+          data32[idx] = bgPacked;
           continue;
         }
 
@@ -2179,29 +2226,69 @@ export class MultiplayerEngine {
 
     this.offCtx.putImageData(this.imgData, 0, 0);
     this.glowCtx.putImageData(this.glowImgData, 0, 0);
+    if (mobile) {
+      this.bloomCtx.clearRect(0, 0, this.bloomW, this.bloomH);
+      this.bloomCtx.imageSmoothingEnabled = true;
+      this.bloomCtx.drawImage(this.glowCanvas, 0, 0, this.bloomW, this.bloomH);
+    }
+  }
+
+  private render() {
+    const { width: w, height: h } = this;
+    const pal = this.state.level.palette;
+    const mobile = isMobileDevice();
+    const now = performance.now();
+    const rebuildInterval = mobile ? 50 : 28;
+    if (this.lastRebuildMs === 0 || now - this.lastRebuildMs >= rebuildInterval) {
+      this.rebuildTextures(mobile);
+      this.lastRebuildMs = now;
+    }
 
     const ctx = this.ctx;
     ctx.fillStyle = pal.bgHex;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
 
     const z = this.camera.zoom;
-    const drawW = w * z;
-    const drawH = h * z;
     const drawX = this.viewW * 0.5 - this.camera.x * z;
     const drawY = this.viewH * 0.5 - this.camera.y * z;
 
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.offscreen, drawX, drawY, drawW, drawH);
+    const srcX = Math.max(0, Math.floor(-drawX / z) - 1);
+    const srcY = Math.max(0, Math.floor(-drawY / z) - 1);
+    const srcX2 = Math.min(w, Math.ceil((this.viewW - drawX) / z) + 1);
+    const srcY2 = Math.min(h, Math.ceil((this.viewH - drawY) / z) + 1);
+    const srcW = srcX2 - srcX;
+    const srcH = srcY2 - srcY;
 
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.imageSmoothingEnabled = true;
-    ctx.filter = `blur(${Math.max(4, Math.min(12, z * (this.state.allCleared ? 1.9 : 1.5)))}px)`;
-    ctx.globalAlpha = this.state.allCleared ? 0.85 : 0.56;
-    ctx.drawImage(this.glowCanvas, drawX, drawY, drawW, drawH);
-    ctx.filter = 'none';
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.save();
+    if (srcW > 0 && srcH > 0) {
+      const dstX = drawX + srcX * z;
+      const dstY = drawY + srcY * z;
+      const dstW = srcW * z;
+      const dstH = srcH * z;
+
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(this.offscreen, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
+
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.imageSmoothingEnabled = true;
+      if (mobile) {
+        const bSx = (srcX / w) * this.bloomW;
+        const bSy = (srcY / h) * this.bloomH;
+        const bSw = (srcW / w) * this.bloomW;
+        const bSh = (srcH / h) * this.bloomH;
+        ctx.globalAlpha = this.state.allCleared ? 0.72 : 0.46;
+        ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
+        ctx.globalAlpha = this.state.allCleared ? 0.44 : 0.26;
+        ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
+      } else {
+        ctx.filter = `blur(${Math.max(4, Math.min(12, z * (this.state.allCleared ? 1.9 : 1.5)))}px)`;
+        ctx.globalAlpha = this.state.allCleared ? 0.85 : 0.56;
+        ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
+        ctx.filter = 'none';
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
 
     // Draw stylized Citadel Bases for EVERY player!
     for (const pl of this.state.players) {
@@ -2296,13 +2383,14 @@ export class MultiplayerEngine {
       ctx.fill();
     }
 
-    // Ants with each player's chosen SKIN & COLOR!
+    // Ants with each player's chosen SKIN & COLOR (offscreen ants culled for mobile speed!)
     for (const ant of this.ants) {
+      const sx = drawX + ant.x * z;
+      const sy = drawY + ant.y * z;
+      if (sx < -36 || sx > this.viewW + 36 || sy < -36 || sy > this.viewH + 36) continue;
       const owner = this.getPlayer(ant.ownerId);
       const col = owner ? PLAYER_COLORS[owner.colorIndex % PLAYER_COLORS.length] : PLAYER_COLORS[0];
       const skin = owner ? owner.skin : 'classic';
-      const sx = drawX + ant.x * z;
-      const sy = drawY + ant.y * z;
       drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, z, skin, col.rgb);
     }
 
@@ -2325,7 +2413,7 @@ export class MultiplayerEngine {
   }
 
   private resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = getOptimalDpr();
     this.viewW = window.innerWidth;
     this.viewH = window.innerHeight;
     this.canvas.width = Math.floor(this.viewW * dpr);
@@ -2376,7 +2464,7 @@ export class MultiplayerEngine {
         return;
       }
 
-      if (e.button === 1 || e.button === 2) {
+      if (e.button === 1 || e.button === 2 || (this.touchPanMode && !this.state.pingMode)) {
         this.isDraggingCam = true;
         this.lastDragX = e.clientX;
         this.lastDragY = e.clientY;
@@ -2405,7 +2493,11 @@ export class MultiplayerEngine {
         const midX = (pts[0].x + pts[1].x) * 0.5;
         const midY = (pts[0].y + pts[1].y) * 0.5;
         if (this.pinchStartDist > 0) {
+          const before = this.screenToWorld(midX, midY);
           this.camera.zoom = Math.max(1.0, Math.min(28, this.pinchStartZoom * (dist / this.pinchStartDist)));
+          const after = this.screenToWorld(midX, midY);
+          this.camera.x += before.x - after.x;
+          this.camera.y += before.y - after.y;
         }
         this.camera.x -= (midX - this.lastDragX) / this.camera.zoom;
         this.camera.y -= (midY - this.lastDragY) / this.camera.zoom;

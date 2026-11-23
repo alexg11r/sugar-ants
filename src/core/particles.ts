@@ -1,8 +1,9 @@
+import { isMobileDevice } from './device';
 import { Particle } from './types';
 
 export class ParticleSystem {
   particles: Particle[] = [];
-  private readonly maxParticles = 320;
+  private readonly maxParticles = isMobileDevice() ? 120 : 320;
 
   spawn(
     x: number,

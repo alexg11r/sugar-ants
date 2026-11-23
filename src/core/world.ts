@@ -1,5 +1,69 @@
-import { computeReachableWithDist, isReachableTerrainSquare } from './reachability';
+import { computeReachableMask, computeReachableWithDist, isReachableTerrainSquare } from './reachability';
 import { ArtifactDef, CellType, LevelDefinition, WorldStats } from './types';
+
+export interface WorldSnapshot {
+  v: 1;
+  levelId: string;
+  width: number;
+  height: number;
+  nestX: number;
+  nestY: number;
+  sugarX: number;
+  sugarY: number;
+  sugarExposed: boolean;
+  artifactId: string | null;
+  artifactX: number;
+  artifactY: number;
+  artifactExposed: boolean;
+  stats: WorldStats;
+  cellsRle: string;
+  revealedRle: string;
+  artExposedRle: string;
+  damagedHp: [number, number][];
+}
+
+const HEX = '0123456789abcdef';
+
+/** Ultra-compact RLE encoder for 0..15 nibble arrays: single hex char + base36 run length separated by ',' */
+function encodeNibbleRle(arr: Uint8Array, shiftRight = 0): string {
+  const n = arr.length;
+  if (n === 0) return '';
+  const parts: string[] = [];
+  let cur = (arr[0] >> shiftRight) & 15;
+  let run = 1;
+  for (let i = 1; i < n; i++) {
+    const v = (arr[i] >> shiftRight) & 15;
+    if (v === cur) {
+      run++;
+    } else {
+      parts.push(run === 1 ? HEX[cur] : HEX[cur] + run.toString(36));
+      cur = v;
+      run = 1;
+    }
+  }
+  parts.push(run === 1 ? HEX[cur] : HEX[cur] + run.toString(36));
+  return parts.join(',');
+}
+
+function decodeNibbleRle(rle: string, target: Uint8Array, expandToByte = false): boolean {
+  const parts = rle.split(',');
+  let pos = 0;
+  const maxLen = target.length;
+  for (let i = 0; i < parts.length; i++) {
+    const token = parts[i];
+    if (!token) continue;
+    const val = parseInt(token[0], 16);
+    if (Number.isNaN(val)) return false;
+    const run = token.length === 1 ? 1 : parseInt(token.slice(1), 36);
+    if (!Number.isFinite(run) || run <= 0) return false;
+    const outVal = expandToByte ? (val << 4) | val : val;
+    const end = Math.min(maxLen, pos + run);
+    target.fill(outVal, pos, end);
+    pos = end;
+    if (pos >= maxLen) break;
+  }
+  return pos === maxLen;
+}
 
 export interface DigResult {
   hitSolid: boolean;
@@ -55,8 +119,15 @@ export class World {
   artifactExposed = false;
 
   stats: WorldStats;
+  /** Incremented whenever cells, HP, exposure or fog change (used by renderer to skip redundant pixel rebuilds!) */
+  visualVersion = 1;
 
-  constructor(level: LevelDefinition, farSenseMutation = false, artifactToSpawn: ArtifactDef | null = null) {
+  constructor(
+    level: LevelDefinition,
+    farSenseMutation = false,
+    artifactToSpawn: ArtifactDef | null = null,
+    skipGenerate = false
+  ) {
     this.level = level;
     this.width = level.width;
     this.height = level.height;
@@ -90,7 +161,126 @@ export class World {
       totalCrystals: 0
     };
 
-    this.generate();
+    if (!skipGenerate) {
+      this.generate();
+    }
+  }
+
+  /** Exports a compact (~12-25 KB) pixel-exact snapshot for mid-map progress persistence! */
+  exportSnapshot(): WorldSnapshot {
+    const damagedHp: [number, number][] = [];
+    const total = this.width * this.height;
+    for (let i = 0; i < total; i++) {
+      const c = this.cells[i];
+      if (c === CellType.Empty || c === CellType.HiddenArt || c === CellType.Sugar) continue;
+      const base = BLOCK_HP[c] ?? 1;
+      if (this.hp[i] !== base) {
+        damagedHp.push([i, this.hp[i]]);
+      }
+    }
+
+    return {
+      v: 1,
+      levelId: this.level.id,
+      width: this.width,
+      height: this.height,
+      nestX: this.nestX,
+      nestY: this.nestY,
+      sugarX: this.sugarX,
+      sugarY: this.sugarY,
+      sugarExposed: this.sugarExposed,
+      artifactId: this.artifactDef ? this.artifactDef.id : null,
+      artifactX: this.artifactX,
+      artifactY: this.artifactY,
+      artifactExposed: this.artifactExposed,
+      stats: { ...this.stats },
+      cellsRle: encodeNibbleRle(this.cells, 0),
+      revealedRle: encodeNibbleRle(this.revealedMask, 4),
+      artExposedRle: encodeNibbleRle(this.artExposed, 0),
+      damagedHp
+    };
+  }
+
+  /** Restores a previously saved mid-map World pixel-for-pixel! */
+  static fromSnapshot(
+    snap: WorldSnapshot,
+    level: LevelDefinition,
+    farSenseMutation: boolean,
+    artifactDef: ArtifactDef | null
+  ): World | null {
+    if (snap.v !== 1 || snap.width !== level.width || snap.height !== level.height) {
+      return null;
+    }
+
+    const w = new World(level, farSenseMutation, artifactDef, true);
+    if (!decodeNibbleRle(snap.cellsRle, w.cells, false)) return null;
+    if (!decodeNibbleRle(snap.revealedRle, w.revealedMask, true)) return null;
+    if (!decodeNibbleRle(snap.artExposedRle, w.artExposed, false)) return null;
+
+    w.nestX = snap.nestX;
+    w.nestY = snap.nestY;
+    w.sugarX = snap.sugarX;
+    w.sugarY = snap.sugarY;
+    w.sugarExposed = Boolean(snap.sugarExposed);
+    w.artifactX = snap.artifactX;
+    w.artifactY = snap.artifactY;
+    w.artifactExposed = Boolean(snap.artifactExposed);
+    w.stats = { ...snap.stats };
+
+    const width = w.width;
+    const height = w.height;
+    // Recompute deterministic noise & default HP per cell
+    for (let y = 0; y < height; y++) {
+      const row = y * width;
+      for (let x = 0; x < width; x++) {
+        const idx = row + x;
+        const hash = ((x * 374761393 + y * 668265263) ^ (x * y * 1274126177)) >>> 0;
+        w.noise[idx] = hash & 255;
+
+        let c = w.cells[idx] as CellType;
+        // If artifact was already collected permanently elsewhere, replace leftover artifact pixels cleanly
+        if (c === CellType.Artifact && (!artifactDef || w.stats.artifactCollected)) {
+          c = CellType.SoftSoil;
+          w.cells[idx] = c;
+        }
+        const baseHp = BLOCK_HP[c] ?? 1;
+        w.hp[idx] = baseHp;
+        w.maxHp[idx] = baseHp;
+      }
+    }
+
+    // Apply sparse damaged HP values
+    if (Array.isArray(snap.damagedHp)) {
+      for (let i = 0; i < snap.damagedHp.length; i++) {
+        const [idx, val] = snap.damagedHp[i];
+        if (idx >= 0 && idx < w.hp.length && val > 0 && val <= w.maxHp[idx]) {
+          w.hp[idx] = val;
+        }
+      }
+    }
+
+    // Derive 8-connected exposed edges (matching updateNeighbors!) & reachable mask cleanly
+    for (let y = 0; y < height; y++) {
+      const row = y * width;
+      for (let x = 0; x < width; x++) {
+        const idx = row + x;
+        if (w.cells[idx] === CellType.Empty) continue;
+        let adjEmpty = false;
+        for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1) && !adjEmpty; ny++) {
+          const nRow = ny * width;
+          for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++) {
+            if (w.cells[nRow + nx] === CellType.Empty) {
+              adjEmpty = true;
+              break;
+            }
+          }
+        }
+        if (adjEmpty) w.isEdge[idx] = 1;
+      }
+    }
+    w.reachableMask = computeReachableMask(w.cells, width, height, [{ x: w.nestX, y: w.nestY }]);
+    w.visualVersion++;
+    return w;
   }
 
   private setBlock(idx: number, type: CellType) {
@@ -372,6 +562,7 @@ export class World {
     const y0 = Math.max(0, Math.floor(cy - rCeil));
     const y1 = Math.min(h - 1, Math.ceil(cy + rCeil));
 
+    let changed = false;
     for (let y = y0; y <= y1; y++) {
       const dy = y - cy;
       const dySq = dy * dy;
@@ -389,10 +580,12 @@ export class World {
           const idx = row + x;
           if (val > this.revealedMask[idx]) {
             this.revealedMask[idx] = val;
+            changed = true;
           }
         }
       }
     }
+    if (changed) this.visualVersion++;
   }
 
   isTerrain(cell: CellType): boolean {
@@ -493,6 +686,9 @@ export class World {
 
     if (revealedNewTunnel) {
       this.revealCircle(cx, cy, this.revealRadius);
+    }
+    if (result.dugCount > 0 || result.damagedCount > 0 || result.artRevealed > 0 || result.sugarHit) {
+      this.visualVersion++;
     }
 
     return result;
@@ -600,6 +796,7 @@ export class World {
     }
     this.stats.dugBreakable = this.stats.totalBreakable;
     this.stats.revealedArt = this.stats.totalArt;
+    this.visualVersion++;
     return true;
   }
 

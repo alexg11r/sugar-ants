@@ -260,6 +260,16 @@ export class AntManager {
     this.compassCooldown = 0;
   }
 
+  restoreState(savedAnts: Ant[], compassCooldown: number) {
+    this.ants = savedAnts.map((a) => ({ ...a }));
+    this.compassCooldown = Math.max(0, compassCooldown || 0);
+    let maxId = 0;
+    for (let i = 0; i < this.ants.length; i++) {
+      if (this.ants[i].id > maxId) maxId = this.ants[i].id;
+    }
+    this.nextId = maxId + 1;
+  }
+
   update(
     dt: number,
     world: World,

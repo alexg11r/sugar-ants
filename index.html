@@ -179,6 +179,13 @@
       <!-- Toast notifications -->
       <div id="toast-container" class="toast-container"></div>
 
+      <!-- Mobile Touch Camera Controls (Classic: auto-visible on touch/mobile screens!) -->
+      <div id="touch-cam-controls" class="touch-cam-controls hidden">
+        <button id="btn-touch-pan" class="touch-cam-btn" title="Режим камеры (1 палец двигает карту)">✋</button>
+        <button id="btn-zoom-in" class="touch-cam-btn" title="Приблизить">＋</button>
+        <button id="btn-zoom-out" class="touch-cam-btn" title="Отдалить">－</button>
+      </div>
+
       <!-- Bottom Dock (Classic Mode) -->
       <footer id="hud-bottom" class="hud-bottom hidden">
         <div class="dock-inner">
@@ -229,7 +236,7 @@
           <div class="menu-stack">
             <button id="menu-play-classic" class="mbtn mbtn-play">
               <span class="mbtn-accent">▶</span>
-              <span class="mbtn-label">ИГРАТЬ</span>
+              <span id="menu-play-label" class="mbtn-label">ИГРАТЬ</span>
               <span id="menu-continue-sub" class="mbtn-meta">Призма Света</span>
             </button>
 
@@ -371,6 +378,13 @@
           <input id="mp-chat-input" class="mp-chat-input" placeholder="Написать в чат…" maxlength="140" />
           <button type="submit" class="action-btn primary" style="padding:6px 10px;">➤</button>
         </form>
+      </div>
+
+      <!-- Mobile Touch Camera Controls (Multiplayer: auto-visible on touch/mobile screens!) -->
+      <div id="mp-touch-cam-controls" class="touch-cam-controls hidden">
+        <button id="mp-btn-touch-pan" class="touch-cam-btn" title="Режим камеры (1 палец двигает карту)">✋</button>
+        <button id="mp-btn-zoom-in" class="touch-cam-btn" title="Приблизить">＋</button>
+        <button id="mp-btn-zoom-out" class="touch-cam-btn" title="Отдалить">－</button>
       </div>
 
       <footer id="mp-hud-bottom" class="hud-bottom hidden">

@@ -1,13 +1,26 @@
 import { ANT_TYPES, AntManager } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
+import { getOptimalDpr } from '../core/device';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, WorldRenderer } from '../core/renderer';
-import { ArtifactDef, LevelDefinition, PlayableAntId } from '../core/types';
-import { World } from '../core/world';
+import { Ant, ArtifactDef, LevelDefinition, PlayableAntId } from '../core/types';
+import { World, WorldSnapshot } from '../core/world';
 import { getArtifactForLevel } from './artifacts';
 import { SkillTreeManager } from './skillTree';
+
+const ACTIVE_RUN_STORAGE_KEY = 'sugar_ants_active_run_v1';
+
+interface ActiveRunSnapshot {
+  v: 1;
+  savedAt: number;
+  world: WorldSnapshot;
+  ants: Ant[];
+  compassCooldown: number;
+  selectedAnt: PlayableAntId;
+  camera: Camera;
+}
 
 export interface EngineCallbacks {
   onHudSync: () => void;
@@ -34,6 +47,10 @@ export class GameEngine {
   selectedAnt: PlayableAntId = 'worker';
   camera: Camera = { x: 200, y: 125, zoom: 3.5 };
   paused = true; // Starts paused while Main Menu is open
+  /** Mobile 1-finger camera pan toggle (false = 1-finger launches ants, true = 1-finger drags camera) */
+  touchPanMode = false;
+  /** True when an in-progress mid-map run exists (either restored from disk or played in this session) */
+  private hasActiveRun = false;
 
   private viewW = 1;
   private viewH = 1;
@@ -42,6 +59,7 @@ export class GameEngine {
   private lastWallMs = 0;
   private elapsed = 0;
   private hudSyncAccum = 0;
+  private autoSaveAccum = 0;
   private fireworkAccum = 0;
   private sugarBurstTime = -1;
   private sugarBurstTimers: number[] = [];
@@ -79,16 +97,137 @@ export class GameEngine {
     this.ants = new AntManager();
     this.particles = new ParticleSystem();
 
-    const startLevel =
-      LEVELS.find((l) => l.id === skillTree.state.currentLevelId && skillTree.isLevelUnlocked(l.id)) ||
-      LEVELS[0];
-    const startArtifact = this.pickUncollectedArtifact(startLevel.id);
-    this.world = new World(startLevel, skillTree.hasMutation('far_sense'), startArtifact);
-    this.renderer = new WorldRenderer(this.world.width, this.world.height);
+    const restored = this.tryRestoreSavedRun();
+    if (restored) {
+      this.world = restored.world;
+      this.ants.restoreState(restored.ants, restored.compassCooldown);
+      this.selectedAnt = this.skillTree.isAntUnlocked(restored.selectedAnt) ? restored.selectedAnt : 'worker';
+      this.camera = { ...restored.camera };
+      this.hasActiveRun = true;
+      this.renderer = new WorldRenderer(this.world.width, this.world.height);
+      this.resize();
+    } else {
+      const startLevel =
+        LEVELS.find((l) => l.id === skillTree.state.currentLevelId && skillTree.isLevelUnlocked(l.id)) ||
+        LEVELS[0];
+      const startArtifact = this.pickUncollectedArtifact(startLevel.id);
+      this.world = new World(startLevel, skillTree.hasMutation('far_sense'), startArtifact);
+      this.renderer = new WorldRenderer(this.world.width, this.world.height);
+      this.resize();
+      this.resetCamera();
+    }
 
-    this.resize();
-    this.resetCamera();
     this.bindEvents();
+  }
+
+  private tryRestoreSavedRun(): {
+    world: World;
+    ants: Ant[];
+    compassCooldown: number;
+    selectedAnt: PlayableAntId;
+    camera: Camera;
+  } | null {
+    try {
+      const raw = localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
+      if (!raw) return null;
+      const snap = JSON.parse(raw) as Partial<ActiveRunSnapshot>;
+      if (!snap || snap.v !== 1 || !snap.world || typeof snap.world.levelId !== 'string') return null;
+
+      const lvl = LEVELS.find((l) => l.id === snap.world!.levelId);
+      if (!lvl || !this.skillTree.isLevelUnlocked(lvl.id)) return null;
+
+      const artDef = this.pickUncollectedArtifact(lvl.id);
+      const world = World.fromSnapshot(snap.world, lvl, this.skillTree.hasMutation('far_sense'), artDef);
+      if (!world) return null;
+
+      const cam = snap.camera && Number.isFinite(snap.camera.x) && Number.isFinite(snap.camera.y) && Number.isFinite(snap.camera.zoom)
+        ? {
+            x: snap.camera.x,
+            y: snap.camera.y,
+            zoom: Math.max(1.0, Math.min(28, snap.camera.zoom))
+          }
+        : { x: world.nestX, y: world.nestY, zoom: 7.5 };
+
+      const savedAnts = Array.isArray(snap.ants) ? snap.ants : [];
+      const selectedAnt: PlayableAntId = snap.selectedAnt || 'worker';
+      return {
+        world,
+        ants: savedAnts,
+        compassCooldown: typeof snap.compassCooldown === 'number' ? snap.compassCooldown : 0,
+        selectedAnt,
+        camera: cam
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Saves complete mid-map state (pixel terrain, tunnels, fog, ants, skills, camera) to localStorage (~15-30 KB)! */
+  saveRunProgress(): boolean {
+    if (!this.hasActiveRun && this.world.stats.dugBreakable === 0 && this.ants.ants.length === 0) {
+      return false;
+    }
+    try {
+      this.skillTree.flushPendingSave();
+      const payload: ActiveRunSnapshot = {
+        v: 1,
+        savedAt: Date.now(),
+        world: this.world.exportSnapshot(),
+        ants: this.ants.ants.map((a) => ({ ...a })),
+        compassCooldown: this.ants.compassCooldown,
+        selectedAnt: this.selectedAnt,
+        camera: { ...this.camera }
+      };
+      localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, JSON.stringify(payload));
+      this.hasActiveRun = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  clearSavedRun() {
+    this.hasActiveRun = false;
+    try {
+      localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  hasResumableRun(): boolean {
+    return (
+      this.hasActiveRun ||
+      this.world.stats.dugBreakable > 0 ||
+      this.ants.ants.length > 0 ||
+      this.world.stats.crystalsCollected > 0
+    );
+  }
+
+  getSavedRunSummary(): { levelId: string; levelName: string; digPct: number } | null {
+    if (!this.hasResumableRun()) return null;
+    const { stats, level } = this.world;
+    const digPct =
+      stats.totalBreakable > 0
+        ? Math.min(100, Math.round((stats.dugBreakable / stats.totalBreakable) * 100))
+        : 0;
+    return { levelId: level.id, levelName: level.name, digPct };
+  }
+
+  setTouchPanMode(enabled: boolean) {
+    this.touchPanMode = enabled;
+    this.isAimingAnt = false;
+    this.aimPreview = null;
+    this.canvas.style.cursor = enabled ? 'grab' : 'crosshair';
+  }
+
+  zoomBy(factor: number) {
+    this.cameraEaseTarget = null;
+    this.camera.zoom = Math.max(1.0, Math.min(28, this.camera.zoom * factor));
+    if (this.camera.zoom >= 16) {
+      this.skillTree.unlockAchievement('zoom_macro');
+    }
+    this.callbacks.onZoomInteract();
   }
 
   start() {
@@ -195,7 +334,10 @@ export class GameEngine {
     this.sugarBurstTime = -1;
     this.cameraEaseTarget = null;
     this.fireworkAccum = 0;
+    this.autoSaveAccum = 0;
+    this.hasActiveRun = true;
     this.resetCamera();
+    this.saveRunProgress();
     this.callbacks.onHudSync();
 
     const startSp = this.skillTree.state.skillPoints;
@@ -221,7 +363,7 @@ export class GameEngine {
   }
 
   private resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = getOptimalDpr();
     this.viewW = window.innerWidth;
     this.viewH = window.innerHeight;
     this.canvas.width = Math.floor(this.viewW * dpr);
@@ -261,6 +403,7 @@ export class GameEngine {
     const stats = this.skillTree.getColonyStats();
     const res = this.ants.spawnAnt(this.selectedAnt, spawn.x, spawn.y, angle, stats);
     if (res.ok) {
+      this.hasActiveRun = true;
       const rgb = ANT_TYPES[this.selectedAnt].rgb;
       this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 5, 16, 0.5, 1.4);
       this.skillTree.recordCareer({ antsSpawned: 1 });
@@ -436,6 +579,7 @@ export class GameEngine {
       const art = events.artifactFound;
       if (this.skillTree.collectArtifact(art.id)) {
         this.audio.playArtifactFound();
+        this.saveRunProgress();
         this.callbacks.onHudSync();
         this.callbacks.onArtifactFound(art);
       }
@@ -443,6 +587,7 @@ export class GameEngine {
     if (events.sugarHit) {
       this.skillTree.markLevelCompleted(this.world.level.id);
       this.audio.playSugarFound();
+      this.saveRunProgress();
       this.callbacks.onHudSync();
       this.triggerEpicSugarCelebration();
     }
@@ -499,6 +644,13 @@ export class GameEngine {
       this.hudSyncAccum = 0;
       this.callbacks.onHudSync();
     }
+
+    // Periodic crash-safe mid-map autosave every 12 seconds!
+    this.autoSaveAccum += dt;
+    if (this.autoSaveAccum >= 12) {
+      this.autoSaveAccum = 0;
+      this.saveRunProgress();
+    }
   }
 
   private render() {
@@ -524,8 +676,16 @@ export class GameEngine {
     window.addEventListener('resize', () => {
       this.resize();
     });
-    window.addEventListener('beforeunload', () => {
+    const persistNow = () => {
       this.skillTree.flushPendingSave();
+      if (!this.paused || this.hasActiveRun) {
+        this.saveRunProgress();
+      }
+    };
+    window.addEventListener('beforeunload', persistNow);
+    window.addEventListener('pagehide', persistNow);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) persistNow();
     });
 
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -567,7 +727,7 @@ export class GameEngine {
         return;
       }
 
-      if (e.button === 1 || e.button === 2) {
+      if (e.button === 1 || e.button === 2 || this.touchPanMode) {
         this.isDraggingCam = true;
         this.lastDragX = e.clientX;
         this.lastDragY = e.clientY;
@@ -602,7 +762,11 @@ export class GameEngine {
         if (this.pinchStartDist > 0) {
           const scale = dist / this.pinchStartDist;
           if (Math.abs(scale - 1) > 0.06) this.callbacks.onZoomInteract();
+          const before = this.screenToWorld(midX, midY);
           this.camera.zoom = Math.max(1.0, Math.min(28, this.pinchStartZoom * scale));
+          const after = this.screenToWorld(midX, midY);
+          this.camera.x += before.x - after.x;
+          this.camera.y += before.y - after.y;
           if (this.camera.zoom >= 16) {
             this.skillTree.unlockAchievement('zoom_macro');
           }

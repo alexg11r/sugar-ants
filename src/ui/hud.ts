@@ -1,5 +1,6 @@
 import { ANT_TYPES, PLAYABLE_ANTS } from '../core/ants';
 import { SOUNDTRACKS } from '../core/audio';
+import { isMobileDevice } from '../core/device';
 import { LEVELS } from '../core/levels';
 import {
   AchievementDef,
@@ -129,6 +130,7 @@ export class HudController {
 
   // Main Menu elements
   private mainMenuEl = document.getElementById('main-menu')!;
+  private menuPlayLabelEl = document.getElementById('menu-play-label')!;
   private menuContinueSubEl = document.getElementById('menu-continue-sub')!;
   private menuArtCountEl = document.getElementById('menu-art-count')!;
   private menuAchCountEl = document.getElementById('menu-ach-count')!;
@@ -138,6 +140,10 @@ export class HudController {
   // Classic HUD elements
   private hudTopEl = document.getElementById('hud-top')!;
   private hudBottomEl = document.getElementById('hud-bottom')!;
+  private touchCamControlsEl = document.getElementById('touch-cam-controls')!;
+  private btnTouchPanEl = document.getElementById('btn-touch-pan')!;
+  private mpTouchCamControlsEl = document.getElementById('mp-touch-cam-controls')!;
+  private mpBtnTouchPanEl = document.getElementById('mp-btn-touch-pan')!;
   private levelNameEl = document.getElementById('level-name')!;
   private statMutCountEl = document.getElementById('stat-mut-count')!;
   private statArtifactsCountEl = document.getElementById('stat-artifacts-count')!;
@@ -206,7 +212,6 @@ export class HudController {
   private lastRenderedSp = -1;
   private selectedNodeId: string = 'worker_root';
   private lastBoughtNodeId: string | null = null;
-  private hasStartedOnce = false;
   private tutorialStep: 'launch' | 'zoom' | 'pan' | 'done' = 'launch';
   private introTimers: number[] = [];
   private introRafId = 0;
@@ -537,9 +542,14 @@ export class HudController {
     // Main menu buttons
     document.getElementById('menu-play-classic')!.addEventListener('click', () => {
       this.engine.audio.ensureStarted();
-      const firstLaunch = !this.hasStartedOnce;
-      if (firstLaunch) {
-        this.hasStartedOnce = true;
+      const saved = this.engine.getSavedRunSummary();
+      if (saved) {
+        // Seamlessly resume saved mid-map run right where the player left off!
+        this.enterClassicGame();
+        if (saved.digPct > 0) {
+          this.showToast(`▶ Продолжаем: ${saved.levelName} (${saved.digPct}%)`);
+        }
+      } else {
         const targetLvl = this.engine.skillTree.state.currentLevelId;
         this.engine.loadLevel(
           this.engine.skillTree.isLevelUnlocked(targetLvl) ? targetLvl : LEVELS[0].id,
@@ -551,8 +561,6 @@ export class HudController {
           this.enterClassicGame();
           this.engine.playNestRevealBurst();
         });
-      } else {
-        this.enterClassicGame();
       }
     });
 
@@ -577,6 +585,28 @@ export class HudController {
     document.getElementById('btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
     document.getElementById('btn-achievements')!.addEventListener('click', () => this.openAchievementsModal());
     document.getElementById('btn-levels')!.addEventListener('click', () => this.openLevelsModal());
+
+    // Mobile Touch Camera Controls (Classic)
+    this.btnTouchPanEl.addEventListener('click', () => {
+      const next = !this.engine.touchPanMode;
+      this.engine.setTouchPanMode(next);
+      this.btnTouchPanEl.classList.toggle('pan-active', next);
+      this.btnTouchPanEl.textContent = next ? '✋' : '🐜';
+      this.showToast(next ? '✋ Режим камеры: 1 палец двигает карту' : '🐜 Режим запуска: касание выпускает муравья');
+    });
+    document.getElementById('btn-zoom-in')!.addEventListener('click', () => this.engine.zoomBy(1.32));
+    document.getElementById('btn-zoom-out')!.addEventListener('click', () => this.engine.zoomBy(0.76));
+
+    // Mobile Touch Camera Controls (Multiplayer)
+    this.mpBtnTouchPanEl.addEventListener('click', () => {
+      const next = !this.mp.touchPanMode;
+      this.mp.setTouchPanMode(next);
+      this.mpBtnTouchPanEl.classList.toggle('pan-active', next);
+      this.mpBtnTouchPanEl.textContent = next ? '✋' : '🐜';
+      this.showToast(next ? '✋ Режим камеры: 1 палец двигает карту' : '🐜 Режим запуска: касание выпускает муравья');
+    });
+    document.getElementById('mp-btn-zoom-in')!.addEventListener('click', () => this.mp.zoomBy(1.32));
+    document.getElementById('mp-btn-zoom-out')!.addEventListener('click', () => this.mp.zoomBy(0.76));
 
     // Epic Diamond-Sugar Found Celebration CTA -> smoothly opens Mutation choice!
     this.sugarFoundCtaEl.addEventListener('click', () => {
@@ -708,6 +738,10 @@ export class HudController {
   }
 
   showMainMenu() {
+    // Save active mid-map Classic progress right before leaving to the Main Menu!
+    if (this.mode === 'classic') {
+      this.engine.saveRunProgress();
+    }
     this.mode = 'menu';
     this.closeSkillTree();
     this.engine.paused = true;
@@ -715,6 +749,8 @@ export class HudController {
 
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
+    this.touchCamControlsEl.classList.add('hidden');
+    this.mpTouchCamControlsEl.classList.add('hidden');
     this.tutorialHintEl.classList.add('hidden');
     this.sugarFoundOverlayEl.classList.add('hidden');
     this.epicClearBannerEl.classList.add('hidden');
@@ -741,6 +777,7 @@ export class HudController {
     this.epicClearBannerEl.classList.add('hidden');
     this.mpHudTopEl.classList.add('hidden');
     this.mpHudBottomEl.classList.add('hidden');
+    this.mpTouchCamControlsEl.classList.add('hidden');
     this.mpVoteBannerEl.classList.add('hidden');
     this.mpChatBoxEl.classList.add('hidden');
     this.mpCanvasEl.classList.add('hidden');
@@ -748,6 +785,9 @@ export class HudController {
     this.gameCanvasEl.classList.remove('hidden');
     this.hudTopEl.classList.remove('hidden');
     this.hudBottomEl.classList.remove('hidden');
+    this.touchCamControlsEl.classList.remove('hidden');
+    this.btnTouchPanEl.classList.toggle('pan-active', this.engine.touchPanMode);
+    this.btnTouchPanEl.textContent = this.engine.touchPanMode ? '✋' : '🐜';
     this.engine.paused = false;
     this.sync();
     this.renderTutorialHint();
@@ -771,7 +811,8 @@ export class HudController {
   }) {
     this.mode = 'mp';
     this.inLobbyRoom = false;
-    this.chatOpen = true;
+    // Start with chat collapsed on small mobile screens so the map stays unobstructed!
+    this.chatOpen = !isMobileDevice();
     this.mpBtnChatToggleEl.classList.remove('ping-active');
     this.closeModal();
     this.closeSkillTree();
@@ -781,6 +822,7 @@ export class HudController {
     this.mainMenuEl.classList.add('hidden');
     this.hudTopEl.classList.add('hidden');
     this.hudBottomEl.classList.add('hidden');
+    this.touchCamControlsEl.classList.add('hidden');
     this.tutorialHintEl.classList.add('hidden');
     this.sugarFoundOverlayEl.classList.add('hidden');
     this.epicClearBannerEl.classList.add('hidden');
@@ -789,7 +831,10 @@ export class HudController {
     this.mpCanvasEl.classList.remove('hidden');
     this.mpHudTopEl.classList.remove('hidden');
     this.mpHudBottomEl.classList.remove('hidden');
-    this.mpChatBoxEl.classList.remove('hidden');
+    this.mpTouchCamControlsEl.classList.remove('hidden');
+    this.mpBtnTouchPanEl.classList.toggle('pan-active', this.mp.touchPanMode);
+    this.mpBtnTouchPanEl.textContent = this.mp.touchPanMode ? '✋' : '🐜';
+    this.mpChatBoxEl.classList.toggle('hidden', !this.chatOpen);
 
     // Unlock multiplayer achievement & apply permanent +1% per achievement speed bonus + artifact SP bonus!
     this.engine.skillTree.unlockAchievement('coop_play');
@@ -808,8 +853,15 @@ export class HudController {
 
   private syncMenuSummary() {
     const { skillTree } = this.engine;
-    const lvl = LEVELS.find((l) => l.id === skillTree.state.currentLevelId) || LEVELS[0];
-    this.menuContinueSubEl.textContent = lvl.name;
+    const saved = this.engine.getSavedRunSummary();
+    if (saved) {
+      this.menuPlayLabelEl.textContent = 'ПРОДОЛЖИТЬ';
+      this.menuContinueSubEl.textContent = `${saved.levelName} • ${saved.digPct}%`;
+    } else {
+      const lvl = LEVELS.find((l) => l.id === skillTree.state.currentLevelId) || LEVELS[0];
+      this.menuPlayLabelEl.textContent = 'ИГРАТЬ';
+      this.menuContinueSubEl.textContent = lvl.name;
+    }
     this.menuProgressCountEl.textContent = `${skillTree.state.completedLevels.length}/${LEVELS.length}`;
     this.menuMutCountEl.textContent = String(skillTree.state.mutations.length);
     const artCnt = skillTree.state.artifacts.length;
@@ -2476,12 +2528,13 @@ export class HudController {
   openLevelsModal() {
     this.openModal('🗺 Карты — Классический режим');
     this.modalBodyEl.innerHTML = '';
+    const savedRun = this.engine.getSavedRunSummary();
 
     for (let i = 0; i < LEVELS.length; i++) {
       const lvl = LEVELS[i];
       const unlocked = this.engine.skillTree.isLevelUnlocked(lvl.id);
       const isDone = this.engine.skillTree.state.completedLevels.includes(lvl.id);
-      const isCurrent = this.mode === 'classic' && this.engine.world.level.id === lvl.id;
+      const isSavedRun = Boolean(savedRun && savedRun.levelId === lvl.id);
 
       const row = document.createElement('div');
       row.className = `card-row${unlocked ? '' : ' locked-row'}`;
@@ -2491,17 +2544,35 @@ export class HudController {
             <span style="width:9px;height:9px;border-radius:50%;background:${lvl.palette.accentHex};display:inline-block;"></span>
             <span>${i + 1}. ${unlocked ? lvl.name : '🔒 ' + lvl.name}</span>
             ${isDone ? '<span class="badge-done">🧊 Пройден</span>' : ''}
+            ${isSavedRun && savedRun ? `<span class="badge-done" style="border-color:rgba(53,214,255,0.45);color:#8ce8ff;">💾 ${savedRun.digPct}%</span>` : ''}
           </div>
           <div class="card-row-desc">${unlocked ? lvl.subtitle : 'Найдите сахар на предыдущем уровне, чтобы открыть'}</div>
         </div>
       `;
+
+      const actionsWrap = document.createElement('div');
+      actionsWrap.style.display = 'flex';
+      actionsWrap.style.gap = '6px';
+      actionsWrap.style.flexShrink = '0';
+
+      if (unlocked && isSavedRun) {
+        const contBtn = document.createElement('button');
+        contBtn.className = 'action-btn primary';
+        contBtn.textContent = 'Продолжить';
+        contBtn.addEventListener('click', () => {
+          this.engine.audio.ensureStarted();
+          this.closeModal();
+          this.enterClassicGame();
+        });
+        actionsWrap.appendChild(contBtn);
+      }
+
       const btn = document.createElement('button');
-      btn.className = `action-btn${unlocked && !isCurrent ? ' primary' : ''}`;
+      btn.className = `action-btn${unlocked && !isSavedRun ? ' primary' : ''}`;
       btn.disabled = !unlocked;
-      btn.textContent = !unlocked ? 'Закрыт' : isCurrent ? 'Заново' : 'Играть';
+      btn.textContent = !unlocked ? 'Закрыт' : isSavedRun ? 'Заново' : 'Играть';
       btn.addEventListener('click', () => {
         this.engine.audio.ensureStarted();
-        this.hasStartedOnce = true;
         this.closeModal();
         this.engine.loadLevel(lvl.id, true);
         this.engine.paused = true;
@@ -2512,7 +2583,8 @@ export class HudController {
           this.engine.playNestRevealBurst();
         });
       });
-      row.appendChild(btn);
+      actionsWrap.appendChild(btn);
+      row.appendChild(actionsWrap);
       this.modalBodyEl.appendChild(row);
     }
   }
@@ -2734,7 +2806,7 @@ export class HudController {
     resetBtn.textContent = 'Сбросить';
     resetBtn.addEventListener('click', () => {
       skillTree.resetAllProgress();
-      this.hasStartedOnce = false;
+      this.engine.clearSavedRun();
       this.tutorialStep = 'launch';
       try {
         localStorage.removeItem(HINTS_DONE_KEY);
@@ -2742,6 +2814,7 @@ export class HudController {
         // Ignore
       }
       this.engine.loadLevel(LEVELS[0].id, true);
+      this.engine.clearSavedRun();
       this.showToast('Прогресс, мутации, находки и ачивки сброшены');
       this.sync();
       this.closeModal();

@@ -1,3 +1,4 @@
+import { getOptimalDpr, isMobileDevice } from '../core/device';
 import { drawDetailedAnt, UNEXPLORED_BG_HEX } from '../core/renderer';
 import { AntTypeId } from '../core/types';
 
@@ -41,7 +42,7 @@ export class MenuBackground {
   }
 
   private resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = getOptimalDpr();
     this.canvas.width = Math.floor(window.innerWidth * dpr);
     this.canvas.height = Math.floor(window.innerHeight * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -50,12 +51,15 @@ export class MenuBackground {
   private spawnAnts() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const roster: AntTypeId[] = [
-      'worker', 'worker', 'worker', 'worker', 'worker', 'worker',
-      'scout', 'scout', 'scout', 'scout',
-      'warrior', 'warrior', 'warrior',
-      'queen', 'brood', 'brood', 'brood'
-    ];
+    const mobile = isMobileDevice();
+    const roster: AntTypeId[] = mobile
+      ? ['worker', 'worker', 'worker', 'scout', 'scout', 'warrior', 'queen', 'brood']
+      : [
+          'worker', 'worker', 'worker', 'worker', 'worker', 'worker',
+          'scout', 'scout', 'scout', 'scout',
+          'warrior', 'warrior', 'warrior',
+          'queen', 'brood', 'brood', 'brood'
+        ];
 
     this.ants = roster.map((type) => ({
       type,
@@ -68,7 +72,7 @@ export class MenuBackground {
       trail: []
     }));
 
-    this.motes = Array.from({ length: 34 }, (_, i) => ({
+    this.motes = Array.from({ length: mobile ? 14 : 34 }, (_, i) => ({
       x: Math.random() * w,
       y: Math.random() * h,
       r: 1.2 + Math.random() * 2.2,
@@ -182,11 +186,14 @@ export class MenuBackground {
     ctx.fillRect(0, 0, w, h);
 
     // Subtle curved subterranean contour strata lines
+    const mobile = isMobileDevice();
+    const strataCount = mobile ? 5 : 9;
+    const stepX = mobile ? 44 : 28;
     ctx.lineWidth = 1;
-    for (let s = 0; s < 9; s++) {
-      const baseY = (s / 8) * h;
+    for (let s = 0; s < strataCount; s++) {
+      const baseY = (s / Math.max(1, strataCount - 1)) * h;
       ctx.beginPath();
-      for (let x = 0; x <= w; x += 28) {
+      for (let x = 0; x <= w; x += stepX) {
         const wave =
           Math.sin(x * 0.0045 + s * 1.1 + this.elapsed * 0.14) * 22 +
           Math.cos(x * 0.009 - s * 0.7 + this.elapsed * 0.09) * 10;
