@@ -956,11 +956,361 @@ function generateTreeArt(w: number, h: number): Uint8Array {
   return mask;
 }
 
+/* =========================================================
+   LEVEL 6 (HARD): «Хрустальная Гидра» — Трёхглавый Ледяной Дракон
+   Unfolds outward from center:
+   1) Floating faceted frost-crystal heart & suspended icicle droplets around nest
+   2) Ornate sculpted crystalline chalice & three graceful open serpentine necks
+   3) Three horned Dragon-Hydra heads exhaling dotted frost-star breath + fractal crystal antlers!
+   4) Grand sapphire notched medallion with twin snowflake crests
+   ========================================================= */
+function generateHydraArt(w: number, h: number): Uint8Array {
+  const mask = new Uint8Array(w * h);
+  const cx = Math.floor(w * 0.5);
+  const cy = Math.floor(h * 0.5);
+  const s = Math.min(w / 480, h / 300);
+
+  // LAYER 4: Grand outer sapphire medallion (notched bottom & top)
+  drawNotchedMedallion(mask, w, h, cx, cy, w * 0.455, h * 0.45, true, true);
+
+  // LAYER 1 (Immediate Center Discovery — Floating Faceted Frost Heart & Droplets!):
+  drawDottedLine(mask, w, h, cx, cy - 36 * s, cx, cy - 16 * s, 3.2 * s);
+  drawPolyline(
+    mask, w, h,
+    [
+      [cx, cy + 15 * s],
+      [cx + 12 * s, cy + 27 * s],
+      [cx, cy + 40 * s],
+      [cx - 12 * s, cy + 27 * s]
+    ],
+    true,
+    true
+  );
+  drawCrispLine(mask, w, h, cx, cy + 19 * s, cx, cy + 36 * s);
+  drawCrispLine(mask, w, h, cx - 7 * s, cy + 27 * s, cx + 7 * s, cy + 27 * s);
+
+  // LAYER 2 (Wide Open Glacial Body Crest & Coiled Tail Plume below!):
+  // Sweeping open chest plates framing the nest (generous gaps so ants pass freely!)
+  drawMirrorBezier(
+    mask, w, h, cx,
+    24 * s, cy + 16 * s,
+    40 * s, cy + 40 * s,
+    38 * s, cy + 68 * s,
+    18 * s, cy + 88 * s,
+    true
+  );
+  // Decorative layered ice-scale ribs on lower torso
+  for (let k = 0; k < 3; k++) {
+    const ry = cy + (48 + k * 12) * s;
+    const rx = (28 - k * 4) * s;
+    drawArc(mask, w, h, cx, ry, rx, 7 * s, 0.25, Math.PI - 0.25, false);
+  }
+  // Sweeping bifurcated crystalline tail fins below
+  drawMirrorBezier(mask, w, h, cx, 18 * s, cy + 88 * s, 42 * s, cy + 96 * s, 68 * s, cy + 92 * s, 84 * s, cy + 78 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 84 * s, cy + 78 * s, 68 * s, cy + 76 * s, 54 * s, cy + 78 * s, 40 * s, cy + 70 * s);
+
+  // LAYER 3A (Three Graceful Open Serpentine Dragon-Hydra Necks & Horned Heads!):
+  // Center Crown Neck (open dotted spine up to the regal central head!)
+  drawMirrorBezier(mask, w, h, cx, 14 * s, cy - 22 * s, 10 * s, cy - 42 * s, 12 * s, cy - 58 * s, 8 * s, cy - 72 * s, true);
+  // Central Dragon Head (bold sculpted diamond snout, swept horns & glowing crest!)
+  drawMirrorBezier(mask, w, h, cx, 8 * s, cy - 72 * s, 18 * s, cy - 82 * s, 14 * s, cy - 98 * s, 0, cy - 106 * s, true);
+  // Central sweeping ice horns
+  drawMirrorBezier(mask, w, h, cx, 13 * s, cy - 88 * s, 26 * s, cy - 100 * s, 32 * s, cy - 110 * s, 40 * s, cy - 108 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 10 * s, cy - 94 * s, 16 * s, cy - 106 * s, 18 * s, cy - 114 * s, 22 * s, cy - 116 * s);
+  // Eyes of central hydra head
+  drawStar(mask, w, h, cx - 5 * s, cy - 86 * s, 2);
+  drawStar(mask, w, h, cx + 5 * s, cy - 86 * s, 2);
+
+  // Left & Right Sinuous Hydra Necks sweeping majestically outward!
+  drawMirrorBezier(
+    mask, w, h, cx,
+    30 * s, cy + 10 * s,
+    66 * s, cy + 2 * s,
+    92 * s, cy - 22 * s,
+    98 * s, cy - 52 * s,
+    true
+  );
+  drawMirrorBezier(
+    mask, w, h, cx,
+    26 * s, cy - 12 * s,
+    54 * s, cy - 14 * s,
+    74 * s, cy - 34 * s,
+    82 * s, cy - 56 * s,
+    true
+  );
+  // Side Hydra Heads (open snarling jaws, glowing eyes & crystal horns!)
+  drawMirrorBezier(mask, w, h, cx, 98 * s, cy - 52 * s, 114 * s, cy - 62 * s, 126 * s, cy - 60 * s, 134 * s, cy - 48 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 82 * s, cy - 56 * s, 96 * s, cy - 72 * s, 116 * s, cy - 76 * s, 132 * s, cy - 66 * s, true);
+  // Fierce eyes on side dragon heads
+  drawStar(mask, w, h, cx - 110 * s, cy - 62 * s, 2);
+  drawStar(mask, w, h, cx + 110 * s, cy - 62 * s, 2);
+  // Lower jaw & frost fangs
+  drawMirrorBezier(mask, w, h, cx, 102 * s, cy - 48 * s, 116 * s, cy - 44 * s, 124 * s, cy - 40 * s, 128 * s, cy - 34 * s);
+  // Swept horns on flanking heads
+  drawMirrorBezier(mask, w, h, cx, 92 * s, cy - 68 * s, 88 * s, cy - 86 * s, 82 * s, cy - 96 * s, 72 * s, cy - 102 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 104 * s, cy - 72 * s, 110 * s, cy - 90 * s, 118 * s, cy - 98 * s, 128 * s, cy - 98 * s);
+  // Dotted crystalline ice-breath arcing outward from flanking jaws
+  drawDottedLine(mask, w, h, cx - 134 * s, cy - 54 * s, cx - 172 * s, cy - 34 * s, 4.2 * s);
+  drawDottedLine(mask, w, h, cx + 134 * s, cy - 54 * s, cx + 172 * s, cy - 34 * s, 4.2 * s);
+  drawDottedLine(mask, w, h, cx - 132 * s, cy - 44 * s, cx - 166 * s, cy - 16 * s, 4.4 * s);
+  drawDottedLine(mask, w, h, cx + 132 * s, cy - 44 * s, cx + 166 * s, cy - 16 * s, 4.4 * s);
+
+  // LAYER 3B (Epic Outer Glacial Crystal Wing-Spikes & Twin Snowflake Sigils!):
+  drawMirrorBezier(mask, w, h, cx, 56 * s, cy + 28 * s, 104 * s, cy + 16 * s, 146 * s, cy + 18 * s, 174 * s, cy + 6 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 52 * s, cy + 44 * s, 96 * s, cy + 38 * s, 134 * s, cy + 44 * s, 158 * s, cy + 34 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 46 * s, cy + 60 * s, 84 * s, cy + 58 * s, 112 * s, cy + 66 * s, 132 * s, cy + 60 * s);
+
+  // Twin geometric 6-ray Snowflakes flanking the flanks
+  for (const side of [-1, 1]) {
+    const sx = cx + side * 156 * s;
+    const sy = cy - 62 * s;
+    for (let a = 0; a < 3; a++) {
+      const ang = (a * Math.PI) / 3;
+      drawCrispLine(mask, w, h, sx - Math.cos(ang) * 11 * s, sy - Math.sin(ang) * 11 * s, sx + Math.cos(ang) * 11 * s, sy + Math.sin(ang) * 11 * s);
+    }
+    drawStar(mask, w, h, cx + side * 168 * s, cy + 64 * s, 4);
+    drawStar(mask, w, h, cx + side * 56 * s, cy - 92 * s, 3);
+  }
+
+  eraseCircle(mask, w, h, cx, cy, 12 * s);
+  return mask;
+}
+
+/* =========================================================
+   LEVEL 7 (HARD): «Пепельный Феникс» — Восставшая Птица Пламени
+   Unfolds outward from center:
+   1) Glowing suspended cinder-egg & rising ember sparks right beside the nest
+   2) Regal sculpted phoenix breast-crest & soaring sweeping tail-plumes below
+   3) Magnificent wide layered feathered wings + crowned firebird head + radiant solar halo!
+   4) Grand volcanic caldera medallion with twin flame sigils
+   ========================================================= */
+function generatePhoenixArt(w: number, h: number): Uint8Array {
+  const mask = new Uint8Array(w * h);
+  const cx = Math.floor(w * 0.5);
+  const cy = Math.floor(h * 0.5);
+  const s = Math.min(w / 500, h / 320);
+
+  // LAYER 4: Grand volcanic caldera medallion
+  drawNotchedMedallion(mask, w, h, cx, cy, w * 0.455, h * 0.45, true, false);
+
+  // LAYER 1 (Immediate Center Discovery — Floating Ember Cinder & Rising Sparks!):
+  drawDottedLine(mask, w, h, cx, cy - 38 * s, cx, cy - 16 * s, 3.2 * s);
+  drawArc(mask, w, h, cx, cy + 24 * s, 9 * s, 12 * s, 0, Math.PI * 2, true);
+  drawDottedLine(mask, w, h, cx, cy + 38 * s, cx, cy + 54 * s, 3.5 * s);
+  drawStar(mask, w, h, cx - 18 * s, cy + 18 * s, 3);
+  drawStar(mask, w, h, cx + 18 * s, cy + 18 * s, 3);
+
+  // LAYER 2 (Sculpted Phoenix Neck, Regal Crested Head & Solar Halo above!):
+  // Wide open chest shoulder arcs
+  drawMirrorBezier(mask, w, h, cx, 16 * s, cy - 20 * s, 26 * s, cy - 2 * s, 24 * s, cy + 28 * s, 14 * s, cy + 48 * s, true);
+  // Rising graceful neck up to proud crowned Phoenix Head
+  drawMirrorBezier(mask, w, h, cx, 14 * s, cy - 24 * s, 12 * s, cy - 46 * s, 10 * s, cy - 64 * s, 6 * s, cy - 78 * s, true);
+  // Phoenix head profile looking slightly right + fierce hooked beak + flowing crest plumes!
+  drawBezier(mask, w, h, cx - 6 * s, cy - 78 * s, cx - 14 * s, cy - 90 * s, cx - 2 * s, cy - 102 * s, cx + 12 * s, cy - 94 * s, true);
+  drawBezier(mask, w, h, cx + 12 * s, cy - 94 * s, cx + 22 * s, cy - 90 * s, cx + 24 * s, cy - 82 * s, cx + 14 * s, cy - 78 * s, true);
+  drawCrispLine(mask, w, h, cx + 10 * s, cy - 84 * s, cx + 20 * s, cy - 84 * s);
+  drawStar(mask, w, h, cx + 3 * s, cy - 89 * s, 2);
+  // Three sweeping fiery crown plumes streaming back from the head!
+  drawBezier(mask, w, h, cx - 6 * s, cy - 96 * s, cx - 24 * s, cy - 110 * s, cx - 44 * s, cy - 112 * s, cx - 60 * s, cy - 102 * s, true);
+  drawBezier(mask, w, h, cx - 4 * s, cy - 98 * s, cx - 16 * s, cy - 116 * s, cx - 32 * s, cy - 122 * s, cx - 48 * s, cy - 116 * s);
+  drawBezier(mask, w, h, cx + 4 * s, cy - 98 * s, cx + 14 * s, cy - 114 * s, cx + 28 * s, cy - 118 * s, cx + 42 * s, cy - 112 * s);
+
+  // Dotted radiant solar halo behind the phoenix head
+  drawArc(mask, w, h, cx, cy - 82 * s, 32 * s, 32 * s, -Math.PI * 0.92, -Math.PI * 0.08, false, 4.2 * s);
+
+  // LAYER 3A (Magnificent Sweeping Layered Feathered Wings!):
+  // Main bold upper leading wing edge soaring skyward on both sides (clean breathing gap inside medallion!)
+  drawMirrorBezier(
+    mask, w, h, cx,
+    24 * s, cy - 16 * s,
+    76 * s, cy - 74 * s,
+    136 * s, cy - 90 * s,
+    180 * s, cy - 70 * s,
+    true
+  );
+  // Upper secondary wing ridge
+  drawMirrorBezier(
+    mask, w, h, cx,
+    28 * s, cy - 4 * s,
+    74 * s, cy - 48 * s,
+    128 * s, cy - 62 * s,
+    168 * s, cy - 44 * s,
+    true
+  );
+  // 5 bold tiered cascading primary flight feathers fanning out gracefully (open passages between feathers!)
+  const featherTips: [number, number, number, number][] = [
+    [180, -70, 166, -52],
+    [174, -50, 154, -30],
+    [164, -28, 140, -10],
+    [150, -6, 124, 12],
+    [134, 16, 106, 30]
+  ];
+  for (const [fx0, fy0, fx1, fy1] of featherTips) {
+    drawMirrorBezier(
+      mask, w, h, cx,
+      fx0 * s, cy + fy0 * s,
+      (fx0 - 11) * s, cy + (fy0 + 15) * s,
+      (fx1 + 8) * s, cy + (fy1 + 4) * s,
+      fx1 * s, cy + fy1 * s,
+      true
+    );
+  }
+  // Inner secondary plumage ribs curving down toward the waist
+  drawMirrorBezier(mask, w, h, cx, 32 * s, cy + 8 * s, 70 * s, cy - 16 * s, 112 * s, cy - 18 * s, 146 * s, cy - 6 * s);
+  drawMirrorBezier(mask, w, h, cx, 30 * s, cy + 20 * s, 64 * s, cy + 6 * s, 98 * s, cy + 12 * s, 126 * s, cy + 22 * s);
+  drawMirrorBezier(mask, w, h, cx, 26 * s, cy + 32 * s, 56 * s, cy + 28 * s, 82 * s, cy + 36 * s, 102 * s, cy + 44 * s);
+
+  // LAYER 3B (Flowing Blazing Phoenix Tail Plumes & Twin Flame Emblems!):
+  // Central sweeping flame ribbon tail (clears bottom notch neatly!)
+  drawBezier(mask, w, h, cx, cy + 56 * s, cx - 16 * s, cy + 74 * s, cx + 16 * s, cy + 92 * s, cx, cy + 112 * s, true);
+  // Twin symmetrical outer ribbon tail feathers with ornate eye-tips
+  drawMirrorBezier(mask, w, h, cx, 14 * s, cy + 48 * s, 46 * s, cy + 68 * s, 74 * s, cy + 92 * s, 66 * s, cy + 116 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 10 * s, cy + 54 * s, 30 * s, cy + 78 * s, 42 * s, cy + 100 * s, 32 * s, cy + 120 * s);
+  // Glowing feather-eye rings at tail tips
+  drawArc(mask, w, h, cx - 66 * s, cy + 116 * s, 6 * s, 6 * s, 0, Math.PI * 2, true);
+  drawArc(mask, w, h, cx + 66 * s, cy + 116 * s, 6 * s, 6 * s, 0, Math.PI * 2, true);
+
+  // Twin rising flame sigils & floating cinders in lower flanks
+  for (const side of [-1, 1]) {
+    const fx = cx + side * 144 * s;
+    const fy = cy + 66 * s;
+    drawBezier(mask, w, h, fx, fy + 16 * s, fx - 12 * s, fy + 4 * s, fx - 8 * s, fy - 10 * s, fx, fy - 20 * s, true);
+    drawBezier(mask, w, h, fx, fy + 16 * s, fx + 12 * s, fy + 4 * s, fx + 8 * s, fy - 10 * s, fx, fy - 20 * s, true);
+    drawDottedLine(mask, w, h, fx, fy - 26 * s, fx, fy - 42 * s, 4 * s);
+    drawStar(mask, w, h, cx + side * 116 * s, cy - 100 * s, 4);
+    drawStar(mask, w, h, cx + side * 168 * s, cy + 36 * s, 3);
+  }
+
+  eraseCircle(mask, w, h, cx, cy, 12 * s);
+  return mask;
+}
+
+/* =========================================================
+   LEVEL 8 (EXTREME): «Бездна Левиафана» — Древний Космический Змей
+   Unfolds outward from center:
+   1) Glowing Abyssal Compass-Eye & suspended astral pearl right beside nest
+   2) Wide sweeping arched leviathan rib-cathedral framing the abyssal portal
+   3) Colossal crowned Void-Serpent head above + twin coiling bioluminescent tentacles with hanging lantern-lures!
+   4) Grand cosmic eclipse medallion with twin ringed moons & astral constellations
+   ========================================================= */
+function generateLeviathanArt(w: number, h: number): Uint8Array {
+  const mask = new Uint8Array(w * h);
+  const cx = Math.floor(w * 0.5);
+  const cy = Math.floor(h * 0.5);
+  const s = Math.min(w / 520, h / 340);
+
+  // LAYER 4: Grand outer cosmic eclipse medallion (double top-notched astral ring!)
+  drawNotchedMedallion(mask, w, h, cx, cy, w * 0.46, h * 0.455, true, true);
+  // Subtle inner dotted constellation arcs tucked neatly inside the notched flanks!
+  drawArc(mask, w, h, cx, cy, w * 0.425, h * 0.415, -Math.PI * 0.85, -Math.PI * 0.62, false, 6.5 * s);
+  drawArc(mask, w, h, cx, cy, w * 0.425, h * 0.415, -Math.PI * 0.38, -Math.PI * 0.15, false, 6.5 * s);
+  drawArc(mask, w, h, cx, cy, w * 0.425, h * 0.415, Math.PI * 0.15, Math.PI * 0.38, false, 6.5 * s);
+  drawArc(mask, w, h, cx, cy, w * 0.425, h * 0.415, Math.PI * 0.62, Math.PI * 0.85, false, 6.5 * s);
+
+  // LAYER 1 (Immediate Center Discovery — Floating Astral Pearl & Abyssal Needle!):
+  drawDottedLine(mask, w, h, cx, cy - 42 * s, cx, cy - 16 * s, 3.2 * s);
+  drawDottedLine(mask, w, h, cx, cy + 16 * s, cx, cy + 40 * s, 3.2 * s);
+  drawArc(mask, w, h, cx, cy + 48 * s, 7 * s, 7 * s, 0, Math.PI * 2, true);
+  drawStar(mask, w, h, cx - 22 * s, cy, 3);
+  drawStar(mask, w, h, cx + 22 * s, cy, 3);
+
+  // LAYER 2 (Wide Open Abyssal Leviathan Rib-Cathedral framing the central sanctuary!):
+  for (let i = 0; i < 5; i++) {
+    const ry = cy + (-44 + i * 24) * s;
+    const spread = (34 + Math.sin((i / 4) * Math.PI) * 32) * s;
+    drawMirrorBezier(
+      mask, w, h, cx,
+      spread * 0.65, ry - 6 * s,
+      spread * 1.15, ry - 2 * s,
+      spread * 1.28, ry + 12 * s,
+      spread * 0.92, ry + 20 * s,
+      i === 1 || i === 2
+    );
+  }
+
+  // LAYER 3A (Colossal Crowned Void-Leviathan Head & Astral Mandibles rising above!):
+  // Sculpted horned serpent skull silhouette (open center throat!)
+  drawMirrorBezier(mask, w, h, cx, 16 * s, cy - 58 * s, 38 * s, cy - 68 * s, 44 * s, cy - 92 * s, 26 * s, cy - 114 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 26 * s, cy - 114 * s, 14 * s, cy - 126 * s, 6 * s, cy - 128 * s, 0, cy - 122 * s, true);
+  // Sweeping jagged cosmic crown antlers flaring outward!
+  drawMirrorBezier(mask, w, h, cx, 32 * s, cy - 98 * s, 64 * s, cy - 114 * s, 96 * s, cy - 118 * s, 124 * s, cy - 102 * s, true);
+  drawMirrorBezier(mask, w, h, cx, 42 * s, cy - 86 * s, 72 * s, cy - 94 * s, 98 * s, cy - 92 * s, 118 * s, cy - 78 * s);
+  // Fierce abyssal glowing triple-eyes!
+  drawMirrorBezier(mask, w, h, cx, 12 * s, cy - 88 * s, 18 * s, cy - 92 * s, 24 * s, cy - 90 * s, 28 * s, cy - 84 * s, true);
+  drawStar(mask, w, h, cx - 18 * s, cy - 88 * s, 3);
+  drawStar(mask, w, h, cx + 18 * s, cy - 88 * s, 3);
+  drawStar(mask, w, h, cx, cy - 104 * s, 4);
+  // Hanging curved abyssal fangs / mandibles
+  drawMirrorBezier(mask, w, h, cx, 28 * s, cy - 66 * s, 36 * s, cy - 52 * s, 32 * s, cy - 40 * s, 22 * s, cy - 34 * s, true);
+
+  // LAYER 3B (Twin Sweeping Coiling Abyssal Tentacles + Hanging Bioluminescent Lantern-Lures!):
+  // Upper colossal tentacles curling outward across both wings of the map
+  drawMirrorBezier(
+    mask, w, h, cx,
+    78 * s, cy - 28 * s,
+    126 * s, cy - 66 * s,
+    176 * s, cy - 56 * s,
+    194 * s, cy - 18 * s,
+    true
+  );
+  drawMirrorBezier(
+    mask, w, h, cx,
+    194 * s, cy - 18 * s,
+    202 * s, cy + 10 * s,
+    180 * s, cy + 32 * s,
+    156 * s, cy + 20 * s,
+    true
+  );
+  // Lower counter-spiraling tentacles curving along the bottom depths
+  drawMirrorBezier(
+    mask, w, h, cx,
+    68 * s, cy + 44 * s,
+    118 * s, cy + 54 * s,
+    166 * s, cy + 78 * s,
+    182 * s, cy + 52 * s,
+    true
+  );
+  drawMirrorBezier(
+    mask, w, h, cx,
+    40 * s, cy + 76 * s,
+    78 * s, cy + 94 * s,
+    118 * s, cy + 108 * s,
+    144 * s, cy + 94 * s,
+    true
+  );
+  // Twin lower tail fluke arches embracing the bottom notch
+  drawMirrorBezier(mask, w, h, cx, 8 * s, cy + 80 * s, 26 * s, cy + 104 * s, 48 * s, cy + 118 * s, 72 * s, cy + 124 * s, true);
+
+  // Hanging bioluminescent lantern-lures dangling beneath the upper tentacles!
+  for (const side of [-1, 1]) {
+    const lx = cx + side * 144 * s;
+    drawDottedLine(mask, w, h, lx, cy - 42 * s, lx, cy - 6 * s, 3.8 * s);
+    drawArc(mask, w, h, lx, cy + 2 * s, 6 * s, 8 * s, 0, Math.PI * 2, true);
+    drawStar(mask, w, h, lx, cy + 2 * s, 3);
+
+    // Twin ringed cosmic moons flanking the abyssal crown
+    const mx = cx + side * 158 * s;
+    const my = cy - 76 * s;
+    drawArc(mask, w, h, mx, my, 10 * s, 10 * s, 0, Math.PI * 2, true);
+    drawArc(mask, w, h, mx, my, 18 * s, 5.5 * s, -0.3, Math.PI + 0.3, false);
+
+    // Extra deep-space constellation stars
+    drawStar(mask, w, h, cx + side * 116 * s, cy + 24 * s, 4);
+    drawStar(mask, w, h, cx + side * 178 * s, cy + 82 * s, 3);
+    drawStar(mask, w, h, cx + side * 78 * s, cy - 118 * s, 3);
+  }
+
+  eraseCircle(mask, w, h, cx, cy, 12 * s);
+  return mask;
+}
+
 export const LEVELS: LevelDefinition[] = [
   {
     id: 'prism',
     name: 'Призма Света',
+    nameEn: 'Prism of Light',
     subtitle: 'Тайный ключ в крыльях Лунного Мотылька',
+    subtitleEn: 'A secret key cradled within the Lunar Moth wings',
     width: 440,
     height: 280,
     crystalCount: 48,
@@ -980,7 +1330,9 @@ export const LEVELS: LevelDefinition[] = [
   {
     id: 'galaxy',
     name: 'Спиральная Галактика',
+    nameEn: 'Spiral Galaxy',
     subtitle: 'Космический Кит, плывущий сквозь звёздную астролябию',
+    subtitleEn: 'A Cosmic Whale gliding through a celestial astrolabe',
     width: 440,
     height: 280,
     crystalCount: 54,
@@ -1000,7 +1352,9 @@ export const LEVELS: LevelDefinition[] = [
   {
     id: 'ant-crown',
     name: 'Корона Колонии',
+    nameEn: 'Colony Crown',
     subtitle: 'Солнечный Скарабей с распахнутыми крыльями вокруг печати колонии',
+    subtitleEn: 'The Solar Scarab spreading golden wings around the royal seal',
     width: 440,
     height: 280,
     crystalCount: 58,
@@ -1020,7 +1374,9 @@ export const LEVELS: LevelDefinition[] = [
   {
     id: 'moon-temple',
     name: 'Лунный Храм',
+    nameEn: 'Moon Temple',
     subtitle: 'Полуночная Сова, хранящая песочные часы времени',
+    subtitleEn: 'The Midnight Owl guarding the hourglass of eternity',
     width: 440,
     height: 280,
     crystalCount: 60,
@@ -1040,7 +1396,9 @@ export const LEVELS: LevelDefinition[] = [
   {
     id: 'tree-of-life',
     name: 'Древо Жизни',
+    nameEn: 'Tree of Life',
     subtitle: 'Мировое Древо, бережно укрытое в ладонях земли',
+    subtitleEn: 'The World Tree gently cradled within earthly palms',
     width: 440,
     height: 280,
     crystalCount: 64,
@@ -1056,5 +1414,77 @@ export const LEVELS: LevelDefinition[] = [
       accentHex: '#42f5c5'
     },
     generateArt: generateTreeArt
+  },
+  {
+    id: 'crystal-hydra',
+    name: 'Хрустальная Гидра',
+    nameEn: 'Crystal Hydra',
+    subtitle: 'Трёхглавый ледяной дракон в толще плотного гранита',
+    subtitleEn: 'Three-headed glacial dragon encased in dense sapphire rock',
+    width: 480,
+    height: 300,
+    crystalCount: 68,
+    difficulty: 1.35,
+    difficultyLabel: 'hard',
+    palette: {
+      bgHex: '#081926',
+      bgRgb: [8, 25, 38],
+      emptyRgb: [3, 8, 14],
+      softRgb: [14, 38, 58],
+      clayRgb: [22, 54, 82],
+      stoneRgb: [36, 68, 98],
+      obsidianRgb: [42, 32, 92],
+      artGlowRgb: [210, 248, 255],
+      accentHex: '#52e5ff'
+    },
+    generateArt: generateHydraArt
+  },
+  {
+    id: 'ember-phoenix',
+    name: 'Пепельный Феникс',
+    nameEn: 'Ember Phoenix',
+    subtitle: 'Огненная птица в вулканической породе и базальте',
+    subtitleEn: 'Risen firebird sealed inside volcanic basalt and ember stone',
+    width: 500,
+    height: 320,
+    crystalCount: 74,
+    difficulty: 1.65,
+    difficultyLabel: 'hard',
+    palette: {
+      bgHex: '#1f0d0a',
+      bgRgb: [31, 13, 10],
+      emptyRgb: [9, 4, 4],
+      softRgb: [52, 22, 16],
+      clayRgb: [74, 32, 22],
+      stoneRgb: [86, 44, 38],
+      obsidianRgb: [94, 24, 42],
+      artGlowRgb: [255, 232, 206],
+      accentHex: '#ff6b35'
+    },
+    generateArt: generatePhoenixArt
+  },
+  {
+    id: 'void-leviathan',
+    name: 'Бездна Левиафана',
+    nameEn: 'Void Leviathan',
+    subtitle: 'Древний змей бездны — предельное испытание для колонии',
+    subtitleEn: 'Ancient serpent of the astral abyss — the ultimate colony trial',
+    width: 520,
+    height: 340,
+    crystalCount: 82,
+    difficulty: 1.95,
+    difficultyLabel: 'extreme',
+    palette: {
+      bgHex: '#0e0a20',
+      bgRgb: [14, 10, 32],
+      emptyRgb: [4, 3, 11],
+      softRgb: [24, 18, 54],
+      clayRgb: [38, 26, 78],
+      stoneRgb: [54, 36, 94],
+      obsidianRgb: [78, 22, 86],
+      artGlowRgb: [236, 218, 255],
+      accentHex: '#c77dff'
+    },
+    generateArt: generateLeviathanArt
   }
 ];

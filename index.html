@@ -40,7 +40,7 @@
           <div class="splash-wordmark">GrAx</div>
           <div class="splash-sub">COLONY CRAFT</div>
         </div>
-        <div class="intro-skip-note">Нажмите, чтобы пропустить</div>
+        <div id="splash-skip-note" class="intro-skip-note">Нажмите, чтобы пропустить</div>
       </div>
 
       <!-- Original Epic 4-Beat Subterranean Intro (Blocks -> Ant Colony -> One Sugar -> Launch!) -->
@@ -71,7 +71,7 @@
           <span class="intro-dot"></span>
           <span class="intro-dot"></span>
         </div>
-        <div class="intro-skip-note">Нажмите, чтобы пропустить</div>
+        <div id="intro-skip-note" class="intro-skip-note">Нажмите, чтобы пропустить</div>
       </div>
 
       <!-- Top HUD (Classic Mode) -->
@@ -87,7 +87,7 @@
             <span>🧬 <span id="stat-mut-count">0</span></span>
           </button>
           <button id="btn-artifacts" class="pill-btn pill-art" title="Секретные находки (+1 стартовое очко навыков)">
-            <span>🏺 <span id="stat-artifacts-count">0/5</span></span>
+            <span>🏺 <span id="stat-artifacts-count">0/8</span></span>
           </button>
           <button id="btn-achievements" class="pill-btn pill-ach" title="Ачивки (+1% к скорости всех муравьёв за каждую)">
             <span>🏆 <span id="stat-ach-count">0/20</span></span>
@@ -95,15 +95,15 @@
         </div>
 
         <div class="hud-group hud-stats">
-          <div class="stat-chip" title="Очки навыков (из кристаллов и находок)">
+          <div id="chip-sp" class="stat-chip" title="Очки навыков (из кристаллов и находок)">
             <span class="stat-icon icon-sp">♦</span>
             <span id="stat-sp">0</span>
           </div>
-          <div class="stat-chip" title="Открыто скрытой картины">
+          <div id="chip-art" class="stat-chip" title="Открыто скрытой картины">
             <span class="stat-icon icon-art">◈</span>
             <span id="stat-art">0%</span>
           </div>
-          <div class="stat-chip" title="Прогрызено породы">
+          <div id="chip-dig" class="stat-chip" title="Прогрызено породы">
             <span class="stat-icon icon-dig">▦</span>
             <span id="stat-dig">0%</span>
           </div>
@@ -116,7 +116,7 @@
             <span id="stat-rush">15с</span>
           </div>
           <div id="auto-chip" class="stat-chip auto-chip hidden" title="Авто-призыв муравьёв включён">
-            <span>🤖 Авто</span>
+            <span id="auto-chip-text">🤖 Авто</span>
           </div>
         </div>
 
@@ -142,7 +142,7 @@
           <span></span><span></span><span></span><span></span>
         </div>
         <div class="sugar-found-card">
-          <div class="sugar-found-badge">✦ ГЛАВНАЯ НАХОДКА КАРТЫ ✦</div>
+          <div id="sugar-found-badge" class="sugar-found-badge">✦ ГЛАВНАЯ НАХОДКА КАРТЫ ✦</div>
           <div class="sugar-jewel-wrap" aria-hidden="true">
             <div class="sugar-jewel-ring r1"></div>
             <div class="sugar-jewel-ring r2"></div>
@@ -163,7 +163,7 @@
               <rect x="18" y="14" width="4" height="4" fill="#fff7cc" />
             </svg>
           </div>
-          <h2 class="sugar-found-title">САХАР НАЙДЕН!</h2>
+          <h2 id="sugar-found-title" class="sugar-found-title">САХАР НАЙДЕН!</h2>
           <div id="sugar-found-sub" class="sugar-found-sub">Карта «Призма Света» покорена</div>
           <div id="sugar-found-stats" class="sugar-found-stats"></div>
           <button id="sugar-found-cta" class="sugar-found-cta">🧬 Выбрать мутацию →</button>
@@ -174,11 +174,12 @@
       <div id="epic-clear-banner" class="epic-clear-banner hidden">
         <div class="epic-clear-glow"></div>
         <div class="epic-clear-info">
-          <div class="epic-clear-badge">✨ ШЕДЕВР ОТКРЫТ НА 100% ✨</div>
+          <div id="epic-clear-badge" class="epic-clear-badge">✨ ШЕДЕВР ОТКРЫТ НА 100% ✨</div>
           <div id="epic-clear-title" class="epic-clear-title">Призма Света</div>
-          <div class="epic-clear-sub">Все блоки прогрызены — картина сияет во всей красе!</div>
+          <div id="epic-clear-sub" class="epic-clear-sub">Все блоки прогрызены — картина сияет во всей красе!</div>
         </div>
         <div class="epic-clear-actions">
+          <button id="epic-btn-save-png" class="action-btn">⬇ PNG</button>
           <button id="epic-btn-admire" class="action-btn">Любоваться</button>
           <button id="epic-btn-next" class="action-btn primary">Следующая карта →</button>
         </div>
@@ -201,7 +202,7 @@
           <div class="dock-divider"></div>
           <button id="btn-upgrades" class="upgrade-btn">
             <span class="upgrade-icon">♦</span>
-            <span class="upgrade-label">Навыки</span>
+            <span id="btn-upgrades-label" class="upgrade-label">Навыки</span>
             <span id="upgrade-badge" class="upgrade-badge hidden">!</span>
           </button>
         </div>
@@ -210,6 +211,12 @@
       <!-- Stylish Minimalist Interactive Main Menu (No Story Mode!) -->
       <section id="main-menu" class="main-menu">
         <canvas id="menu-bg-canvas" class="menu-bg-canvas"></canvas>
+
+        <!-- Quick Language Switcher Icon Button (RU / EN) -->
+        <button id="menu-btn-lang" class="menu-lang-btn" title="Язык / Language">
+          <span class="lang-globe" aria-hidden="true">🌐</span>
+          <span id="menu-lang-code">RU</span>
+        </button>
 
         <div class="menu-stage">
           <!-- Sculptural Framed Title Lockup (reference-inspired!) -->
@@ -237,7 +244,7 @@
               <div class="menu-title-sweep"></div>
             </div>
 
-            <div class="menu-tagline">МЕДИТАТИВНАЯ СИМУЛЯЦИЯ КОЛОНИИ</div>
+            <div id="menu-tagline" class="menu-tagline">МЕДИТАТИВНАЯ СИМУЛЯЦИЯ КОЛОНИИ</div>
           </div>
 
           <!-- Crisp Centered Tactile Menu Buttons -->
@@ -250,43 +257,50 @@
 
             <button id="menu-play-mp" class="mbtn mbtn-mp">
               <span class="mbtn-accent">⚔</span>
-              <span class="mbtn-label">МУЛЬТИПЛЕЕР</span>
-              <span class="mbtn-meta">Кооп • 1v1 • ИИ</span>
+              <span id="menu-mp-label" class="mbtn-label">МУЛЬТИПЛЕЕР</span>
+              <span id="menu-mp-meta" class="mbtn-meta">Кооп • 1v1 • ИИ</span>
             </button>
 
             <button id="menu-btn-artifacts" class="mbtn mbtn-art">
               <span class="mbtn-accent">🏺</span>
-              <span class="mbtn-label">СЕКРЕТНЫЕ НАХОДКИ</span>
-              <span id="menu-art-count" class="mbtn-meta">0/5 • +0 ♦</span>
+              <span id="menu-art-label" class="mbtn-label">СЕКРЕТНЫЕ НАХОДКИ</span>
+              <span id="menu-art-count" class="mbtn-meta">0/8 • +0 ♦</span>
             </button>
 
             <button id="menu-btn-achievements" class="mbtn mbtn-ach">
               <span class="mbtn-accent">🏆</span>
-              <span class="mbtn-label">АЧИВКИ</span>
+              <span id="menu-ach-label" class="mbtn-label">АЧИВКИ</span>
               <span id="menu-ach-count" class="mbtn-meta">0/20 • +0% ⚡</span>
             </button>
 
-            <div class="menu-subrow">
+            <div class="menu-subrow menu-subrow-6">
               <button id="menu-btn-levels" class="mbtn-mini">
-                <span>🗺</span><span>Карты</span>
-                <small id="menu-progress-count">0/5</small>
+                <span>🗺</span><span id="menu-lbl-levels">Карты</span>
+                <small id="menu-progress-count">0/8</small>
+              </button>
+              <button id="menu-btn-gallery" class="mbtn-mini">
+                <span>🖼</span><span id="menu-lbl-gallery">Галерея</span>
+                <small id="menu-gallery-count">0/8</small>
+              </button>
+              <button id="menu-btn-stats" class="mbtn-mini">
+                <span>📊</span><span id="menu-lbl-stats">Статистика</span>
               </button>
               <button id="menu-btn-mutations" class="mbtn-mini">
-                <span>🧬</span><span>Мутации</span>
+                <span>🧬</span><span id="menu-lbl-mutations">Мутации</span>
                 <small id="menu-mut-count">0</small>
               </button>
               <button id="menu-btn-settings" class="mbtn-mini">
-                <span>⚙</span><span>Настройки</span>
+                <span>⚙</span><span id="menu-lbl-settings">Настройки</span>
               </button>
               <button id="menu-btn-credits" class="mbtn-mini">
-                <span>✦</span><span>Авторы</span>
+                <span>✦</span><span id="menu-lbl-credits">Авторы</span>
               </button>
             </div>
           </div>
 
           <!-- Clean Minimal Footer -->
           <div class="menu-bottom-bar">
-            <span class="credits-author">v1.2 • made by <strong>GrAx</strong></span>
+            <span class="credits-author">v1.3 • made by <strong>GrAx</strong></span>
             <a
               href="https://t.me/alexstress1"
               target="_blank"
@@ -294,7 +308,7 @@
               class="tg-donate-btn"
             >
               <span>✈</span>
-              <span>Скиньте на сижки пж</span>
+              <span id="menu-donate-text">Скиньте на сижки пж</span>
             </a>
           </div>
         </div>
@@ -326,7 +340,7 @@
             </div>
 
             <div class="st-points-box">
-              <div class="st-points-label">Доступно очков</div>
+              <div id="st-points-label" class="st-points-label">Доступно очков</div>
               <div class="st-points-val">♦ <span id="st-points-num">0</span></div>
             </div>
           </aside>
@@ -340,19 +354,19 @@
           <div class="pill-btn" style="cursor:default;">
             <span id="mp-mode-label">🤝 Кооп</span>
           </div>
-          <div class="stat-chip" title="Прогресс очистки карты">
+          <div id="mp-chip-dig" class="stat-chip" title="Прогресс очистки карты">
             <span>▦</span><span id="mp-dig-pct">0%</span>
           </div>
         </div>
 
         <div class="hud-group hud-stats">
-          <div class="stat-chip" title="Игроки в комнате">
+          <div id="mp-chip-players" class="stat-chip" title="Игроки в комнате">
             <span>👥</span><span id="mp-player-count">1</span>
           </div>
-          <div class="stat-chip" title="Ваши очки навыков">
+          <div id="mp-chip-sp" class="stat-chip" title="Ваши очки навыков">
             <span class="stat-icon icon-sp">♦</span><span id="mp-local-sp">3</span>
           </div>
-          <div class="stat-chip" title="До бонусных очков навыков (каждые 5 мин)">
+          <div id="mp-chip-timer" class="stat-chip" title="До бонусных очков навыков (каждые 5 мин)">
             <span>⏳</span><span id="mp-sp-timer">5:00</span>
           </div>
         </div>
@@ -401,7 +415,7 @@
           <div class="dock-divider"></div>
           <button id="mp-btn-skills" class="upgrade-btn">
             <span class="upgrade-icon">♦</span>
-            <span class="upgrade-label">Навыки</span>
+            <span id="mp-btn-skills-label" class="upgrade-label">Навыки</span>
             <span id="mp-skill-badge" class="upgrade-badge hidden">!</span>
           </button>
         </div>

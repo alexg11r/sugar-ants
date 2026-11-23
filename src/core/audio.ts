@@ -3,7 +3,9 @@ import { GameSettings, SoundtrackId } from './types';
 export interface SoundtrackDef {
   id: SoundtrackId;
   name: string;
+  nameEn: string;
   subtitle: string;
+  subtitleEn: string;
   mode: 'ambient' | 'triphop' | 'triphop_dub' | 'triphop_velvet' | 'aphex';
   droneFreqs: number[];
   scale: number[];
@@ -16,7 +18,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'emerald',
     name: 'Изумрудный шёпот',
+    nameEn: 'Emerald Whisper',
     subtitle: 'Тёплый эмбиент-дрон и перезвоны калимбы',
+    subtitleEn: 'Warm ambient drone and kalimba chimes',
     mode: 'ambient',
     droneFreqs: [73.42, 110.0, 185.0],
     scale: [293.66, 329.63, 369.99, 440.0, 493.88, 587.33, 659.25, 739.99],
@@ -27,7 +31,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'triphop',
     name: 'Бристольский туман',
+    nameEn: 'Bristol Fog',
     subtitle: 'Трип-хоп в духе Portishead и Massive Attack',
+    subtitleEn: 'Moody trip-hop inspired by Portishead & Massive Attack',
     mode: 'triphop',
     droneFreqs: [65.41, 98.0, 155.56],
     scale: [261.63, 293.66, 311.13, 349.23, 392.0, 415.3, 466.16, 523.25],
@@ -38,7 +44,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'triphop_dub',
     name: 'Ночной винил',
+    nameEn: 'Midnight Vinyl',
     subtitle: 'Глубокий даб-трип-хоп 72 BPM в ре-миноре',
+    subtitleEn: 'Deep 72 BPM dub trip-hop in D minor',
     mode: 'triphop_dub',
     droneFreqs: [73.42, 110.0, 174.61],
     scale: [293.66, 329.63, 349.23, 392.0, 440.0, 466.16, 523.25, 587.33],
@@ -49,7 +57,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'triphop_velvet',
     name: 'Бархатная тень',
+    nameEn: 'Velvet Shadow',
     subtitle: 'Меланхоличный трип-хоп с переборами арфы',
+    subtitleEn: 'Melancholic trip-hop with plucked harp arpeggios',
     mode: 'triphop_velvet',
     droneFreqs: [82.41, 123.47, 196.0],
     scale: [329.63, 369.99, 392.0, 440.0, 493.88, 523.25, 587.33, 659.25],
@@ -60,7 +70,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'aphex',
     name: 'Кремниевый сон',
+    nameEn: 'Silicon Dream',
     subtitle: 'IDM-электроника в духе Aphex Twin (SAW)',
+    subtitleEn: 'Ambient IDM electronics inspired by SAW 85-92',
     mode: 'aphex',
     droneFreqs: [87.31, 130.81, 220.0],
     scale: [261.63, 293.66, 329.63, 349.23, 392.0, 440.0, 523.25, 659.25],
@@ -71,7 +83,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'lunar',
     name: 'Лунная пыль',
+    nameEn: 'Lunar Dust',
     subtitle: 'Воздушные хрустальные ноты в ля-миноре',
+    subtitleEn: 'Airy crystalline notes in A minor',
     mode: 'ambient',
     droneFreqs: [110.0, 164.81, 261.63],
     scale: [220.0, 261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 659.25],
@@ -82,7 +96,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'deep_nest',
     name: 'Глубокое гнездо',
+    nameEn: 'Deep Nest',
     subtitle: 'Землистый резонанс и спокойная маримба',
+    subtitleEn: 'Earthy resonance and calm marimba',
     mode: 'ambient',
     droneFreqs: [87.31, 130.81, 196.0],
     scale: [174.61, 220.0, 261.63, 293.66, 349.23, 392.0, 440.0, 523.25],
@@ -93,7 +109,9 @@ export const SOUNDTRACKS: SoundtrackDef[] = [
   {
     id: 'starlight',
     name: 'Звёздный путь',
+    nameEn: 'Starlight Path',
     subtitle: 'Космические гармоники и высокие колокольчики',
+    subtitleEn: 'Cosmic harmonics and high celesta bells',
     mode: 'ambient',
     droneFreqs: [82.41, 123.47, 207.65],
     scale: [329.63, 369.99, 415.3, 493.88, 554.37, 659.25, 739.99, 830.61],
@@ -107,6 +125,7 @@ export class MeditativeAudio {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private musicBus: GainNode | null = null;
+  private sfxBus: GainNode | null = null;
   private padNodes: { stop: () => void }[] = [];
   private noiseBuffer: AudioBuffer | null = null;
   private seqTimer: number | null = null;
@@ -154,7 +173,7 @@ export class MeditativeAudio {
     }
     if (!this.settings.autoSwitchTrack) return;
 
-    // Automatically rotate to the next soundtrack every 85 seconds
+    // Automatically rotate to the next soundtrack every 2.5 minutes (150,000 ms) by default!
     this.autoSwitchTimer = window.setInterval(() => {
       if (!this.settings.autoSwitchTrack || !this.settings.musicEnabled) return;
       const idx = SOUNDTRACKS.findIndex((t) => t.id === this.settings.soundtrack);
@@ -162,7 +181,7 @@ export class MeditativeAudio {
       this.settings.soundtrack = nextTrack.id;
       this.rebuildMusicEngine();
       this.onTrackAutoSwitch?.(nextTrack);
-    }, 85000);
+    }, 150000);
   }
 
   ensureStarted() {
@@ -174,6 +193,22 @@ export class MeditativeAudio {
     this.syncGains();
   }
 
+  private getMusicGainValue(): number {
+    if (!this.settings.musicEnabled) return 0;
+    const v = typeof this.settings.musicVolume === 'number'
+      ? this.settings.musicVolume
+      : (this.settings.volume ?? 0.65);
+    return Math.max(0, Math.min(1, v)) * 0.58;
+  }
+
+  private getSfxGainValue(): number {
+    if (!this.settings.sfxEnabled) return 0;
+    const v = typeof this.settings.sfxVolume === 'number'
+      ? this.settings.sfxVolume
+      : (this.settings.volume ?? 0.75);
+    return Math.max(0, Math.min(1, v)) * 0.64;
+  }
+
   private init() {
     try {
       const AudioCtx =
@@ -181,12 +216,16 @@ export class MeditativeAudio {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.settings.volume * 0.58;
+      this.masterGain.gain.value = 1.0;
       this.masterGain.connect(this.ctx.destination);
 
       this.musicBus = this.ctx.createGain();
-      this.musicBus.gain.value = this.settings.musicEnabled ? 1.0 : 0.0;
+      this.musicBus.gain.value = this.getMusicGainValue();
       this.musicBus.connect(this.masterGain);
+
+      this.sfxBus = this.ctx.createGain();
+      this.sfxBus.gain.value = this.getSfxGainValue();
+      this.sfxBus.connect(this.masterGain);
 
       // Pre-generate 1 second of white noise for trip-hop snares / hats / IDM clicks
       const sampleRate = this.ctx.sampleRate;
@@ -763,11 +802,15 @@ export class MeditativeAudio {
     }
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setTargetAtTime(this.settings.volume * 0.58, now, 0.15);
+    this.masterGain.gain.setTargetAtTime(1.0, now, 0.1);
 
     if (this.musicBus) {
       this.musicBus.gain.cancelScheduledValues(now);
-      this.musicBus.gain.setTargetAtTime(this.settings.musicEnabled ? 1.0 : 0.0, now, 0.2);
+      this.musicBus.gain.setTargetAtTime(this.getMusicGainValue(), now, 0.14);
+    }
+    if (this.sfxBus) {
+      this.sfxBus.gain.cancelScheduledValues(now);
+      this.sfxBus.gain.setTargetAtTime(this.getSfxGainValue(), now, 0.08);
     }
   }
 
@@ -779,7 +822,7 @@ export class MeditativeAudio {
     delay = 0,
     isMusic = false
   ) {
-    if (!this.ctx || !this.masterGain || !this.musicBus) return;
+    if (!this.ctx || !this.sfxBus || !this.musicBus) return;
     if (isMusic && !this.settings.musicEnabled) return;
     if (!isMusic && !this.settings.sfxEnabled) return;
 
@@ -794,7 +837,7 @@ export class MeditativeAudio {
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     osc.connect(gain);
-    gain.connect(isMusic ? this.musicBus : this.masterGain);
+    gain.connect(isMusic ? this.musicBus : this.sfxBus);
     osc.start(now);
     osc.stop(now + duration + 0.05);
   }
@@ -814,7 +857,7 @@ export class MeditativeAudio {
     const now = performance.now();
     if (now - this.lastDigSound < 125) return;
     this.lastDigSound = now;
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
 
     const clamped = Math.max(0.05, Math.min(1, intensity));
     const t = this.ctx.currentTime;
@@ -839,7 +882,7 @@ export class MeditativeAudio {
 
     osc.connect(lp);
     lp.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxBus);
     osc.start(t);
     osc.stop(t + 0.065);
   }
@@ -847,7 +890,7 @@ export class MeditativeAudio {
   /** Crisp subtle UI hover blip */
   playUiHover() {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -858,7 +901,7 @@ export class MeditativeAudio {
     gain.gain.exponentialRampToValueAtTime(0.042, t + 0.004);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.036);
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxBus);
     osc.start(t);
     osc.stop(t + 0.042);
   }
@@ -866,7 +909,7 @@ export class MeditativeAudio {
   /** Clean tactile UI button click */
   playUiClick() {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -879,7 +922,7 @@ export class MeditativeAudio {
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
 
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxBus);
     osc.start(t);
     osc.stop(t + 0.055);
   }
@@ -887,7 +930,7 @@ export class MeditativeAudio {
   /** Original Sugar Ants studio signature: warm bioluminescent kalimba cascade as the ant draws GrAx! */
   playSplashLogo() {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const notes = [329.63, 392.0, 493.88, 659.25, 783.99];
     notes.forEach((f, idx) => {
       this.playToneInternal(f, 0.52, 0.055, 'sine', 0.08 + idx * 0.095);
@@ -898,7 +941,7 @@ export class MeditativeAudio {
   /** Epic 4-beat subterranean seismic intro impacts (0=Blocks, 1=Colony, 2=One Sugar, 3=Launch Drop!) */
   playIntroBeat(step: 0 | 1 | 2 | 3) {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
 
     // 1. Subterranean seismic bass impact (escalates in weight & presence across beats!)
@@ -914,7 +957,7 @@ export class MeditativeAudio {
     subGain.gain.exponentialRampToValueAtTime(step === 3 ? 0.3 : 0.22, t + 0.012);
     subGain.gain.exponentialRampToValueAtTime(0.0001, t + subDur);
     subOsc.connect(subGain);
-    subGain.connect(this.masterGain);
+    subGain.connect(this.sfxBus);
     subOsc.start(t);
     subOsc.stop(t + subDur + 0.05);
 
@@ -928,7 +971,7 @@ export class MeditativeAudio {
     snapGain.gain.exponentialRampToValueAtTime(0.11, t + 0.004);
     snapGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.065);
     snapOsc.connect(snapGain);
-    snapGain.connect(this.masterGain);
+    snapGain.connect(this.sfxBus);
     snapOsc.start(t);
     snapOsc.stop(t + 0.075);
 
@@ -964,7 +1007,7 @@ export class MeditativeAudio {
   /** Original atmospheric "Dive into the Colony" chapter swell: soft warm drone + glassy water-drop notes */
   playChapterIntro() {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
     const scale = this.getCurrentTrack().scale;
     const root = (scale[0] || 220) * 0.5;
@@ -984,7 +1027,7 @@ export class MeditativeAudio {
       g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
       osc.connect(lp);
       lp.connect(g);
-      g.connect(this.masterGain);
+      g.connect(this.sfxBus);
       osc.start(t);
       osc.stop(t + 2.5);
     }
@@ -999,7 +1042,7 @@ export class MeditativeAudio {
   /** Crisp organic pop-pop-pop when initial nest chamber opens */
   playRevealPop(step: number) {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -1011,7 +1054,7 @@ export class MeditativeAudio {
     g.gain.exponentialRampToValueAtTime(0.11, t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
     osc.connect(g);
-    g.connect(this.masterGain);
+    g.connect(this.sfxBus);
     osc.start(t);
     osc.stop(t + 0.09);
   }
@@ -1069,7 +1112,7 @@ export class MeditativeAudio {
   /** Grand "Found a Diamond!" Sugar discovery fanfare: seismic bloom + sparkling crystal cascade + triumphant chord! */
   playSugarFound() {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
 
     // 1. Deep golden bass boom & warm triumph swell
@@ -1082,7 +1125,7 @@ export class MeditativeAudio {
     subG.gain.exponentialRampToValueAtTime(0.28, t + 0.015);
     subG.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
     sub.connect(subG);
-    subG.connect(this.masterGain);
+    subG.connect(this.sfxBus);
     sub.start(t);
     sub.stop(t + 1.55);
 
@@ -1141,7 +1184,7 @@ export class MeditativeAudio {
   /** Juicy soft seismic pop when an Explosive Spore blasts open a mini cavern! */
   playSporeBlast() {
     this.ensureStarted();
-    if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -1152,7 +1195,7 @@ export class MeditativeAudio {
     g.gain.exponentialRampToValueAtTime(0.22, t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
     osc.connect(g);
-    g.connect(this.masterGain);
+    g.connect(this.sfxBus);
     osc.start(t);
     osc.stop(t + 0.3);
     this.playToneInternal(440, 0.26, 0.06, 'triangle', 0.02);

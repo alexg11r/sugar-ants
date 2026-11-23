@@ -13,6 +13,8 @@ export const enum CellType {
   AncientCocoon = 11  // Silk pod -> hatches 3 free allied bonus ants deep in the tunnel!
 }
 
+export type Language = 'ru' | 'en';
+
 export type PlayableAntId = 'worker' | 'warrior' | 'scout' | 'queen' | 'compass';
 export type AntTypeId = PlayableAntId | 'brood';
 export type AntSkinId = 'classic' | 'cyber' | 'royal';
@@ -20,28 +22,32 @@ export type AntSkinId = 'classic' | 'cyber' | 'royal';
 export interface PlayerColorDef {
   id: string;
   name: string;
+  nameEn: string;
   hex: string;
   rgb: [number, number, number];
 }
 
 export const PLAYER_COLORS: PlayerColorDef[] = [
-  { id: 'emerald', name: 'Изумруд', hex: '#3ce87a', rgb: [60, 232, 122] },
-  { id: 'crimson', name: 'Алый', hex: '#ff4d6d', rgb: [255, 77, 109] },
-  { id: 'cyan', name: 'Лазурь', hex: '#35d6ff', rgb: [53, 214, 255] },
-  { id: 'violet', name: 'Фиолет', hex: '#d45cff', rgb: [212, 92, 255] },
-  { id: 'amber', name: 'Янтарь', hex: '#ff9d42', rgb: [255, 157, 66] },
-  { id: 'lime', name: 'Лайм', hex: '#a6ff4d', rgb: [166, 255, 77] },
-  { id: 'coral', name: 'Коралл', hex: '#ff7b54', rgb: [255, 123, 84] },
-  { id: 'teal', name: 'Бирюза', hex: '#2ef2c9', rgb: [46, 242, 201] },
-  { id: 'gold', name: 'Золото', hex: '#ffe066', rgb: [255, 224, 102] },
-  { id: 'pink', name: 'Розовый', hex: '#ff70c8', rgb: [255, 112, 200] }
+  { id: 'emerald', name: 'Изумруд', nameEn: 'Emerald', hex: '#3ce87a', rgb: [60, 232, 122] },
+  { id: 'crimson', name: 'Алый', nameEn: 'Crimson', hex: '#ff4d6d', rgb: [255, 77, 109] },
+  { id: 'cyan', name: 'Лазурь', nameEn: 'Cyan', hex: '#35d6ff', rgb: [53, 214, 255] },
+  { id: 'violet', name: 'Фиолет', nameEn: 'Violet', hex: '#d45cff', rgb: [212, 92, 255] },
+  { id: 'amber', name: 'Янтарь', nameEn: 'Amber', hex: '#ff9d42', rgb: [255, 157, 66] },
+  { id: 'lime', name: 'Лайм', nameEn: 'Lime', hex: '#a6ff4d', rgb: [166, 255, 77] },
+  { id: 'coral', name: 'Коралл', nameEn: 'Coral', hex: '#ff7b54', rgb: [255, 123, 84] },
+  { id: 'teal', name: 'Бирюза', nameEn: 'Teal', hex: '#2ef2c9', rgb: [46, 242, 201] },
+  { id: 'gold', name: 'Золото', nameEn: 'Gold', hex: '#ffe066', rgb: [255, 224, 102] },
+  { id: 'pink', name: 'Розовый', nameEn: 'Pink', hex: '#ff70c8', rgb: [255, 112, 200] }
 ];
 
 export interface AntTypeConfig {
   id: AntTypeId;
   name: string;
+  nameEn: string;
   shortName: string;
+  shortNameEn: string;
   description: string;
+  descriptionEn: string;
   color: string;
   rgb: [number, number, number];
   hotkey: string;
@@ -129,8 +135,11 @@ export interface SkillNodeDef {
   shape: SkillShape;
   icon: SkillIcon;
   category: string;
+  categoryEn: string;
   title: string;
+  titleEn: string;
   description: string;
+  descriptionEn: string;
   cost: number;
   maxRank: number;
   requires: string[];
@@ -150,7 +159,9 @@ export type MutationId =
 export interface MutationDef {
   id: MutationId;
   name: string;
+  nameEn: string;
   description: string;
+  descriptionEn: string;
   accent: string;
   icon: string;
 }
@@ -166,11 +177,15 @@ export type SoundtrackId =
   | 'starlight';
 
 export interface GameSettings {
+  language: Language;
   soundtrack: SoundtrackId;
   autoSwitchTrack: boolean;
   musicEnabled: boolean;
   sfxEnabled: boolean;
-  volume: number;
+  musicVolume: number;
+  sfxVolume: number;
+  /** Legacy unified volume field kept optional for seamless save migration */
+  volume?: number;
   autoSummon: boolean;
 }
 
@@ -178,9 +193,23 @@ export interface ArtifactDef {
   id: string;
   levelId: string;
   name: string;
+  nameEn: string;
   description: string;
+  descriptionEn: string;
   accent: string;
   rgb: [number, number, number];
+}
+
+export interface LevelRecord {
+  bestSugarSec: number | null;
+  bestClearSec: number | null;
+  maxArtPct: number;
+  maxDigPct: number;
+  cleared100: boolean;
+  sugarFound: boolean;
+  plays: number;
+  wins: number;
+  discoveredAt: number | null;
 }
 
 export interface CareerStats {
@@ -188,12 +217,20 @@ export interface CareerStats {
   blocksDug: number;
   crystalsCollected: number;
   mapsCleared: number;
+  totalPlaySec: number;
+  sugarsFound: number;
+  sporesBlasted: number;
+  sugarDustFound: number;
+  cocoonsHatched: number;
+  antSpawnsByType: Record<PlayableAntId, number>;
 }
 
 export interface AchievementDef {
   id: string;
   name: string;
+  nameEn: string;
   description: string;
+  descriptionEn: string;
   icon: string;
   accent: string;
   goal: number;
@@ -209,6 +246,7 @@ export interface SaveState {
   artifacts: string[];
   achievements: string[];
   career: CareerStats;
+  records: Record<string, LevelRecord>;
   currentLevelId: string;
   settings: GameSettings;
 }
@@ -228,10 +266,15 @@ export interface LevelPalette {
 export interface LevelDefinition {
   id: string;
   name: string;
+  nameEn: string;
   subtitle: string;
+  subtitleEn: string;
   width: number;
   height: number;
   crystalCount: number;
+  /** Geological difficulty multiplier (default 1.0; >1 increases rock density & obsidian depth) */
+  difficulty?: number;
+  difficultyLabel?: 'hard' | 'extreme';
   palette: LevelPalette;
   generateArt: (w: number, h: number) => Uint8Array;
 }

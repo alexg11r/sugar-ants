@@ -306,7 +306,10 @@ export class World {
     this.nestX = Math.floor(w * 0.5);
     this.nestY = Math.floor(h * 0.5);
 
-    // 1. Layered geological terrain: SoftSoil -> Clay -> Stone -> Obsidian
+    const diff = this.level.difficulty ?? 1.0;
+    const softPocket = Math.max(22, 30 - (diff - 1) * 6);
+
+    // 1. Layered geological terrain: SoftSoil -> Clay -> Stone -> Obsidian (scaled by map difficulty!)
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const idx = y * w + x;
@@ -322,9 +325,13 @@ export class World {
           Math.cos((x + y) * 0.07) * 0.45;
         // Progressive geological depth: soft soil near nest -> dense Stone & Obsidian in far outer reaches!
         const depthFactor = distFromNest / (Math.min(w, h) * 0.5);
-        const hardness = n1 * 0.55 + n2 * 0.45 + depthFactor * 1.15;
+        const hardness =
+          n1 * 0.55 +
+          n2 * 0.45 +
+          depthFactor * (1.15 + (diff - 1) * 0.35) +
+          (diff - 1) * 0.42;
 
-        if (distFromNest < 30) {
+        if (distFromNest < softPocket) {
           this.setBlock(idx, CellType.SoftSoil);
         } else if (hardness > 1.75) {
           this.setBlock(idx, CellType.Obsidian);
@@ -423,9 +430,12 @@ export class World {
       this.sugarY = bestY;
     }
 
-    // Encase Sugar inside a natural dense Stone/Obsidian geode vault so rushing it requires genuine colony upgrades!
-    for (let dy = -14; dy <= 14; dy++) {
-      for (let dx = -14; dx <= 14; dx++) {
+    // Encase Sugar inside a natural dense Stone/Obsidian geode vault (thicker on Hard/Extreme maps!)
+    const vaultR = Math.round(14 + (diff - 1) * 4);
+    const obsR = 9.5 + (diff - 1) * 3.2;
+    const stoneR = vaultR + 0.5;
+    for (let dy = -vaultR; dy <= vaultR; dy++) {
+      for (let dx = -vaultR; dx <= vaultR; dx++) {
         const sx = this.sugarX + dx;
         const sy = this.sugarY + dy;
         if (!this.inBounds(sx, sy)) continue;
@@ -433,9 +443,9 @@ export class World {
         const cur = this.cells[idx] as CellType;
         if (cur === CellType.HiddenArt || cur === CellType.Empty) continue;
         const d = Math.hypot(dx, dy) + (this.noise[idx] / 255) * 2.2;
-        if (d < 9.5) {
+        if (d < obsR) {
           this.setBlock(idx, CellType.Obsidian);
-        } else if (d < 14.5 && (cur === CellType.SoftSoil || cur === CellType.Clay)) {
+        } else if (d < stoneR && (cur === CellType.SoftSoil || cur === CellType.Clay)) {
           this.setBlock(idx, CellType.Stone);
         }
       }
@@ -520,10 +530,11 @@ export class World {
     }
     this.stats.totalCrystals = placedCrystals;
 
-    // 5b. Place Hidden Underground Finds (Explosive Spores, Sugar Dust veins & Ancient Cocoons) in BFS-reachable rock!
-    this.placeSpecialFinds(CellType.ExplosiveSpore, 9, 24);
-    this.placeSpecialFinds(CellType.SugarDust, 7, 26);
-    this.placeSpecialFinds(CellType.AncientCocoon, 6, 28);
+    // 5b. Place Hidden Underground Finds (scaled gently on larger high-difficulty maps!)
+    const extraFinds = Math.round((diff - 1) * 3.5);
+    this.placeSpecialFinds(CellType.ExplosiveSpore, 9 + extraFinds, 24);
+    this.placeSpecialFinds(CellType.SugarDust, 7 + Math.floor(extraFinds * 0.8), 26);
+    this.placeSpecialFinds(CellType.AncientCocoon, 6 + Math.floor(extraFinds * 0.8), 28);
 
     // 6. Count reachable breakable blocks & mark initial border edges
     for (let y = 0; y < h; y++) {

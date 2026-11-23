@@ -2,6 +2,7 @@ import { ANT_TYPES, AntManager } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
 import { getOptimalDpr } from '../core/device';
+import { loc, t } from '../core/i18n';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, WorldRenderer } from '../core/renderer';
@@ -21,6 +22,7 @@ interface ActiveRunSnapshot {
   selectedAnt: PlayableAntId;
   camera: Camera;
   beacon?: PheromoneBeacon | null;
+  runElapsedSec?: number;
 }
 
 export interface EngineCallbacks {
@@ -41,7 +43,7 @@ export class GameEngine {
   readonly audio: MeditativeAudio;
   readonly ants: AntManager;
   readonly particles: ParticleSystem;
-  readonly renderer: WorldRenderer;
+  renderer: WorldRenderer;
   readonly callbacks: EngineCallbacks;
 
   world: World;
@@ -55,6 +57,8 @@ export class GameEngine {
   beaconMode = false;
   /** Remaining seconds of ×1.6 Sugar Dust Rush fever! */
   sugarRushTimer = 0;
+  /** Elapsed active seconds in the current level run (for personal speed records!) */
+  runElapsedSec = 0;
   /** True when an in-progress mid-map run exists (either restored from disk or played in this session) */
   private hasActiveRun = false;
 
@@ -112,6 +116,7 @@ export class GameEngine {
       this.selectedAnt = this.skillTree.isAntUnlocked(restored.selectedAnt) ? restored.selectedAnt : 'worker';
       this.camera = { ...restored.camera };
       this.beacon = restored.beacon ? { ...restored.beacon } : null;
+      this.runElapsedSec = restored.runElapsedSec;
       this.hasActiveRun = true;
       this.renderer = new WorldRenderer(this.world.width, this.world.height);
       this.resize();
@@ -136,6 +141,7 @@ export class GameEngine {
     selectedAnt: PlayableAntId;
     camera: Camera;
     beacon: PheromoneBeacon | null;
+    runElapsedSec: number;
   } | null {
     try {
       const raw = localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
@@ -170,7 +176,8 @@ export class GameEngine {
         compassCooldown: typeof snap.compassCooldown === 'number' ? snap.compassCooldown : 0,
         selectedAnt,
         camera: cam,
-        beacon
+        beacon,
+        runElapsedSec: typeof snap.runElapsedSec === 'number' && Number.isFinite(snap.runElapsedSec) ? snap.runElapsedSec : 0
       };
     } catch {
       return null;
@@ -192,7 +199,8 @@ export class GameEngine {
         compassCooldown: this.ants.compassCooldown,
         selectedAnt: this.selectedAnt,
         camera: { ...this.camera },
-        beacon: this.beacon ? { ...this.beacon } : null
+        beacon: this.beacon ? { ...this.beacon } : null,
+        runElapsedSec: this.runElapsedSec
       };
       localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, JSON.stringify(payload));
       this.hasActiveRun = true;
@@ -227,7 +235,7 @@ export class GameEngine {
       stats.totalBreakable > 0
         ? Math.min(100, Math.round((stats.dugBreakable / stats.totalBreakable) * 100))
         : 0;
-    return { levelId: level.id, levelName: level.name, digPct };
+    return { levelId: level.id, levelName: loc(level.name, level.nameEn), digPct };
   }
 
   setTouchPanMode(enabled: boolean) {
@@ -245,11 +253,7 @@ export class GameEngine {
       this.isAimingAnt = false;
       this.aimPreview = null;
       this.canvas.style.cursor = 'cell';
-      this.callbacks.onToast(
-        this.beacon
-          ? '📍 Нажми на карту, чтобы переставить метку (или кликни по ней, чтобы убрать)'
-          : '📍 Нажми на карту — поставить феромонную метку для Рабочих и выводка'
-      );
+      this.callbacks.onToast(this.beacon ? t('toastBeaconMove') : t('toastBeaconPlace'));
     } else {
       this.canvas.style.cursor = 'crosshair';
     }
@@ -360,16 +364,20 @@ export class GameEngine {
 
   loadLevel(levelId: string, resetSkills = true) {
     if (!this.skillTree.isLevelUnlocked(levelId)) {
-      this.callbacks.onToast('Сначала пройдите предыдущий уровень!');
+      this.callbacks.onToast(t('toastPrevMapLocked'));
       return;
     }
     const level = LEVELS.find((l) => l.id === levelId) || LEVELS[0];
     if (resetSkills) {
       this.skillTree.resetTreeForNewLevel(level.id);
       this.selectedAnt = 'worker';
+    } else {
+      this.skillTree.recordLevelStart(level.id);
     }
     const artDef = this.pickUncollectedArtifact(level.id);
     this.world = new World(level, this.skillTree.hasMutation('far_sense'), artDef);
+    // Recreate WorldRenderer whenever world dimensions change (e.g. Maps 6/7/8!)
+    this.renderer = new WorldRenderer(this.world.width, this.world.height);
     this.ants.clear();
     this.particles.particles = [];
     this.clearSugarBurstTimers();
@@ -378,6 +386,7 @@ export class GameEngine {
     this.beacon = null;
     this.beaconMode = false;
     this.sugarRushTimer = 0;
+    this.runElapsedSec = 0;
     this.lastLaunchWorld = null;
     this.fireworkAccum = 0;
     this.autoSaveAccum = 0;
@@ -387,10 +396,11 @@ export class GameEngine {
     this.callbacks.onHudSync();
 
     const startSp = this.skillTree.state.skillPoints;
+    const lvlName = loc(level.name, level.nameEn);
     if (resetSkills && startSp > 0) {
-      this.callbacks.onToast(`${level.name} • Старт с ♦ ${startSp} очк. навыков!`);
+      this.callbacks.onToast(t('toastLevelStartSp', { name: lvlName, sp: startSp }));
     } else {
-      this.callbacks.onToast(`Уровень: ${level.name}`);
+      this.callbacks.onToast(t('toastLevelStart', { name: lvlName }));
     }
   }
 
@@ -453,11 +463,11 @@ export class GameEngine {
       this.lastLaunchWorld = { x: spawn.x, y: spawn.y };
       const rgb = ANT_TYPES[this.selectedAnt].rgb;
       this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 5, 16, 0.5, 1.4);
-      this.skillTree.recordCareer({ antsSpawned: 1 });
+      this.skillTree.recordAntSpawn(this.selectedAnt);
       if (this.selectedAnt === 'compass') {
         this.audio.playCompassLaunch();
         this.skillTree.unlockAchievement('use_compass');
-        this.callbacks.onToast('🧭 Ищейка взяла след сахара! Следуй за золотым хвостом!');
+        this.callbacks.onToast(t('toastBloodhoundGo'));
       } else {
         this.audio.playSpawn();
       }
@@ -466,11 +476,11 @@ export class GameEngine {
       const sec = Math.ceil(this.ants.compassCooldown);
       const m = Math.floor(sec / 60);
       const s = String(sec % 60).padStart(2, '0');
-      this.callbacks.onToast(`Ищейка перезаряжается: ${m}:${s}`);
+      this.callbacks.onToast(t('toastBloodhoundCd', { time: `${m}:${s}` }));
     } else {
       const cfg = ANT_TYPES[this.selectedAnt];
       const cap = this.ants.getMaxActive(this.selectedAnt, stats);
-      this.callbacks.onToast(`Лимит «${cfg.name}»: ${cap}/${cap} (увеличь в дереве навыков)`);
+      this.callbacks.onToast(t('toastAntCap', { name: loc(cfg.name, cfg.nameEn), cap }));
     }
   }
 
@@ -563,6 +573,8 @@ export class GameEngine {
 
   private update(dt: number) {
     this.elapsed += dt;
+    this.runElapsedSec += dt;
+    this.skillTree.recordPlayTime(dt);
 
     // Dramatic brief slow-motion hit-stop right when discovering Sugar!
     let simDt = dt;
@@ -613,7 +625,7 @@ export class GameEngine {
             this.hasActiveRun = true;
             const rgb = ANT_TYPES[antType].rgb;
             this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 3, 12, 0.45, 1.2);
-            this.skillTree.recordCareer({ antsSpawned: 1 });
+            this.skillTree.recordAntSpawn(antType);
           }
           break;
         }
@@ -641,7 +653,7 @@ export class GameEngine {
       if (anomIntensity > 0.04) {
         this.audio.playMutationSpawn(anomIntensity);
       }
-      this.callbacks.onToast('♛ Королевская аномалия: Матка родила особого муравья!');
+      this.callbacks.onToast(t('toastQueenAnomaly'));
     }
     if (events.expiredPoints.length > 0) {
       const expIntensity = this.computeAntAudioIntensity(events.expiredPoints);
@@ -657,26 +669,29 @@ export class GameEngine {
       this.skillTree.addSkillPoints(gained);
       this.skillTree.recordCareer({ crystalsCollected: events.crystalsBroken });
       this.audio.playCrystal();
-      this.callbacks.onToast(`♦ +${gained} очко навыков`);
+      this.callbacks.onToast(t('toastSpGain', { n: gained }));
       this.callbacks.onHudSync();
     }
     if (events.sporeBlasts.length > 0) {
+      this.skillTree.recordCareer({ sporesBlasted: events.sporeBlasts.length });
       this.audio.playSporeBlast();
-      this.callbacks.onToast('💥 Взрывная спора расчистила пещеру!');
+      this.callbacks.onToast(t('toastSporeBlast'));
       this.callbacks.onHudSync();
     }
     if (events.sugarDustHits.length > 0) {
+      this.skillTree.recordCareer({ sugarDustFound: events.sugarDustHits.length });
       this.sugarRushTimer = Math.max(this.sugarRushTimer, 15);
       this.audio.playSugarDustRush();
-      this.callbacks.onToast('✨ Сахарная пыль! Скорость роя ×1.6 на 15 сек!');
+      this.callbacks.onToast(t('toastSugarDust'));
       this.callbacks.onHudSync();
     }
     if (events.cocoonHatches.length > 0) {
+      this.skillTree.recordCareer({ cocoonsHatched: events.cocoonHatches.length });
       for (const c of events.cocoonHatches) {
         this.ants.spawnFreeAlliesAt(c.x, c.y, stats, this.particles);
       }
       this.audio.playCocoonHatch();
-      this.callbacks.onToast('🥚 Древний кокон! Освобождены 3 союзных муравья!');
+      this.callbacks.onToast(t('toastCocoonHatch'));
       this.callbacks.onHudSync();
     }
     if (events.artifactFound) {
@@ -689,7 +704,7 @@ export class GameEngine {
       }
     }
     if (events.sugarHit) {
-      this.skillTree.markLevelCompleted(this.world.level.id);
+      this.skillTree.recordSugarWin(this.world.level.id, this.runElapsedSec);
       this.audio.playSugarFound();
       this.saveRunProgress();
       this.callbacks.onHudSync();
@@ -698,8 +713,7 @@ export class GameEngine {
 
     // Epic 100% map-cleared finale: sweep stray pixels, zoom out to showcase shimmering art & fireworks!
     if (events.dugPixels > 0 && this.world.checkAndFinishClear()) {
-      this.skillTree.markLevelCompleted(this.world.level.id);
-      this.skillTree.recordCareer({ mapsCleared: 1 });
+      this.skillTree.recordMapClear(this.world.level.id, this.runElapsedSec);
       this.audio.playEpicClearFanfare();
       this.easeCameraToFullMap();
       for (let b = 0; b < 6; b++) {
@@ -746,6 +760,12 @@ export class GameEngine {
     this.hudSyncAccum += dt;
     if (this.hudSyncAccum >= 0.25) {
       this.hudSyncAccum = 0;
+      const ws = this.world.stats;
+      const digPct =
+        ws.totalBreakable > 0 ? Math.min(100, Math.round((ws.dugBreakable / ws.totalBreakable) * 100)) : 0;
+      const artPct =
+        ws.totalArt > 0 ? Math.min(100, Math.round((ws.revealedArt / ws.totalArt) * 100)) : 0;
+      this.skillTree.recordLevelProgress(this.world.level.id, digPct, artPct);
       this.callbacks.onHudSync();
     }
 
@@ -848,7 +868,7 @@ export class GameEngine {
         const cy = Math.max(8, Math.min(this.world.height - 8, wPos.y));
         if (this.beacon && Math.hypot(cx - this.beacon.x, cy - this.beacon.y) <= 12) {
           this.clearBeacon();
-          this.callbacks.onToast('📍 Феромонная метка снята');
+          this.callbacks.onToast(t('toastBeaconCleared'));
         } else {
           this.beacon = { x: cx, y: cy };
           this.beaconMode = false;
@@ -857,7 +877,7 @@ export class GameEngine {
           this.audio.playBeaconPlace();
           this.particles.spawn(cx, cy, 66, 245, 197, 14, 24, 0.9, 1.8);
           this.saveRunProgress();
-          this.callbacks.onToast('📍 Феромонная метка установлена! Свободные рабочие и выводок тянутся туда');
+          this.callbacks.onToast(t('toastBeaconSet'));
           this.callbacks.onHudSync();
         }
         return;
