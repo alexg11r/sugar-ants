@@ -385,8 +385,8 @@ function generateMoonTempleArt(w: number, h: number): Uint8Array {
   }
 
   const s = Math.min(w, h) / 165;
-  const baseY = h * 0.79;
-  const topArchY = h * 0.54;
+  const baseY = h * 0.72;
+  const topArchY = h * 0.49;
   drawLine(mask, w, h, cx - 64 * s, baseY, cx + 64 * s, baseY, 2.1);
   drawLine(mask, w, h, cx - 54 * s, baseY - 7 * s, cx + 54 * s, baseY - 7 * s, 1.5);
 
@@ -411,8 +411,8 @@ function generateMoonTempleArt(w: number, h: number): Uint8Array {
 function generateTreeArt(w: number, h: number): Uint8Array {
   const mask = new Uint8Array(w * h);
   const cx = w * 0.5;
-  const trunkTop = h * 0.46;
-  const trunkBot = h * 0.7;
+  const trunkTop = h * 0.44;
+  const trunkBot = h * 0.64;
 
   drawEllipseFrame(mask, w, h, w * 0.44, h * 0.44, 6, 10, 2.2);
 
@@ -428,12 +428,13 @@ function generateTreeArt(w: number, h: number): Uint8Array {
     branch(nx, ny, len * 0.72, angle + 0.46, depth - 1);
   };
 
-  branch(cx, trunkTop, Math.min(w, h) * 0.15, -Math.PI / 2, 4);
+  branch(cx, trunkTop, Math.min(w, h) * 0.145, -Math.PI / 2, 4);
 
-  drawLine(mask, w, h, cx - 8, trunkBot, cx - 50, h * 0.82, 1.7);
-  drawLine(mask, w, h, cx - 3, trunkBot, cx - 20, h * 0.85, 1.5);
-  drawLine(mask, w, h, cx + 3, trunkBot, cx + 20, h * 0.85, 1.5);
-  drawLine(mask, w, h, cx + 8, trunkBot, cx + 50, h * 0.82, 1.7);
+  // Roots spread cleanly above the nest at h * 0.78 so the entire inner circle is wide open!
+  drawLine(mask, w, h, cx - 8, trunkBot, cx - 44, h * 0.72, 1.7);
+  drawLine(mask, w, h, cx - 3, trunkBot, cx - 18, h * 0.74, 1.5);
+  drawLine(mask, w, h, cx + 3, trunkBot, cx + 18, h * 0.74, 1.5);
+  drawLine(mask, w, h, cx + 8, trunkBot, cx + 44, h * 0.72, 1.7);
 
   drawCircle(mask, w, h, cx, h * 0.5, Math.min(w, h) * 0.37, 1.5);
 

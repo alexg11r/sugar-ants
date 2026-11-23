@@ -3,6 +3,7 @@ import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
+import { computeReachableMask, isReachableTerrainSquare } from '../core/reachability';
 import { AimPreview, Camera, drawDetailedAnt } from '../core/renderer';
 import {
   Ant,
@@ -134,6 +135,7 @@ export class MultiplayerEngine {
   isEdge: Uint8Array = new Uint8Array(1);
   revealedMask: Uint8Array = new Uint8Array(1);
   artExposed: Uint8Array = new Uint8Array(1);
+  reachableMask: Uint8Array = new Uint8Array(1);
   noise: Uint8Array = new Uint8Array(1);
 
   sugarX = 200;
@@ -274,6 +276,7 @@ export class MultiplayerEngine {
     this.isEdge = new Uint8Array(size);
     this.revealedMask = new Uint8Array(size);
     this.artExposed = new Uint8Array(size);
+    this.reachableMask = new Uint8Array(size);
     this.noise = new Uint8Array(size);
 
     this.offscreen.width = this.width;
@@ -576,9 +579,24 @@ export class MultiplayerEngine {
     const existing = this.state.players.find((p) => p.id === player.id);
     if (existing) return existing;
     const idx = this.state.players.length;
-    const angle = (idx * 2.39996) % (Math.PI * 2);
-    const bx = Math.round(this.width * 0.5 + Math.cos(angle) * this.width * 0.31);
-    const by = Math.round(this.height * 0.5 + Math.sin(angle) * this.height * 0.31);
+    let bx = Math.round(this.width * 0.5);
+    let by = Math.round(this.height * 0.5);
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const angle = ((idx + attempt) * 2.39996) % (Math.PI * 2);
+      const rx = attempt < 12 ? this.width * 0.31 : this.width * 0.22;
+      const ry = attempt < 12 ? this.height * 0.31 : this.height * 0.22;
+      const cx = Math.round(this.width * 0.5 + Math.cos(angle) * rx);
+      const cy = Math.round(this.height * 0.5 + Math.sin(angle) * ry);
+      if (this.reachableMask.length === this.cells.length && this.reachableMask[cy * this.width + cx] === 1) {
+        bx = cx;
+        by = cy;
+        break;
+      }
+      if (attempt === 0) {
+        bx = cx;
+        by = cy;
+      }
+    }
     const withBase: MpPlayerInfo = { ...player, baseX: bx, baseY: by, dug: 0 };
     this.state.players.push(withBase);
     this.carveBaseChamber(bx, by);
@@ -969,62 +987,108 @@ export class MultiplayerEngine {
       this.carveBaseChamber(p.baseX, p.baseY);
     }
 
-    // 5. Place Sugar Cube fairly near center (guaranteed reachable!)
-    let placedSugar = false;
-    for (let attempt = 0; attempt < 300; attempt++) {
-      const sx = Math.floor(w * 0.5 + (rng() - 0.5) * (w * 0.24));
-      const sy = Math.floor(h * 0.5 + (rng() - 0.5) * (h * 0.34));
-      let clear = true;
-      for (let dy = -4; dy <= 4 && clear; dy++) {
-        for (let dx = -4; dx <= 4; dx++) {
-          const c = this.cells[(sy + dy) * w + (sx + dx)];
-          if (c === CellType.HiddenArt || c === CellType.Empty) clear = false;
-        }
-      }
-      if (clear) {
-        this.sugarX = sx;
-        this.sugarY = sy;
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            this.setBlock((sy + dy) * w + (sx + dx), CellType.Sugar);
+    // 4b. Compute BFS flood-fill reachability from player bases!
+    // If any player base is isolated from player 0 by an art line, open a narrow soil passage toward center.
+    const primarySeed = players.length > 0 ? [{ x: players[0].baseX, y: players[0].baseY }] : [{ x: cx, y: cy }];
+    this.reachableMask = computeReachableMask(this.cells, w, h, primarySeed);
+    let carvedConnector = false;
+    for (let i = 1; i < players.length; i++) {
+      const p = players[i];
+      if (this.reachableMask[p.baseY * w + p.baseX] !== 1) {
+        const steps = Math.max(1, Math.ceil(Math.hypot(cx - p.baseX, cy - p.baseY)));
+        for (let s = 0; s <= steps; s++) {
+          const px = Math.round(p.baseX + ((cx - p.baseX) * s) / steps);
+          const py = Math.round(p.baseY + ((cy - p.baseY) * s) / steps);
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const nx = px + dx;
+              const ny = py + dy;
+              if (nx > 6 && nx < w - 6 && ny > 6 && ny < h - 6) {
+                const idx = ny * w + nx;
+                if (this.cells[idx] === CellType.HiddenArt) {
+                  this.setBlock(idx, CellType.SoftSoil);
+                  carvedConnector = true;
+                }
+              }
+            }
           }
+          if (this.reachableMask[py * w + px] === 1) break;
         }
-        placedSugar = true;
-        break;
       }
     }
-    if (!placedSugar) {
-      this.sugarX = cx;
-      this.sugarY = cy;
+    if (carvedConnector) {
+      this.reachableMask = computeReachableMask(this.cells, w, h, primarySeed);
+    }
+
+    // 5. Place Sugar Cube strictly inside BFS-reachable territory (100% mathematically guaranteed reachable!)
+    let placedSugar = false;
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const sx = Math.floor(w * 0.5 + (rng() - 0.5) * (w * 0.34));
+      const sy = Math.floor(h * 0.5 + (rng() - 0.5) * (h * 0.4));
+      if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, sx, sy, 4)) continue;
+
+      this.sugarX = sx;
+      this.sugarY = sy;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
-          this.setBlock((cy + dy) * w + (cx + dx), CellType.Sugar);
+          this.setBlock((sy + dy) * w + (sx + dx), CellType.Sugar);
+        }
+      }
+      placedSugar = true;
+      break;
+    }
+    if (!placedSugar) {
+      // Deterministic fallback: pick reachable terrain square closest to map center!
+      let bestX = cx;
+      let bestY = cy;
+      let bestDist = Infinity;
+      for (const margin of [3, 2]) {
+        for (let y = 8; y < h - 8; y += 2) {
+          for (let x = 8; x < w - 8; x += 2) {
+            if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, margin)) continue;
+            const d = Math.hypot(x - cx, y - cy);
+            if (d < bestDist) {
+              bestDist = d;
+              bestX = x;
+              bestY = y;
+            }
+          }
+        }
+        if (bestDist < Infinity) break;
+      }
+      this.sugarX = bestX;
+      this.sugarY = bestY;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
+          if (this.cells[idx] !== CellType.HiddenArt) {
+            this.setBlock(idx, CellType.Sugar);
+          }
         }
       }
     }
 
-    // 6. Abundant Skill Crystals scaled by player count so nobody runs short!
+    // 6. Abundant Skill Crystals strictly inside BFS-reachable territory!
     const crystalGoal = 36 + players.length * 14;
     let placed = 0;
-    for (let attempt = 0; attempt < crystalGoal * 25 && placed < crystalGoal; attempt++) {
-      const lx = Math.floor(w * 0.1 + rng() * (w * 0.8));
-      const ly = Math.floor(h * 0.1 + rng() * (h * 0.8));
-      const nx = (lx - cx) / (w * 0.41);
-      const ny = (ly - cy) / (h * 0.41);
-      if (nx * nx + ny * ny > 0.92) continue;
+    for (let attempt = 0; attempt < crystalGoal * 35 && placed < crystalGoal; attempt++) {
+      const lx = Math.floor(w * 0.08 + rng() * (w * 0.84));
+      const ly = Math.floor(h * 0.08 + rng() * (h * 0.84));
+      if (this.reachableMask[ly * w + lx] !== 1) continue;
       if (this.tryPlaceCrystal(lx, ly)) placed++;
     }
 
-    // 7. Count breakable blocks inside sanctuary & mark initial edges
+    // 7. Count reachable breakable blocks & mark initial edges
     let breakable = 0;
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
         const idx = y * w + x;
         const c = this.cells[idx] as CellType;
-        if (c === CellType.SoftSoil || c === CellType.Clay || c === CellType.Stone || c === CellType.Obsidian) {
-          const nx = (x - cx) / (w * 0.42);
-          const ny = (y - cy) / (h * 0.42);
-          if (nx * nx + ny * ny < 0.94) breakable++;
+        if (
+          (c === CellType.SoftSoil || c === CellType.Clay || c === CellType.Stone || c === CellType.Obsidian) &&
+          this.reachableMask[idx] === 1
+        ) {
+          breakable++;
         }
         if (c !== CellType.Empty) {
           if (
@@ -1046,11 +1110,14 @@ export class MultiplayerEngine {
     const w = this.width;
     const h = this.height;
     if (cx < 8 || cx > w - 10 || cy < 8 || cy > h - 10) return false;
+    if (this.reachableMask[cy * w + cx] !== 1) return false;
     if (Math.hypot(cx - this.sugarX, cy - this.sugarY) < 12) return false;
     for (let dy = -2; dy <= 3; dy++) {
       for (let dx = -2; dx <= 3; dx++) {
-        const c = this.cells[(cy + dy) * w + (cx + dx)] as CellType;
+        const idx = (cy + dy) * w + (cx + dx);
+        const c = this.cells[idx] as CellType;
         if (c !== CellType.SoftSoil && c !== CellType.Clay && c !== CellType.Stone) return false;
+        if (dy >= 0 && dy <= 1 && dx >= 0 && dx <= 1 && this.reachableMask[idx] !== 1) return false;
       }
     }
     for (let dy = 0; dy <= 1; dy++) {

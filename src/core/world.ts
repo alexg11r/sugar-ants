@@ -1,3 +1,4 @@
+import { computeReachableMask, isReachableTerrainSquare } from './reachability';
 import { CellType, LevelDefinition, WorldStats } from './types';
 
 export interface DigResult {
@@ -36,6 +37,8 @@ export class World {
   revealedMask: Uint8Array;
   /** 1 if this HiddenArt pixel has been exposed to Empty space */
   artExposed: Uint8Array;
+  /** 1 if this cell is genuinely reachable by ants from the nest (BFS flood-fill!) */
+  reachableMask: Uint8Array;
   noise: Uint8Array;
 
   nestX: number;
@@ -59,6 +62,7 @@ export class World {
     this.isEdge = new Uint8Array(size);
     this.revealedMask = new Uint8Array(size);
     this.artExposed = new Uint8Array(size);
+    this.reachableMask = new Uint8Array(size);
     this.noise = new Uint8Array(size);
 
     this.nestX = Math.floor(this.width * 0.5);
@@ -84,13 +88,6 @@ export class World {
     const baseHp = BLOCK_HP[type] ?? 1;
     this.hp[idx] = baseHp;
     this.maxHp[idx] = baseHp;
-  }
-
-  /** Helper: returns true if (x, y) is safely inside the organic sanctuary interior */
-  private isInsideSanctuary(x: number, y: number): boolean {
-    const nx = (x - this.width * 0.5) / (this.width * 0.39);
-    const ny = (y - this.height * 0.5) / (this.height * 0.39);
-    return nx * nx + ny * ny < 0.92;
   }
 
   private generate() {
@@ -158,40 +155,50 @@ export class World {
     // Reveal vision around initial nest
     this.revealCircle(this.nestX, this.nestY, nestRadius + this.revealRadius);
 
-    // 4. Place the Sugar Cube inside the sanctuary (completely hidden until exposed!)
-    let placedSugar = false;
-    for (let attempt = 0; attempt < 600; attempt++) {
-      const sx = Math.floor(w * 0.16 + Math.random() * (w * 0.68));
-      const sy = Math.floor(h * 0.14 + Math.random() * (h * 0.5));
-      if (!this.isInsideSanctuary(sx, sy)) continue;
-      const distFromNest = Math.hypot(sx - this.nestX, sy - this.nestY);
-      if (distFromNest < Math.min(w, h) * 0.48) continue;
+    // 3b. BFS Flood-Fill Reachability from Nest: guarantees Sugar & Crystals NEVER spawn inside sealed HiddenArt loops!
+    this.reachableMask = computeReachableMask(this.cells, w, h, [{ x: this.nestX, y: this.nestY }]);
 
-      let clear = true;
-      for (let dy = -5; dy <= 5 && clear; dy++) {
-        for (let dx = -5; dx <= 5; dx++) {
-          const c = this.cells[(sy + dy) * w + (sx + dx)];
-          if (c === CellType.HiddenArt || c === CellType.Empty) {
-            clear = false;
-            break;
-          }
+    // 4. Place the Sugar Cube strictly inside the BFS-reachable territory (completely hidden until exposed!)
+    let placedSugar = false;
+    for (let attempt = 0; attempt < 900; attempt++) {
+      const sx = Math.floor(w * 0.1 + Math.random() * (w * 0.8));
+      const sy = Math.floor(h * 0.1 + Math.random() * (h * 0.65));
+      const distFromNest = Math.hypot(sx - this.nestX, sy - this.nestY);
+      if (distFromNest < Math.min(w, h) * 0.44) continue;
+      if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, sx, sy, 4)) continue;
+
+      this.sugarX = sx;
+      this.sugarY = sy;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          this.setBlock((sy + dy) * w + (sx + dx), CellType.Sugar);
         }
       }
-      if (clear) {
-        this.sugarX = sx;
-        this.sugarY = sy;
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            this.setBlock((sy + dy) * w + (sx + dx), CellType.Sugar);
-          }
-        }
-        placedSugar = true;
-        break;
-      }
+      placedSugar = true;
+      break;
     }
+
+    // Deterministic guaranteed-reachable fallback: pick the farthest reachable terrain square from the nest!
     if (!placedSugar) {
-      this.sugarX = Math.floor(w * 0.28);
-      this.sugarY = Math.floor(h * 0.28);
+      let bestX = this.nestX;
+      let bestY = Math.max(12, this.nestY - 40);
+      let bestDist = -1;
+      for (const margin of [3, 2]) {
+        for (let y = 8; y < h - 8; y += 2) {
+          for (let x = 8; x < w - 8; x += 2) {
+            if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, margin)) continue;
+            const d = Math.hypot(x - this.nestX, y - this.nestY);
+            if (d > bestDist) {
+              bestDist = d;
+              bestX = x;
+              bestY = y;
+            }
+          }
+        }
+        if (bestDist > 0) break;
+      }
+      this.sugarX = bestX;
+      this.sugarY = bestY;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
           const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
@@ -209,8 +216,8 @@ export class World {
       { rMin: 22, rMax: 32 }
     ];
     for (const band of nearBands) {
-      for (let attempt = 0; attempt < 150; attempt++) {
-        const ang = -Math.PI * 0.18 - Math.random() * Math.PI * 0.64;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const ang = -Math.PI * 0.12 - Math.random() * Math.PI * 0.76;
         const dist = band.rMin + Math.random() * (band.rMax - band.rMin);
         const cx = Math.round(this.nestX + Math.cos(ang) * dist);
         const cy = Math.round(this.nestY + Math.sin(ang) * dist);
@@ -221,10 +228,10 @@ export class World {
       }
     }
 
-    for (let attempt = 0; attempt < 1400 && placedCrystals < this.level.crystalCount; attempt++) {
-      const cx = Math.floor(w * 0.1 + Math.random() * (w * 0.8));
-      const cy = Math.floor(h * 0.1 + Math.random() * (h * 0.8));
-      if (!this.isInsideSanctuary(cx, cy)) continue;
+    for (let attempt = 0; attempt < 2400 && placedCrystals < this.level.crystalCount; attempt++) {
+      const cx = Math.floor(w * 0.08 + Math.random() * (w * 0.84));
+      const cy = Math.floor(h * 0.08 + Math.random() * (h * 0.84));
+      if (this.reachableMask[cy * w + cx] !== 1) continue;
       if (Math.hypot(cx - this.nestX, cy - this.nestY) < 24) continue;
       if (Math.hypot(cx - this.sugarX, cy - this.sugarY) < 15) continue;
       if (this.tryPlaceCrystal(cx, cy)) {
@@ -233,12 +240,12 @@ export class World {
     }
     this.stats.totalCrystals = placedCrystals;
 
-    // 6. Count breakable blocks inside sanctuary & mark initial border edges
+    // 6. Count reachable breakable blocks & mark initial border edges
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const idx = y * w + x;
         const cell = this.cells[idx] as CellType;
-        if (this.isTerrain(cell) && this.isInsideSanctuary(x, y)) {
+        if (this.isTerrain(cell) && this.reachableMask[idx] === 1) {
           this.stats.totalBreakable++;
         }
         if (cell !== CellType.Empty && this.hasEmptyNeighbor(x, y)) {
@@ -256,11 +263,14 @@ export class World {
     const w = this.width;
     const h = this.height;
     if (cx < 8 || cx > w - 10 || cy < 8 || cy > h - 10) return false;
+    if (this.reachableMask[cy * w + cx] !== 1) return false;
 
-    for (let dy = -3; dy <= 4; dy++) {
-      for (let dx = -3; dx <= 4; dx++) {
-        const c = this.cells[(cy + dy) * w + (cx + dx)] as CellType;
+    for (let dy = -2; dy <= 3; dy++) {
+      for (let dx = -2; dx <= 3; dx++) {
+        const idx = (cy + dy) * w + (cx + dx);
+        const c = this.cells[idx] as CellType;
         if (!this.isTerrain(c)) return false;
+        if (dy >= 0 && dy <= 1 && dx >= 0 && dx <= 1 && this.reachableMask[idx] !== 1) return false;
       }
     }
     for (let dy = 0; dy <= 1; dy++) {

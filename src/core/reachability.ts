@@ -1,0 +1,156 @@
+import { CellType } from './types';
+
+/**
+ * Computes a 4-connected BFS flood-fill mask of every cell an ant can genuinely reach
+ * from one or more seed points, requiring a 3x3 clearance from indestructible HiddenArt
+ * walls so ants can never be blocked by tight 1px diagonal pinches or sealed art pockets.
+ */
+export function computeReachableMask(
+  cells: Uint8Array,
+  width: number,
+  height: number,
+  seeds: { x: number; y: number }[]
+): Uint8Array {
+  const size = width * height;
+  const passable = new Uint8Array(size);
+
+  // Mark cells with at least 1px clearance (3x3 footprint) free of HiddenArt
+  for (let y = 2; y < height - 2; y++) {
+    const row = y * width;
+    for (let x = 2; x < width - 2; x++) {
+      let blocked = false;
+      for (let dy = -1; dy <= 1 && !blocked; dy++) {
+        const nRow = (y + dy) * width;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (cells[nRow + (x + dx)] === CellType.HiddenArt) {
+            blocked = true;
+            break;
+          }
+        }
+      }
+      if (!blocked) {
+        passable[row + x] = 1;
+      }
+    }
+  }
+
+  const reachable = new Uint8Array(size);
+  const queue = new Int32Array(size);
+  let head = 0;
+  let tail = 0;
+
+  const enqueueSeed = (sx: number, sy: number) => {
+    const cx = Math.round(sx);
+    const cy = Math.round(sy);
+    // Find passable cells within the starting chamber radius around the seed
+    let seededAny = false;
+    for (let r = 0; r <= 12; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 2 || nx >= width - 2 || ny < 2 || ny >= height - 2) continue;
+          const idx = ny * width + nx;
+          if (passable[idx] === 1 && cells[idx] === CellType.Empty && reachable[idx] === 0) {
+            reachable[idx] = 1;
+            queue[tail++] = idx;
+            seededAny = true;
+          }
+        }
+      }
+      if (seededAny) break;
+    }
+
+    // Fallback: if no Empty+passable cell found, accept any passable cell near seed
+    if (!seededAny) {
+      for (let r = 0; r <= 18 && !seededAny; r++) {
+        for (let dy = -r; dy <= r && !seededAny; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx < 2 || nx >= width - 2 || ny < 2 || ny >= height - 2) continue;
+            const idx = ny * width + nx;
+            if (passable[idx] === 1 && reachable[idx] === 0) {
+              reachable[idx] = 1;
+              queue[tail++] = idx;
+              seededAny = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+  };
+
+  for (const s of seeds) {
+    enqueueSeed(s.x, s.y);
+  }
+
+  while (head < tail) {
+    const idx = queue[head++];
+    const x = idx % width;
+    const y = (idx - x) / width;
+
+    if (x > 2) {
+      const n = idx - 1;
+      if (passable[n] === 1 && reachable[n] === 0) {
+        reachable[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+    if (x < width - 3) {
+      const n = idx + 1;
+      if (passable[n] === 1 && reachable[n] === 0) {
+        reachable[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+    if (y > 2) {
+      const n = idx - width;
+      if (passable[n] === 1 && reachable[n] === 0) {
+        reachable[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+    if (y < height - 3) {
+      const n = idx + width;
+      if (passable[n] === 1 && reachable[n] === 0) {
+        reachable[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+  }
+
+  return reachable;
+}
+
+/**
+ * Checks whether an entire (2*margin+1)x(2*margin+1) square around (cx, cy)
+ * lies strictly inside the reachable region and contains only diggable terrain (no Empty / HiddenArt).
+ */
+export function isReachableTerrainSquare(
+  cells: Uint8Array,
+  reachable: Uint8Array,
+  width: number,
+  height: number,
+  cx: number,
+  cy: number,
+  margin: number
+): boolean {
+  if (cx - margin < 3 || cx + margin >= width - 3 || cy - margin < 3 || cy + margin >= height - 3) {
+    return false;
+  }
+  for (let dy = -margin; dy <= margin; dy++) {
+    const row = (cy + dy) * width;
+    for (let dx = -margin; dx <= margin; dx++) {
+      const idx = row + (cx + dx);
+      if (reachable[idx] !== 1) return false;
+      const c = cells[idx] as CellType;
+      if (c === CellType.HiddenArt || c === CellType.Empty || c === CellType.Sugar) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
