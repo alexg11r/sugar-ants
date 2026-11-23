@@ -114,10 +114,11 @@ export class HudController {
   private gameCanvasEl = document.getElementById('game-canvas')!;
   private mpCanvasEl = document.getElementById('mp-canvas')!;
 
-  // Splash & 3-Beat Pre-Game Intro elements
+  // Splash & Original Subterranean Chapter Opening elements
   private splashOverlayEl = document.getElementById('splash-overlay')!;
   private introOverlayEl = document.getElementById('game-intro-overlay')!;
   private introStageEl = document.getElementById('intro-stage')!;
+  private introChapterNumEl = document.getElementById('intro-chapter-num')!;
   private introBigEl = document.getElementById('intro-big')!;
   private introSmallEl = document.getElementById('intro-small')!;
 
@@ -302,22 +303,39 @@ export class HudController {
     }, 2050);
   }
 
-  /** Dramatic 3-beat pre-game intro ("50 000 БЛОКОВ" -> "1 КУСОЧЕК САХАРА" -> "НАЙДИ КУСОЧЕК САХАРА") */
+  /** Original Atmospheric Subterranean Chapter Opening (unique title, glyph & poetic whisper per map!) */
   private playPreGameIntro(onComplete: () => void) {
     this.cancelPreGameIntro();
 
-    const totalBlocks = this.engine.world.stats.totalBreakable;
-    const rounded = Math.max(1000, Math.round(totalBlocks / 100) * 100);
-    const formattedBlocks = rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    const lvl = this.engine.world.level;
+    const lvlIdx = Math.max(0, LEVELS.findIndex((l) => l.id === lvl.id));
+    const roman = ['I', 'II', 'III', 'IV', 'V'][lvlIdx] || String(lvlIdx + 1);
+    const whispers: Record<string, string> = {
+      prism: 'В глубине изумрудной тишины спит Лунный Мотылёк…',
+      galaxy: 'Сквозь звёздную пыль плывёт безмолвный Космический Кит…',
+      'ant-crown': 'Древний Скарабей хранит королевскую печать колонии…',
+      'moon-temple': 'Полуночная Сова бережёт песочные часы забвения…',
+      'tree-of-life': 'Мировое Древо тихо дышит в ладонях подземного мира…'
+    };
 
     const el = this.introOverlayEl;
-    el.classList.remove('hidden', 'fade-out', 'beat-0', 'beat-1', 'beat-2');
+    el.style.setProperty('--chapter-accent', lvl.palette.accentHex);
+    this.introChapterNumEl.textContent = `ГЛАВА ${roman}`;
+    this.introBigEl.textContent = lvl.name.toUpperCase();
+    this.introSmallEl.textContent = whispers[lvl.id] || lvl.subtitle;
 
-    const beats: { big: string; small: string; cls: string; beat: 0 | 1 | 2; atMs: number }[] = [
-      { big: formattedBlocks, small: 'БЛОКОВ', cls: 'beat-0', beat: 0, atMs: 40 },
-      { big: '1', small: 'КУСОЧЕК САХАРА', cls: 'beat-1', beat: 1, atMs: 1380 },
-      { big: 'НАЙДИ', small: 'КУСОЧЕК САХАРА', cls: 'beat-2', beat: 2, atMs: 2720 }
-    ];
+    // Retrigger crisp entrance & ripple animations
+    el.classList.remove('hidden', 'fade-out');
+    this.introStageEl.style.animation = 'none';
+    void this.introStageEl.offsetWidth;
+    this.introStageEl.style.animation = '';
+    el.querySelectorAll<HTMLElement>('.chapter-ring').forEach((r) => {
+      r.style.animation = 'none';
+      void r.offsetWidth;
+      r.style.animation = '';
+    });
+
+    this.engine.audio.playChapterIntro();
 
     let done = false;
     const finish = () => {
@@ -328,7 +346,7 @@ export class HudController {
       el.removeEventListener('click', finish);
       this.introCancelFn = null;
       el.classList.add('fade-out');
-      setTimeout(() => el.classList.add('hidden'), 320);
+      setTimeout(() => el.classList.add('hidden'), 420);
       onComplete();
     };
 
@@ -341,23 +359,7 @@ export class HudController {
     this.introCancelFn = finish;
     el.addEventListener('click', finish);
     window.addEventListener('keydown', onKey);
-
-    for (const b of beats) {
-      const tid = window.setTimeout(() => {
-        if (done) return;
-        el.classList.remove('beat-0', 'beat-1', 'beat-2');
-        el.classList.add(b.cls);
-        this.introBigEl.textContent = b.big;
-        this.introSmallEl.textContent = b.small;
-        this.introStageEl.classList.remove('punch');
-        void this.introStageEl.offsetWidth;
-        this.introStageEl.classList.add('punch');
-        this.engine.audio.playIntroBeat(b.beat);
-      }, b.atMs);
-      this.introTimers.push(tid);
-    }
-
-    this.introTimers.push(window.setTimeout(finish, 4100));
+    this.introTimers.push(window.setTimeout(finish, 2650));
   }
 
   private clearIntroTimers() {

@@ -45,34 +45,13 @@ body,
 }
 
 /* =========================================================
-   SPLASH SCREEN & DRAMATIC 3-BEAT PRE-GAME INTRO
+   ORIGINAL SUGAR ANTS STUDIO SPLASH & SUBTERRANEAN CHAPTER INTRO
    ========================================================= */
-.sunburst-rays {
-  position: absolute;
-  inset: -45%;
-  pointer-events: none;
-  background: repeating-conic-gradient(
-    from 0deg,
-    rgba(255, 255, 255, 0.08) 0deg 8deg,
-    transparent 8deg 18deg
-  );
-  animation: sunburst-spin 26s linear infinite;
-}
-
-@keyframes sunburst-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .splash-overlay {
   position: fixed;
   inset: 0;
   z-index: 95;
-  background: radial-gradient(circle at 50% 48%, #1e0b2e 0%, #090512 68%, #040208 100%);
+  background: radial-gradient(circle at 50% 50%, #0b2015 0%, #050f0a 60%, #020705 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -86,90 +65,140 @@ body,
   pointer-events: none;
 }
 
-.splash-rays {
-  background: repeating-conic-gradient(
-    from 0deg,
-    rgba(195, 75, 255, 0.1) 0deg 8deg,
-    transparent 8deg 18deg
-  );
-}
-
-.splash-center {
+.splash-tunnel-wrap {
   position: relative;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  animation: splash-drop 0.65s cubic-bezier(0.2, 1.45, 0.35, 1) forwards;
+  gap: 10px;
 }
 
-@keyframes splash-drop {
-  0% {
-    opacity: 0;
-    transform: translateY(-70px) scale(0.7) rotate(-8deg);
-  }
-  65% {
-    opacity: 1;
-    transform: translateY(6px) scale(1.06) rotate(2deg);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1) rotate(0deg);
-  }
+.splash-ant-track {
+  position: relative;
+  width: min(260px, 72vw);
+  height: 22px;
+  display: flex;
+  align-items: center;
 }
 
-.splash-emblem {
-  width: 82px;
-  height: 82px;
-  filter: drop-shadow(0 0 24px rgba(60, 232, 122, 0.7)) drop-shadow(0 0 42px rgba(210, 80, 255, 0.45));
-  animation: splash-pulse 1.6s ease-in-out infinite;
+.splash-vein {
+  height: 2px;
+  width: 0%;
+  background: linear-gradient(90deg, transparent, #3ce87a 35%, #ffe680 100%);
+  box-shadow: 0 0 14px rgba(60, 232, 122, 0.85);
+  animation: vein-grow 1.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-@keyframes splash-pulse {
-  0%, 100% {
-    transform: scale(1);
+@keyframes vein-grow {
+  from {
+    width: 0%;
   }
-  50% {
-    transform: scale(1.06);
+  to {
+    width: 100%;
   }
 }
 
-.splash-emblem svg {
+.splash-crawler {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 30px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 10px rgba(60, 232, 122, 0.9));
+  animation: ant-scurry 1.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.splash-crawler svg {
   width: 100%;
   height: 100%;
 }
 
-.splash-title {
-  font-size: clamp(40px, 9vw, 62px);
+@keyframes ant-scurry {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  92% {
+    left: 100%;
+    opacity: 1;
+  }
+  100% {
+    left: 106%;
+    opacity: 0;
+  }
+}
+
+.splash-wordmark {
+  font-size: clamp(42px, 10vw, 66px);
   font-weight: 900;
-  letter-spacing: 8px;
-  color: #f4d2ff;
-  text-shadow:
-    0 0 24px rgba(214, 92, 255, 0.85),
-    0 0 54px rgba(60, 232, 122, 0.45);
-  line-height: 1;
+  letter-spacing: 12px;
+  padding-left: 12px;
+  background: linear-gradient(180deg, #ffffff 12%, #a8ffd0 65%, #ffe680 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 26px rgba(60, 232, 122, 0.4));
+  opacity: 0;
+  animation: wordmark-bloom 0.85s ease 0.35s forwards;
+}
+
+@keyframes wordmark-bloom {
+  from {
+    opacity: 0;
+    letter-spacing: 22px;
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    letter-spacing: 12px;
+    filter: blur(0) drop-shadow(0 0 26px rgba(60, 232, 122, 0.45));
+  }
 }
 
 .splash-sub {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 10px;
-  color: #63ffa0;
-  text-shadow: 0 0 14px rgba(60, 232, 122, 0.75);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  padding-left: 8px;
+  color: rgba(162, 232, 192, 0.72);
+  opacity: 0;
+  animation: wordmark-sub 0.65s ease 0.7s forwards;
 }
 
+@keyframes wordmark-sub {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Atmospheric Subterranean Chapter Opening (100% Original!) */
 .game-intro-overlay {
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: radial-gradient(circle at 50% 50%, #1c1306 0%, #090603 65%, #030201 100%);
+  --chapter-accent: #3ce87a;
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--chapter-accent) 16%, #06100b) 0%,
+    #040907 62%,
+    #020504 100%
+  );
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   cursor: pointer;
-  transition: opacity 0.35s ease;
+  transition: opacity 0.42s ease;
 }
 
 .game-intro-overlay.fade-out {
@@ -177,95 +206,128 @@ body,
   pointer-events: none;
 }
 
-.intro-rays {
-  background: repeating-conic-gradient(
-    from 0deg,
-    rgba(255, 200, 75, 0.08) 0deg 8deg,
-    transparent 8deg 18deg
-  );
-  animation-duration: 18s;
-  transition: opacity 0.4s ease, filter 0.4s ease;
+.chapter-ripples {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
 }
 
-.game-intro-overlay.beat-1 .intro-rays {
-  background: repeating-conic-gradient(
-    from 0deg,
-    rgba(255, 212, 78, 0.14) 0deg 8deg,
-    transparent 8deg 18deg
-  );
-  animation-duration: 12s;
+.chapter-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--chapter-accent) 45%, transparent);
+  opacity: 0;
+  animation: chapter-ripple 2.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.game-intro-overlay.beat-2 .intro-rays {
-  background: repeating-conic-gradient(
-    from 0deg,
-    rgba(255, 224, 96, 0.22) 0deg 8deg,
-    transparent 8deg 18deg
-  );
-  animation-duration: 7.5s;
+.chapter-ring.r1 {
+  width: 120px;
+  height: 120px;
+  animation-delay: 0s;
+}
+.chapter-ring.r2 {
+  width: 120px;
+  height: 120px;
+  animation-delay: 0.45s;
+}
+.chapter-ring.r3 {
+  width: 120px;
+  height: 120px;
+  animation-delay: 0.9s;
 }
 
-.intro-stage {
+@keyframes chapter-ripple {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(6.2);
+    opacity: 0;
+  }
+}
+
+.chapter-stage {
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 20px;
+  padding: 24px;
+  max-width: min(560px, 92vw);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  animation: chapter-rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.intro-stage.punch {
-  animation: intro-punch 0.45s cubic-bezier(0.16, 1.35, 0.3, 1);
-}
-
-@keyframes intro-punch {
-  0% {
+@keyframes chapter-rise {
+  from {
     opacity: 0;
-    transform: scale(0.74);
-    filter: blur(4px);
+    transform: translateY(14px) scale(0.96);
   }
-  100% {
+  to {
     opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
+    transform: translateY(0) scale(1);
   }
 }
 
-.intro-big {
-  font-size: clamp(50px, 12vw, 94px);
-  font-weight: 900;
-  letter-spacing: 4px;
-  line-height: 1;
-  color: #ffffff;
-  text-shadow:
-    0 4px 0 rgba(0, 0, 0, 0.65),
-    0 0 36px rgba(255, 255, 255, 0.35);
-  font-variant-numeric: tabular-nums;
-}
-
-.intro-small {
-  font-size: clamp(20px, 5vw, 34px);
+.chapter-num {
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 6px;
-  color: #e6dfd0;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
+  padding-left: 6px;
+  color: var(--chapter-accent);
+  text-transform: uppercase;
 }
 
-.game-intro-overlay.beat-1 .intro-small,
-.game-intro-overlay.beat-2 .intro-small {
-  color: #ffe26a;
-  text-shadow:
-    0 0 22px rgba(255, 214, 70, 0.78),
-    0 0 46px rgba(255, 168, 40, 0.42);
-}
-
-.game-intro-overlay.beat-2 .intro-big {
+.chapter-title {
+  font-size: clamp(32px, 7.5vw, 56px);
+  font-weight: 900;
+  letter-spacing: 4px;
   color: #ffffff;
   text-shadow:
-    0 0 28px rgba(255, 232, 130, 0.8),
-    0 0 60px rgba(255, 180, 50, 0.45);
+    0 0 32px color-mix(in srgb, var(--chapter-accent) 55%, transparent),
+    0 4px 20px rgba(0, 0, 0, 0.7);
+}
+
+.chapter-divider {
+  width: 110px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--chapter-accent), transparent);
+  box-shadow: 0 0 12px var(--chapter-accent);
+}
+
+.chapter-whisper {
+  font-size: clamp(14px, 3vw, 17px);
+  font-style: italic;
+  color: rgba(232, 246, 238, 0.82);
+  line-height: 1.5;
+}
+
+.chapter-goal {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 230, 128, 0.34);
+  background: rgba(255, 230, 128, 0.08);
+  color: #fff3b0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.chapter-sugar-dot {
+  width: 9px;
+  height: 9px;
+  background: #ffe680;
+  box-shadow: 0 0 12px #ffe680;
+  transform: rotate(45deg);
 }
 
 .intro-skip-note {
@@ -276,7 +338,7 @@ body,
   font-size: 11px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(255, 255, 255, 0.34);
   z-index: 3;
 }
 

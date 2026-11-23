@@ -167,38 +167,53 @@ export class MenuBackground {
     const h = window.innerHeight;
     const ctx = this.ctx;
 
-    // Deep emerald cavern background + rotating hypnotic sunburst rays (inspired by minimalist pixel hits!)
+    // Deep subterranean ant-sanctuary backdrop with subtle flowing geological strata (100% original Sugar Ants vibe!)
     ctx.fillStyle = UNEXPLORED_BG_HEX;
     ctx.fillRect(0, 0, w, h);
 
     const cx = w * 0.5;
-    const cy = h * 0.46;
-    const maxR = Math.hypot(w, h) * 0.78;
-    const rayCount = 24;
-    const rot = this.elapsed * 0.055;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(rot);
-    for (let i = 0; i < rayCount; i++) {
-      const a0 = (i / rayCount) * Math.PI * 2;
-      const a1 = a0 + (Math.PI * 2) / (rayCount * 2.15);
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.arc(0, 0, maxR, a0, a1);
-      ctx.closePath();
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(42, 165, 96, 0.09)' : 'rgba(255, 224, 120, 0.032)';
-      ctx.fill();
-    }
-    ctx.restore();
-
-    const grad = ctx.createRadialGradient(cx, cy, 30, cx, cy, maxR * 0.92);
-    grad.addColorStop(0, 'rgba(20, 70, 44, 0.14)');
-    grad.addColorStop(0.55, 'rgba(5, 16, 11, 0.45)');
-    grad.addColorStop(1, 'rgba(2, 6, 4, 0.92)');
+    const cy = h * 0.48;
+    const maxR = Math.hypot(w, h) * 0.72;
+    const grad = ctx.createRadialGradient(cx, cy, 30, cx, cy, maxR);
+    grad.addColorStop(0, 'rgba(20, 68, 42, 0.34)');
+    grad.addColorStop(0.55, 'rgba(6, 18, 12, 0.62)');
+    grad.addColorStop(1, 'rgba(2, 6, 4, 0.95)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // Floating pixel spore motes
+    // Subtle curved subterranean contour strata lines
+    ctx.lineWidth = 1;
+    for (let s = 0; s < 9; s++) {
+      const baseY = (s / 8) * h;
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 28) {
+        const wave =
+          Math.sin(x * 0.0045 + s * 1.1 + this.elapsed * 0.14) * 22 +
+          Math.cos(x * 0.009 - s * 0.7 + this.elapsed * 0.09) * 10;
+        const y = baseY + wave;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = s % 3 === 0 ? 'rgba(60, 232, 122, 0.065)' : 'rgba(255, 224, 130, 0.032)';
+      ctx.stroke();
+    }
+
+    // Delicate glowing pheromone filaments connecting nearby crawling ants
+    ctx.lineWidth = 1;
+    for (let i = 0; i < this.ants.length; i++) {
+      for (let j = i + 1; j < this.ants.length; j++) {
+        const d = Math.hypot(this.ants[i].x - this.ants[j].x, this.ants[i].y - this.ants[j].y);
+        if (d < 130) {
+          ctx.strokeStyle = `rgba(90, 240, 155, ${(1 - d / 130) * 0.12})`;
+          ctx.beginPath();
+          ctx.moveTo(this.ants[i].x, this.ants[i].y);
+          ctx.lineTo(this.ants[j].x, this.ants[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Floating bioluminescent spore motes
     for (const m of this.motes) {
       const a = 0.22 + 0.25 * Math.sin(this.elapsed * 2.1 + m.phase);
       ctx.fillStyle = m.gold ? `rgba(255, 232, 135, ${a})` : `rgba(88, 245, 155, ${a})`;

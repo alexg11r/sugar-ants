@@ -139,9 +139,16 @@ export class GameEngine {
     return def;
   }
 
-  /** Plays a satisfying pop-pop-pop particle burst around the nest when entering a fresh map! */
+  /** Smoothly eases the camera from wide view down into close-up nest focus right after the chapter intro! */
   playNestRevealBurst() {
     const { nestX, nestY } = this.world;
+    const fitZoom = Math.min((this.viewW * 0.88) / this.world.width, (this.viewH * 0.8) / this.world.height);
+    const closeZoom = Math.max(7.2, Math.min(11.5, fitZoom * 3.4));
+    this.camera.x = nestX;
+    this.camera.y = nestY;
+    this.camera.zoom = Math.max(2.6, closeZoom * 0.45);
+    this.cameraEaseTarget = { x: nestX, y: nestY, zoom: closeZoom };
+
     [0, 1, 2].forEach((step) => {
       setTimeout(() => {
         if (this.paused) return;
@@ -195,10 +202,11 @@ export class GameEngine {
   }
 
   resetCamera() {
-    const fitZoom = Math.min((this.viewW * 0.96) / this.world.width, (this.viewH * 0.88) / this.world.height);
-    this.camera.zoom = Math.max(2.6, Math.min(5.5, fitZoom * 1.48));
+    const fitZoom = Math.min((this.viewW * 0.92) / this.world.width, (this.viewH * 0.84) / this.world.height);
+    // Start nicely zoomed in on the central nest so Layer 1 pixel details are crisp & intimate!
+    this.camera.zoom = Math.max(6.8, Math.min(10.5, fitZoom * 3.2));
     this.camera.x = this.world.nestX;
-    this.camera.y = Math.max(this.world.height * 0.44, this.world.nestY - 34);
+    this.camera.y = this.world.nestY;
   }
 
   private resize() {
@@ -269,8 +277,28 @@ export class GameEngine {
     const stats = this.skillTree.getColonyStats();
     const events = this.ants.update(dt, this.world, this.particles, stats);
 
-    if (events.dugPixels > 0) {
-      this.audio.playDigTick();
+    if (events.dugPoints.length > 0) {
+      // Gentle pleasant eating sound ONLY when zoomed in close AND the ant is near the visible screen!
+      const zoomFactor = Math.max(0, Math.min(1, (this.camera.zoom - 4.4) / 7.2));
+      if (zoomFactor > 0.04) {
+        const halfW = Math.max(1, this.viewW * 0.5);
+        const halfH = Math.max(1, this.viewH * 0.5);
+        let bestProx = 0;
+        for (let i = 0; i < events.dugPoints.length; i++) {
+          const pt = events.dugPoints[i];
+          const sx = (pt.x - this.camera.x) * this.camera.zoom;
+          const sy = (pt.y - this.camera.y) * this.camera.zoom;
+          const distFrac = Math.hypot(sx / halfW, sy / halfH);
+          if (distFrac < 1.02) {
+            const prox = Math.pow(Math.max(0, 1 - distFrac * 0.92), 1.25);
+            if (prox > bestProx) bestProx = prox;
+          }
+        }
+        const intensity = zoomFactor * bestProx;
+        if (intensity > 0.05) {
+          this.audio.playDigTick(intensity);
+        }
+      }
     }
     if (events.artRevealed > 0) {
       this.audio.playArtReveal();
@@ -387,9 +415,9 @@ export class GameEngine {
         if (this.paused) return;
         e.preventDefault();
         this.cameraEaseTarget = null;
-        const factor = e.deltaY < 0 ? 1.12 : 0.89;
+        const factor = e.deltaY < 0 ? 1.14 : 0.88;
         const before = this.screenToWorld(e.clientX, e.clientY);
-        this.camera.zoom = Math.max(1.2, Math.min(12, this.camera.zoom * factor));
+        this.camera.zoom = Math.max(1.0, Math.min(28, this.camera.zoom * factor));
         const after = this.screenToWorld(e.clientX, e.clientY);
         this.camera.x += before.x - after.x;
         this.camera.y += before.y - after.y;
@@ -450,7 +478,7 @@ export class GameEngine {
         if (this.pinchStartDist > 0) {
           const scale = dist / this.pinchStartDist;
           if (Math.abs(scale - 1) > 0.06) this.callbacks.onZoomInteract();
-          this.camera.zoom = Math.max(1.2, Math.min(12, this.pinchStartZoom * scale));
+          this.camera.zoom = Math.max(1.0, Math.min(28, this.pinchStartZoom * scale));
         }
 
         const dx = midX - this.lastDragX;

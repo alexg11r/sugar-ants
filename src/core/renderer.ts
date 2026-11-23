@@ -33,7 +33,9 @@ export function drawDetailedAnt(
   colorOverride?: [number, number, number]
 ) {
   const cfg = ANT_TYPES[type];
-  const s = Math.max(1.8, zoom * 0.65) * cfg.scale;
+  // Scale smoothly up to 28x close-up zoom while staying crisp and proportional to individual pixel blocks!
+  const zoomScale = zoom <= 8 ? zoom * 0.62 : 4.96 + (zoom - 8) * 0.24;
+  const s = Math.max(1.8, zoomScale) * cfg.scale;
   const [r, g, b] = colorOverride || cfg.rgb;
 
   ctx.save();
@@ -477,9 +479,20 @@ export class WorldRenderer {
         let b = Math.round(bB + (tb - bB) * vis);
 
         if (isEdge[idx] === 1) {
-          r = Math.min(255, r + 18);
-          g = Math.min(255, g + 24);
-          b = Math.min(255, b + 20);
+          // Crisp tactile exposed mineral edge highlight (vivid pixel craft at close-up zoom!)
+          const rimGrain = (n & 15) - 6;
+          r = Math.min(255, Math.max(0, r + 32 + rimGrain));
+          g = Math.min(255, Math.max(0, g + 38 + rimGrain));
+          b = Math.min(255, Math.max(0, b + 30 + rimGrain));
+          if (cell === CellType.SoftSoil && (n & 7) === 0) {
+            g = Math.min(255, g + 26);
+          } else if (cell === CellType.Clay && (n & 7) === 1) {
+            r = Math.min(255, r + 28);
+            g = Math.min(255, g + 16);
+          } else if (cell === CellType.Obsidian && (n & 7) === 2) {
+            r = Math.min(255, r + 24);
+            b = Math.min(255, b + 30);
+          }
         }
 
         const mHp = maxHp[idx] || 1;

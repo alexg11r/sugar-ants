@@ -805,148 +805,129 @@ export class MeditativeAudio {
     this.playToneInternal(note, 0.35, 0.11, 'sine');
   }
 
-  playDigTick() {
+  /**
+   * Gentle, pleasant organic nibble sound ONLY played when the camera is zoomed in
+   * close and near the chewing ant (intensity in 0..1)!
+   */
+  playDigTick(intensity = 0.7) {
+    if (intensity <= 0.05) return;
     const now = performance.now();
-    if (now - this.lastDigSound < 115) return;
+    if (now - this.lastDigSound < 125) return;
     this.lastDigSound = now;
     if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
 
-    // Crisp tactile pixel-pop crunch inspired by minimalist digging ASMR!
+    const clamped = Math.max(0.05, Math.min(1, intensity));
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
+    const lp = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
-    const base = 240 + Math.random() * 190;
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(base, t);
-    osc.frequency.exponentialRampToValueAtTime(base * 0.45, t + 0.048);
 
+    // Soft organic wooden/crystalline marimba nibble tuned to current scale
+    const scale = this.getCurrentTrack().scale;
+    const base = (scale[Math.floor(Math.random() * 5)] || 320) * (0.96 + Math.random() * 0.08);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(base * 1.12, t);
+    osc.frequency.exponentialRampToValueAtTime(base * 0.78, t + 0.045);
+
+    lp.type = 'lowpass';
+    lp.frequency.value = 1100 + clamped * 900;
+
+    const vol = 0.042 * clamped;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.052, t + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+    gain.gain.exponentialRampToValueAtTime(vol, t + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.058);
 
-    osc.connect(gain);
+    osc.connect(lp);
+    lp.connect(gain);
     gain.connect(this.masterGain);
     osc.start(t);
-    osc.stop(t + 0.06);
+    osc.stop(t + 0.065);
   }
 
-  /** Crisp wooden/pixel UI hover blip (like reference menu!) */
+  /** Crisp subtle UI hover blip */
   playUiHover() {
     this.ensureStarted();
     if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(480, t);
-    osc.frequency.exponentialRampToValueAtTime(640, t + 0.032);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(520, t);
+    osc.frequency.exponentialRampToValueAtTime(660, t + 0.03);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.055, t + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.038);
+    gain.gain.exponentialRampToValueAtTime(0.042, t + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.036);
     osc.connect(gain);
     gain.connect(this.masterGain);
     osc.start(t);
-    osc.stop(t + 0.045);
+    osc.stop(t + 0.042);
   }
 
-  /** Snappy tactile button click sound */
+  /** Clean tactile UI button click */
   playUiClick() {
     this.ensureStarted();
     if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(340, t);
-    osc.frequency.exponentialRampToValueAtTime(160, t + 0.045);
-    const lp = this.ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 1400;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(380, t);
+    osc.frequency.exponentialRampToValueAtTime(195, t + 0.042);
 
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.075, t + 0.003);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.052);
+    gain.gain.exponentialRampToValueAtTime(0.07, t + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
 
-    osc.connect(lp);
-    lp.connect(gain);
+    osc.connect(gain);
     gain.connect(this.masterGain);
     osc.start(t);
-    osc.stop(t + 0.06);
+    osc.stop(t + 0.055);
   }
 
-  /** Studio splash bounce + sparkling pixel shimmer */
+  /** Original Sugar Ants studio signature: warm bioluminescent kalimba cascade as the ant draws GrAx! */
   playSplashLogo() {
     this.ensureStarted();
     if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
-    const t = this.ctx.currentTime;
-    // Soft bouncy impact thump
-    const thump = this.ctx.createOscillator();
-    const tg = this.ctx.createGain();
-    thump.type = 'sine';
-    thump.frequency.setValueAtTime(175, t);
-    thump.frequency.exponentialRampToValueAtTime(48, t + 0.22);
-    tg.gain.setValueAtTime(0.0001, t);
-    tg.gain.exponentialRampToValueAtTime(0.2, t + 0.01);
-    tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
-    thump.connect(tg);
-    tg.connect(this.masterGain);
-    thump.start(t);
-    thump.stop(t + 0.28);
-
-    // Shimmering digital sparkle ticks
-    const freqs = [880, 1174.66, 1396.91, 1760, 2093];
-    freqs.forEach((f, idx) => {
-      this.playToneInternal(f, 0.14, 0.04, 'triangle', 0.06 + idx * 0.045);
+    const notes = [329.63, 392.0, 493.88, 659.25, 783.99];
+    notes.forEach((f, idx) => {
+      this.playToneInternal(f, 0.52, 0.055, 'sine', 0.08 + idx * 0.095);
+      this.playToneInternal(f * 2, 0.25, 0.02, 'triangle', 0.08 + idx * 0.095);
     });
   }
 
-  /** Dramatic 3-beat pre-game intro impact + rising harmonic tension (0: blocks, 1: 1 sugar, 2: FIND IT!) */
-  playIntroBeat(beat: 0 | 1 | 2) {
+  /** Original atmospheric "Dive into the Colony" chapter swell: soft warm drone + glassy water-drop notes */
+  playChapterIntro() {
     this.ensureStarted();
     if (!this.ctx || !this.masterGain || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
+    const scale = this.getCurrentTrack().scale;
+    const root = (scale[0] || 220) * 0.5;
 
-    // Cinematic sub-bass impact hit
-    const sub = this.ctx.createOscillator();
-    const subG = this.ctx.createGain();
-    sub.type = 'sine';
-    const startF = beat === 0 ? 96 : beat === 1 ? 112 : 132;
-    const endF = beat === 0 ? 36 : beat === 1 ? 42 : 48;
-    sub.frequency.setValueAtTime(startF, t);
-    sub.frequency.exponentialRampToValueAtTime(endF, t + 0.38);
-    subG.gain.setValueAtTime(0.0001, t);
-    subG.gain.exponentialRampToValueAtTime(0.28, t + 0.012);
-    subG.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
-    sub.connect(subG);
-    subG.connect(this.masterGain);
-    sub.start(t);
-    sub.stop(t + 0.7);
-
-    // Rising tension chord pad (steps higher on each beat!)
-    const chords: number[][] = [
-      [110, 164.81, 220],         // Beat 0: deep A minor/5th
-      [130.81, 196.0, 261.63],    // Beat 1: C major lift
-      [146.83, 220.0, 293.66, 369.99] // Beat 2: radiant D major peak
-    ];
-    for (const f of chords[beat]) {
+    // Gentle subterranean warm swell
+    for (const mult of [1, 1.5, 2]) {
       const osc = this.ctx.createOscillator();
       const lp = this.ctx.createBiquadFilter();
       const g = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(f, t);
-      osc.frequency.exponentialRampToValueAtTime(f * 1.03, t + 1.15);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(root * mult, t);
       lp.type = 'lowpass';
-      lp.frequency.setValueAtTime(320 + beat * 240, t);
-      lp.frequency.exponentialRampToValueAtTime(750 + beat * 420, t + 1.05);
+      lp.frequency.setValueAtTime(260, t);
+      lp.frequency.exponentialRampToValueAtTime(920, t + 1.4);
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.042 + beat * 0.012, t + 0.08);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.25);
+      g.gain.exponentialRampToValueAtTime(mult === 1 ? 0.09 : 0.045, t + 0.45);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
       osc.connect(lp);
       lp.connect(g);
       g.connect(this.masterGain);
       osc.start(t);
-      osc.stop(t + 1.3);
+      osc.stop(t + 2.5);
     }
+
+    // Delicate glassy dewdrop chimes
+    const chimes = [scale[2] || 329.63, scale[4] || 440, scale[5] || 493.88, (scale[2] || 329.63) * 2];
+    chimes.forEach((f, idx) => {
+      this.playToneInternal(f, 0.9, 0.055, 'sine', 0.25 + idx * 0.28);
+    });
   }
 
   /** Crisp organic pop-pop-pop when initial nest chamber opens */

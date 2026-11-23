@@ -112,6 +112,7 @@ export interface AntUpdateEvents {
   artRevealed: number;
   dugPixels: number;
   damagedPixels: number;
+  dugPoints: { x: number; y: number }[];
   anomalySpawned: number;
   antsExpired: number;
 }
@@ -246,6 +247,7 @@ export class AntManager {
       artRevealed: 0,
       dugPixels: 0,
       damagedPixels: 0,
+      dugPoints: [],
       anomalySpawned: 0,
       antsExpired: 0
     };
@@ -320,6 +322,9 @@ export class AntManager {
   ) {
     events.dugPixels += res.dugCount;
     events.damagedPixels += res.damagedCount;
+    if (res.dugCount > 0 || res.damagedCount > 0) {
+      events.dugPoints.push({ x, y });
+    }
     events.crystalsBroken += res.crystalsBroken;
     events.artRevealed += res.artRevealed;
     if (res.sugarHit) {

@@ -18,41 +18,47 @@
       <canvas id="game-canvas"></canvas>
       <canvas id="mp-canvas" class="hidden"></canvas>
 
-      <!-- Studio Splash Screen (like reference intro!) -->
+      <!-- Original Sugar Ants Studio Splash (Bioluminescent Ant Trail Reveal!) -->
       <div id="splash-overlay" class="splash-overlay">
-        <div class="sunburst-rays splash-rays"></div>
-        <div class="splash-center">
-          <div class="splash-emblem" aria-hidden="true">
-            <svg viewBox="0 0 24 24" shape-rendering="crispEdges">
-              <!-- Pixel glowing ant crest -->
-              <rect x="6" y="2" width="2" height="2" fill="#63ffa0" />
-              <rect x="16" y="2" width="2" height="2" fill="#63ffa0" />
-              <rect x="8" y="4" width="2" height="2" fill="#3ce87a" />
-              <rect x="14" y="4" width="2" height="2" fill="#3ce87a" />
-              <rect x="8" y="6" width="8" height="5" fill="#3ce87a" />
-              <rect x="9" y="8" width="2" height="2" fill="#07140d" />
-              <rect x="13" y="8" width="2" height="2" fill="#07140d" />
-              <rect x="9" y="11" width="6" height="4" fill="#2bc466" />
-              <rect x="4" y="11" width="5" height="2" fill="#3ce87a" />
-              <rect x="15" y="11" width="5" height="2" fill="#3ce87a" />
-              <rect x="3" y="15" width="5" height="2" fill="#2bc466" />
-              <rect x="16" y="15" width="5" height="2" fill="#2bc466" />
-              <rect x="7" y="15" width="10" height="7" fill="#3ce87a" />
-              <rect x="9" y="17" width="6" height="2" fill="#ffe680" />
-            </svg>
+        <div class="splash-tunnel-wrap">
+          <div class="splash-ant-track">
+            <div class="splash-vein"></div>
+            <div class="splash-crawler" aria-hidden="true">
+              <svg viewBox="0 0 24 14" shape-rendering="crispEdges">
+                <rect x="2" y="5" width="5" height="4" fill="#2cc464" />
+                <rect x="8" y="6" width="4" height="3" fill="#3ce87a" />
+                <rect x="13" y="5" width="4" height="4" fill="#7dffb2" />
+                <rect x="17" y="4" width="3" height="1" fill="#ffe680" />
+                <rect x="17" y="9" width="3" height="1" fill="#ffe680" />
+                <rect x="5" y="2" width="1" height="3" fill="#3ce87a" />
+                <rect x="10" y="2" width="1" height="4" fill="#3ce87a" />
+                <rect x="5" y="9" width="1" height="3" fill="#3ce87a" />
+                <rect x="10" y="9" width="1" height="3" fill="#3ce87a" />
+              </svg>
+            </div>
           </div>
-          <div class="splash-title">GrAx</div>
-          <div class="splash-sub">STUDIO</div>
+          <div class="splash-wordmark">GrAx</div>
+          <div class="splash-sub">COLONY CRAFT</div>
         </div>
         <div class="intro-skip-note">Нажмите, чтобы пропустить</div>
       </div>
 
-      <!-- Dramatic 3-Beat Pre-Game Intro Sequence -->
+      <!-- Original Atmospheric Subterranean Chapter Opening -->
       <div id="game-intro-overlay" class="game-intro-overlay hidden">
-        <div id="intro-rays" class="sunburst-rays intro-rays"></div>
-        <div id="intro-stage" class="intro-stage">
-          <div id="intro-big" class="intro-big">50 000</div>
-          <div id="intro-small" class="intro-small">БЛОКОВ</div>
+        <div class="chapter-ripples" aria-hidden="true">
+          <span class="chapter-ring r1"></span>
+          <span class="chapter-ring r2"></span>
+          <span class="chapter-ring r3"></span>
+        </div>
+        <div id="intro-stage" class="chapter-stage">
+          <div id="intro-chapter-num" class="chapter-num">ГЛАВА I</div>
+          <div id="intro-big" class="chapter-title">ПРИЗМА СВЕТА</div>
+          <div class="chapter-divider"></div>
+          <div id="intro-small" class="chapter-whisper">В глубине тишины спит Лунный Мотылёк…</div>
+          <div class="chapter-goal">
+            <span class="chapter-sugar-dot"></span>
+            <span>Отыщи скрытый сахар и раскрой тайный узор</span>
+          </div>
         </div>
         <div class="intro-skip-note">Нажмите, чтобы пропустить</div>
       </div>

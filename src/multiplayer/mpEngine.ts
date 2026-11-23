@@ -1716,6 +1716,9 @@ export class MultiplayerEngine {
       }
 
       this.revealCircle(x, y, 22);
+      if (indices.length > 0 && idx === indices[0]) {
+        this.playProximityDigSound(x, y);
+      }
     }
 
     if (
@@ -1970,6 +1973,7 @@ export class MultiplayerEngine {
 
     if (dugAny) {
       this.revealCircle(cx, cy, 24);
+      this.playProximityDigSound(cx, cy);
       // Check if 99%+ of all breakable blocks are eaten in Co-op -> Epic iridescent shimmer finale!
       if (
         !this.state.allCleared &&
@@ -1979,6 +1983,22 @@ export class MultiplayerEngine {
       ) {
         this.triggerEpicCoopClear();
       }
+    }
+  }
+
+  /** Gentle eating sound ONLY when zoomed in close and near the chewing ant! */
+  private playProximityDigSound(wx: number, wy: number) {
+    const zoomFactor = Math.max(0, Math.min(1, (this.camera.zoom - 4.4) / 7.2));
+    if (zoomFactor <= 0.04) return;
+    const halfW = Math.max(1, this.viewW * 0.5);
+    const halfH = Math.max(1, this.viewH * 0.5);
+    const sx = (wx - this.camera.x) * this.camera.zoom;
+    const sy = (wy - this.camera.y) * this.camera.zoom;
+    const distFrac = Math.hypot(sx / halfW, sy / halfH);
+    if (distFrac >= 1.02) return;
+    const intensity = zoomFactor * Math.pow(Math.max(0, 1 - distFrac * 0.92), 1.25);
+    if (intensity > 0.05) {
+      this.audio.playDigTick(intensity);
     }
   }
 
@@ -2293,9 +2313,9 @@ export class MultiplayerEngine {
       (e) => {
         if (!this.active) return;
         e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.12 : 0.89;
+        const factor = e.deltaY < 0 ? 1.14 : 0.88;
         const before = this.screenToWorld(e.clientX, e.clientY);
-        this.camera.zoom = Math.max(1.0, Math.min(10, this.camera.zoom * factor));
+        this.camera.zoom = Math.max(1.0, Math.min(28, this.camera.zoom * factor));
         const after = this.screenToWorld(e.clientX, e.clientY);
         this.camera.x += before.x - after.x;
         this.camera.y += before.y - after.y;
@@ -2349,7 +2369,7 @@ export class MultiplayerEngine {
         const midX = (pts[0].x + pts[1].x) * 0.5;
         const midY = (pts[0].y + pts[1].y) * 0.5;
         if (this.pinchStartDist > 0) {
-          this.camera.zoom = Math.max(1.0, Math.min(10, this.pinchStartZoom * (dist / this.pinchStartDist)));
+          this.camera.zoom = Math.max(1.0, Math.min(28, this.pinchStartZoom * (dist / this.pinchStartDist)));
         }
         this.camera.x -= (midX - this.lastDragX) / this.camera.zoom;
         this.camera.y -= (midY - this.lastDragY) / this.camera.zoom;

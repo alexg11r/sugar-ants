@@ -74,9 +74,9 @@ export class World {
     this.noise = new Uint8Array(size);
 
     this.nestX = Math.floor(this.width * 0.5);
-    this.nestY = Math.floor(this.height * 0.78);
-    this.sugarX = Math.floor(this.width * 0.5);
-    this.sugarY = Math.floor(this.height * 0.25);
+    this.nestY = Math.floor(this.height * 0.5);
+    this.sugarX = Math.floor(this.width * 0.28);
+    this.sugarY = Math.floor(this.height * 0.28);
 
     this.stats = {
       totalBreakable: 0,
@@ -102,8 +102,9 @@ export class World {
 
   private generate() {
     const { width: w, height: h } = this;
+    // Start right in the heart of the hidden artwork so details progressively unfold outward!
     this.nestX = Math.floor(w * 0.5);
-    this.nestY = Math.floor(h * 0.78);
+    this.nestY = Math.floor(h * 0.5);
 
     // 1. Layered geological terrain: SoftSoil -> Clay -> Stone -> Obsidian
     for (let y = 0; y < h; y++) {
@@ -144,15 +145,15 @@ export class World {
       }
     }
 
-    // 3. Starting nest clearing
-    const nestRadius = 13;
+    // 3. Starting nest clearing (intimate organic central pocket right beside Layer 1 details!)
+    const nestRadius = 9;
     for (let dy = -nestRadius; dy <= nestRadius; dy++) {
       for (let dx = -nestRadius; dx <= nestRadius; dx++) {
         const nx = this.nestX + dx;
         const ny = this.nestY + dy;
         if (!this.inBounds(nx, ny)) continue;
         const dist = Math.hypot(dx, dy);
-        const jitter = (this.noise[ny * w + nx] / 255) * 3.2;
+        const jitter = (this.noise[ny * w + nx] / 255) * 2.4;
         if (dist + jitter < nestRadius) {
           const idx = ny * w + nx;
           if (this.cells[idx] !== CellType.HiddenArt) {
@@ -165,16 +166,16 @@ export class World {
     // Reveal vision around initial nest
     this.revealCircle(this.nestX, this.nestY, nestRadius + this.revealRadius);
 
-    // 3b. BFS Flood-Fill Reachability from Nest: guarantees Sugar & Crystals NEVER spawn inside sealed HiddenArt loops!
+    // 3b. BFS Flood-Fill Reachability from Nest: guarantees Sugar, Artifacts & Crystals NEVER spawn inside sealed HiddenArt loops!
     this.reachableMask = computeReachableMask(this.cells, w, h, [{ x: this.nestX, y: this.nestY }]);
 
-    // 4. Place the Sugar Cube strictly inside the BFS-reachable territory (completely hidden until exposed!)
+    // 4. Place the Sugar Cube strictly inside the BFS-reachable territory (360° outward from center!)
     let placedSugar = false;
     for (let attempt = 0; attempt < 900; attempt++) {
-      const sx = Math.floor(w * 0.1 + Math.random() * (w * 0.8));
-      const sy = Math.floor(h * 0.1 + Math.random() * (h * 0.65));
+      const sx = Math.floor(w * 0.08 + Math.random() * (w * 0.84));
+      const sy = Math.floor(h * 0.08 + Math.random() * (h * 0.84));
       const distFromNest = Math.hypot(sx - this.nestX, sy - this.nestY);
-      if (distFromNest < Math.min(w, h) * 0.44) continue;
+      if (distFromNest < Math.min(w, h) * 0.3) continue;
       if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, sx, sy, 4)) continue;
 
       this.sugarX = sx;
@@ -258,15 +259,15 @@ export class World {
       }
     }
 
-    // 5. Place Skill Point Crystals (2 nearby within initial sight so player immediately sees 1-2!)
+    // 5. Place Skill Point Crystals (2 nearby within initial sight in any direction around center!)
     let placedCrystals = 0;
     const nearBands = [
-      { rMin: 18, rMax: 28 },
-      { rMin: 22, rMax: 32 }
+      { rMin: 15, rMax: 24 },
+      { rMin: 18, rMax: 27 }
     ];
     for (const band of nearBands) {
-      for (let attempt = 0; attempt < 200; attempt++) {
-        const ang = -Math.PI * 0.12 - Math.random() * Math.PI * 0.76;
+      for (let attempt = 0; attempt < 240; attempt++) {
+        const ang = Math.random() * Math.PI * 2;
         const dist = band.rMin + Math.random() * (band.rMax - band.rMin);
         const cx = Math.round(this.nestX + Math.cos(ang) * dist);
         const cy = Math.round(this.nestY + Math.sin(ang) * dist);
