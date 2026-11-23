@@ -1,16 +1,23 @@
 import { CellType } from './types';
 
+export interface ReachabilityResult {
+  reachable: Uint8Array;
+  /** Exact 4-connected BFS step distance from the nearest seed (-1 if unreachable) */
+  dist: Int32Array;
+  maxDist: number;
+}
+
 /**
- * Computes a 4-connected BFS flood-fill mask of every cell an ant can genuinely reach
+ * Computes a 4-connected BFS flood-fill mask AND exact shortest-path distance map
  * from one or more seed points, requiring a 3x3 clearance from indestructible HiddenArt
  * walls so ants can never be blocked by tight 1px diagonal pinches or sealed art pockets.
  */
-export function computeReachableMask(
+export function computeReachableWithDist(
   cells: Uint8Array,
   width: number,
   height: number,
   seeds: { x: number; y: number }[]
-): Uint8Array {
+): ReachabilityResult {
   const size = width * height;
   const passable = new Uint8Array(size);
 
@@ -35,14 +42,16 @@ export function computeReachableMask(
   }
 
   const reachable = new Uint8Array(size);
+  const dist = new Int32Array(size);
+  dist.fill(-1);
   const queue = new Int32Array(size);
   let head = 0;
   let tail = 0;
+  let maxDist = 0;
 
   const enqueueSeed = (sx: number, sy: number) => {
     const cx = Math.round(sx);
     const cy = Math.round(sy);
-    // Find passable cells within the starting chamber radius around the seed
     let seededAny = false;
     for (let r = 0; r <= 12; r++) {
       for (let dy = -r; dy <= r; dy++) {
@@ -54,6 +63,7 @@ export function computeReachableMask(
           const idx = ny * width + nx;
           if (passable[idx] === 1 && cells[idx] === CellType.Empty && reachable[idx] === 0) {
             reachable[idx] = 1;
+            dist[idx] = 0;
             queue[tail++] = idx;
             seededAny = true;
           }
@@ -62,7 +72,6 @@ export function computeReachableMask(
       if (seededAny) break;
     }
 
-    // Fallback: if no Empty+passable cell found, accept any passable cell near seed
     if (!seededAny) {
       for (let r = 0; r <= 18 && !seededAny; r++) {
         for (let dy = -r; dy <= r && !seededAny; dy++) {
@@ -73,6 +82,7 @@ export function computeReachableMask(
             const idx = ny * width + nx;
             if (passable[idx] === 1 && reachable[idx] === 0) {
               reachable[idx] = 1;
+              dist[idx] = 0;
               queue[tail++] = idx;
               seededAny = true;
               break;
@@ -89,6 +99,7 @@ export function computeReachableMask(
 
   while (head < tail) {
     const idx = queue[head++];
+    const nextD = dist[idx] + 1;
     const x = idx % width;
     const y = (idx - x) / width;
 
@@ -96,6 +107,8 @@ export function computeReachableMask(
       const n = idx - 1;
       if (passable[n] === 1 && reachable[n] === 0) {
         reachable[n] = 1;
+        dist[n] = nextD;
+        if (nextD > maxDist) maxDist = nextD;
         queue[tail++] = n;
       }
     }
@@ -103,6 +116,8 @@ export function computeReachableMask(
       const n = idx + 1;
       if (passable[n] === 1 && reachable[n] === 0) {
         reachable[n] = 1;
+        dist[n] = nextD;
+        if (nextD > maxDist) maxDist = nextD;
         queue[tail++] = n;
       }
     }
@@ -110,6 +125,8 @@ export function computeReachableMask(
       const n = idx - width;
       if (passable[n] === 1 && reachable[n] === 0) {
         reachable[n] = 1;
+        dist[n] = nextD;
+        if (nextD > maxDist) maxDist = nextD;
         queue[tail++] = n;
       }
     }
@@ -117,12 +134,23 @@ export function computeReachableMask(
       const n = idx + width;
       if (passable[n] === 1 && reachable[n] === 0) {
         reachable[n] = 1;
+        dist[n] = nextD;
+        if (nextD > maxDist) maxDist = nextD;
         queue[tail++] = n;
       }
     }
   }
 
-  return reachable;
+  return { reachable, dist, maxDist };
+}
+
+export function computeReachableMask(
+  cells: Uint8Array,
+  width: number,
+  height: number,
+  seeds: { x: number; y: number }[]
+): Uint8Array {
+  return computeReachableWithDist(cells, width, height, seeds).reachable;
 }
 
 /**

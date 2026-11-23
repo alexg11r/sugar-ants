@@ -3,7 +3,7 @@ import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
-import { computeReachableMask, isReachableTerrainSquare } from '../core/reachability';
+import { computeReachableMask, computeReachableWithDist, isReachableTerrainSquare } from '../core/reachability';
 import { AimPreview, Camera, drawDetailedAnt } from '../core/renderer';
 import {
   Ant,
@@ -151,6 +151,7 @@ export class MultiplayerEngine {
   active = false;
   seed = 1337;
   private voteTickAccum = 0;
+  private achievementSpeedMult = 1;
 
   private offscreen: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
@@ -256,10 +257,12 @@ export class MultiplayerEngine {
     sugarFound?: boolean;
     activeVote?: SyncedVotePayload | null;
     startingSp?: number;
+    achievementSpeedMult?: number;
     preserveExistingBases?: boolean;
   }) {
     this.seed = opts.seed;
     this.transport = opts.transport;
+    this.achievementSpeedMult = opts.achievementSpeedMult ?? this.achievementSpeedMult ?? 1;
     const level = LEVELS.find((l) => l.id === opts.levelId) || LEVELS[0];
     const dims =
       opts.width && opts.height
@@ -673,9 +676,10 @@ export class MultiplayerEngine {
 
   getLocalColonyStats(): ColonyStats {
     const r = (id: string) => this.getSkillRank(id);
+    const achSpd = this.achievementSpeedMult;
     return {
       globalLifeMult: 1 + r('colony_life') * 0.25,
-      globalSpeedMult: 1,
+      globalSpeedMult: achSpd,
       crystalBonus: r('colony_crystal'),
       crystalLuckChance: 0,
       hardBlockBonusDmg: r('colony_armor'),
@@ -684,25 +688,25 @@ export class MultiplayerEngine {
       compassCooldownSec: 120,
       compassDuration: 5.0,
       worker: {
-        speedMult: 1 + r('worker_spd') * 0.22,
+        speedMult: (1 + r('worker_spd') * 0.22) * achSpd,
         dmgBonus: r('worker_dmg'),
         lifeMult: 1 + r('worker_life') * 0.35,
         maxActive: 6 + r('worker_cap') * 3
       },
       warrior: {
-        speedMult: 1 + r('warrior_spd') * 0.22,
+        speedMult: (1 + r('warrior_spd') * 0.22) * achSpd,
         dmgBonus: r('warrior_dmg') * 2,
         radiusBonus: r('warrior_cleave') * 0.65,
         maxActive: 2 + r('warrior_cap') * 2
       },
       scout: {
-        speedMult: 1 + r('scout_spd') * 0.25,
+        speedMult: (1 + r('scout_spd') * 0.25) * achSpd,
         dmgBonus: r('scout_dmg'),
         lifeMult: 1 + r('scout_life') * 0.4,
         maxActive: 4 + r('scout_cap') * 3
       },
       queen: {
-        spawnRateMult: 1 + r('queen_rate') * 0.25,
+        spawnRateMult: (1 + r('queen_rate') * 0.25) * achSpd,
         broodDmgBonus: r('queen_brood_dmg'),
         broodLifeMult: 1 + r('queen_brood_life') * 0.35,
         maxActive: 1 + r('queen_brood_life')
@@ -1020,50 +1024,59 @@ export class MultiplayerEngine {
       this.reachableMask = computeReachableMask(this.cells, w, h, primarySeed);
     }
 
-    // 5. Place Sugar Cube strictly inside BFS-reachable territory (100% mathematically guaranteed reachable!)
-    let placedSugar = false;
-    for (let attempt = 0; attempt < 500; attempt++) {
-      const sx = Math.floor(w * 0.5 + (rng() - 0.5) * (w * 0.34));
-      const sy = Math.floor(h * 0.5 + (rng() - 0.5) * (h * 0.4));
-      if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, sx, sy, 4)) continue;
-
-      this.sugarX = sx;
-      this.sugarY = sy;
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          this.setBlock((sy + dy) * w + (sx + dx), CellType.Sugar);
-        }
+    // 5. Place Sugar Cube strictly in the FARTHEST 22% BFS path distance from ALL player bases
+    // so Co-op / Versus maps are genuinely deep, fair, and never over in 5 minutes!
+    const allBaseSeeds = players.length > 0 ? players.map((p) => ({ x: p.baseX, y: p.baseY })) : [{ x: cx, y: cy }];
+    const distFromAll = computeReachableWithDist(this.cells, w, h, allBaseSeeds);
+    const sugarCandidates: { x: number; y: number; bfsDist: number }[] = [];
+    let maxSugarBfs = 0;
+    for (let y = 8; y < h - 8; y += 3) {
+      for (let x = 8; x < w - 8; x += 3) {
+        if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, 4)) continue;
+        const d = distFromAll.dist[y * w + x];
+        if (d <= 0) continue;
+        if (d > maxSugarBfs) maxSugarBfs = d;
+        sugarCandidates.push({ x, y, bfsDist: d });
       }
-      placedSugar = true;
-      break;
     }
-    if (!placedSugar) {
-      // Deterministic fallback: pick reachable terrain square closest to map center!
-      let bestX = cx;
-      let bestY = cy;
-      let bestDist = Infinity;
-      for (const margin of [3, 2]) {
-        for (let y = 8; y < h - 8; y += 2) {
-          for (let x = 8; x < w - 8; x += 2) {
-            if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, margin)) continue;
-            const d = Math.hypot(x - cx, y - cy);
-            if (d < bestDist) {
-              bestDist = d;
-              bestX = x;
-              bestY = y;
-            }
-          }
+
+    const farPool = sugarCandidates.filter((c) => c.bfsDist >= maxSugarBfs * 0.78);
+    if (farPool.length > 0) {
+      const pick = farPool[Math.floor(rng() * farPool.length)];
+      this.sugarX = pick.x;
+      this.sugarY = pick.y;
+    } else if (sugarCandidates.length > 0) {
+      sugarCandidates.sort((a, b) => b.bfsDist - a.bfsDist);
+      this.sugarX = sugarCandidates[0].x;
+      this.sugarY = sugarCandidates[0].y;
+    } else {
+      this.sugarX = cx;
+      this.sugarY = cy;
+    }
+
+    // Encase Sugar inside a protective Stone/Obsidian geode shell so Co-op matches have real depth & pacing
+    for (let dy = -13; dy <= 13; dy++) {
+      for (let dx = -13; dx <= 13; dx++) {
+        const sx = this.sugarX + dx;
+        const sy = this.sugarY + dy;
+        if (sx < 1 || sx >= w - 1 || sy < 1 || sy >= h - 1) continue;
+        const idx = sy * w + sx;
+        const cur = this.cells[idx] as CellType;
+        if (cur === CellType.HiddenArt || cur === CellType.Empty) continue;
+        const d = Math.hypot(dx, dy) + (this.noise[idx] / 255) * 2.2;
+        if (d < 8.5) {
+          this.setBlock(idx, CellType.Obsidian);
+        } else if (d < 13.5 && (cur === CellType.SoftSoil || cur === CellType.Clay)) {
+          this.setBlock(idx, CellType.Stone);
         }
-        if (bestDist < Infinity) break;
       }
-      this.sugarX = bestX;
-      this.sugarY = bestY;
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
-          if (this.cells[idx] !== CellType.HiddenArt) {
-            this.setBlock(idx, CellType.Sugar);
-          }
+    }
+
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
+        if (this.cells[idx] !== CellType.HiddenArt) {
+          this.setBlock(idx, CellType.Sugar);
         }
       }
     }

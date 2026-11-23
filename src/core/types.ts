@@ -158,6 +158,23 @@ export interface ArtifactDef {
   rgb: [number, number, number];
 }
 
+export interface CareerStats {
+  antsSpawned: number;
+  blocksDug: number;
+  crystalsCollected: number;
+  mapsCleared: number;
+}
+
+export interface AchievementDef {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  accent: string;
+  goal: number;
+  getProgress: (state: SaveState) => number;
+}
+
 export interface SaveState {
   skillPoints: number;
   nodeRanks: Record<string, number>;
@@ -165,6 +182,8 @@ export interface SaveState {
   mutationClaimedLevels: string[];
   mutations: MutationId[];
   artifacts: string[];
+  achievements: string[];
+  career: CareerStats;
   currentLevelId: string;
   settings: GameSettings;
 }

@@ -126,6 +126,7 @@ export class GameEngine {
   }
 
   destroy() {
+    this.skillTree.flushPendingSave();
     cancelAnimationFrame(this.rafId);
     if (this.unsubBgTick) {
       this.unsubBgTick();
@@ -252,8 +253,10 @@ export class GameEngine {
     if (res.ok) {
       const rgb = ANT_TYPES[this.selectedAnt].rgb;
       this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 5, 16, 0.5, 1.4);
+      this.skillTree.recordCareer({ antsSpawned: 1 });
       if (this.selectedAnt === 'compass') {
         this.audio.playCompassLaunch();
+        this.skillTree.unlockAchievement('use_compass');
         this.callbacks.onToast('🧭 Компас взял след сахара!');
       } else {
         this.audio.playSpawn();
@@ -300,6 +303,9 @@ export class GameEngine {
         }
       }
     }
+    if (events.dugPixels > 0) {
+      this.skillTree.recordCareer({ blocksDug: events.dugPixels });
+    }
     if (events.artRevealed > 0) {
       this.audio.playArtReveal();
     }
@@ -316,6 +322,7 @@ export class GameEngine {
         gained += 1;
       }
       this.skillTree.addSkillPoints(gained);
+      this.skillTree.recordCareer({ crystalsCollected: events.crystalsBroken });
       this.audio.playCrystal();
       this.callbacks.onToast(`♦ +${gained} очко навыков`);
       this.callbacks.onHudSync();
@@ -338,6 +345,7 @@ export class GameEngine {
     // Epic 100% map-cleared finale: sweep stray pixels, zoom out to showcase shimmering art & fireworks!
     if (events.dugPixels > 0 && this.world.checkAndFinishClear()) {
       this.skillTree.markLevelCompleted(this.world.level.id);
+      this.skillTree.recordCareer({ mapsCleared: 1 });
       this.audio.playEpicClearFanfare();
       this.easeCameraToFullMap();
       for (let b = 0; b < 6; b++) {
@@ -406,6 +414,9 @@ export class GameEngine {
     window.addEventListener('resize', () => {
       this.resize();
     });
+    window.addEventListener('beforeunload', () => {
+      this.skillTree.flushPendingSave();
+    });
 
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -421,6 +432,9 @@ export class GameEngine {
         const after = this.screenToWorld(e.clientX, e.clientY);
         this.camera.x += before.x - after.x;
         this.camera.y += before.y - after.y;
+        if (this.camera.zoom >= 16) {
+          this.skillTree.unlockAchievement('zoom_macro');
+        }
         this.callbacks.onZoomInteract();
       },
       { passive: false }
@@ -479,6 +493,9 @@ export class GameEngine {
           const scale = dist / this.pinchStartDist;
           if (Math.abs(scale - 1) > 0.06) this.callbacks.onZoomInteract();
           this.camera.zoom = Math.max(1.0, Math.min(28, this.pinchStartZoom * scale));
+          if (this.camera.zoom >= 16) {
+            this.skillTree.unlockAchievement('zoom_macro');
+          }
         }
 
         const dx = midX - this.lastDragX;

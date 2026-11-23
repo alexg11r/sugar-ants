@@ -1,5 +1,7 @@
 import { LEVELS } from '../core/levels';
 import {
+  AchievementDef,
+  CareerStats,
   GameSettings,
   MutationId,
   PlayableAntId,
@@ -7,6 +9,7 @@ import {
   SkillBranch,
   SkillNodeDef
 } from '../core/types';
+import { findNewlyEarnedAchievements, getAchievementById } from './achievements';
 
 const STORAGE_KEY = 'sugar_ants_save_v3';
 
@@ -389,6 +392,15 @@ function createDefaultSettings(): GameSettings {
   };
 }
 
+function createDefaultCareer(): CareerStats {
+  return {
+    antsSpawned: 0,
+    blocksDug: 0,
+    crystalsCollected: 0,
+    mapsCleared: 0
+  };
+}
+
 function createDefaultSave(): SaveState {
   return {
     skillPoints: 0,
@@ -397,6 +409,8 @@ function createDefaultSave(): SaveState {
     mutationClaimedLevels: [],
     mutations: [],
     artifacts: [],
+    achievements: [],
+    career: createDefaultCareer(),
     currentLevelId: 'prism',
     settings: createDefaultSettings()
   };
@@ -404,6 +418,9 @@ function createDefaultSave(): SaveState {
 
 export class SkillTreeManager {
   state: SaveState;
+  onAchievementUnlocked: ((ach: AchievementDef) => void) | null = null;
+  private saveThrottleDirty = false;
+  private lastBgSaveMs = 0;
 
   constructor() {
     this.state = this.load();
@@ -426,6 +443,8 @@ export class SkillTreeManager {
           : [],
         mutations: Array.isArray(parsed.mutations) ? (parsed.mutations as MutationId[]) : [],
         artifacts: Array.isArray(parsed.artifacts) ? (parsed.artifacts as string[]) : [],
+        achievements: Array.isArray(parsed.achievements) ? (parsed.achievements as string[]) : [],
+        career: { ...createDefaultCareer(), ...(parsed.career || {}) },
         currentLevelId: typeof parsed.currentLevelId === 'string' ? parsed.currentLevelId : def.currentLevelId,
         settings: { ...createDefaultSettings(), ...(parsed.settings || {}) }
       };
@@ -469,7 +488,66 @@ export class SkillTreeManager {
     this.state.artifacts.push(id);
     this.state.skillPoints += 1;
     this.save();
+    this.evaluateAchievements();
     return true;
+  }
+
+  /** Permanent +1% speed to ALL ants for each unlocked achievement! */
+  getAchievementSpeedMult(): number {
+    return 1 + this.state.achievements.length * 0.01;
+  }
+
+  /** Explicitly unlock a trigger-based achievement (compass, zoom_macro, coop_play, etc.) */
+  unlockAchievement(id: string): boolean {
+    if (this.state.achievements.includes(id)) return false;
+    const def = getAchievementById(id);
+    if (!def) return false;
+    this.state.achievements.push(id);
+    this.save();
+    this.onAchievementUnlocked?.(def);
+    return true;
+  }
+
+  /** Evaluates all progress-based achievements and emits callbacks for any newly earned ones */
+  evaluateAchievements() {
+    const newlyEarned = findNewlyEarnedAchievements(this.state);
+    if (newlyEarned.length === 0) return;
+    for (const ach of newlyEarned) {
+      if (!this.state.achievements.includes(ach.id)) {
+        this.state.achievements.push(ach.id);
+      }
+    }
+    this.save();
+    for (const ach of newlyEarned) {
+      this.onAchievementUnlocked?.(ach);
+    }
+  }
+
+  recordCareer(patch: Partial<CareerStats>) {
+    if (patch.antsSpawned) this.state.career.antsSpawned += patch.antsSpawned;
+    if (patch.blocksDug) this.state.career.blocksDug += patch.blocksDug;
+    if (patch.crystalsCollected) this.state.career.crystalsCollected += patch.crystalsCollected;
+    if (patch.mapsCleared) this.state.career.mapsCleared += patch.mapsCleared;
+
+    this.evaluateAchievements();
+
+    // Throttle frequent dig saves to once every 3s (immediate save for milestones)
+    const now = Date.now();
+    if (patch.mapsCleared || patch.crystalsCollected || now - this.lastBgSaveMs >= 3000) {
+      this.lastBgSaveMs = now;
+      this.saveThrottleDirty = false;
+      this.save();
+    } else {
+      this.saveThrottleDirty = true;
+    }
+  }
+
+  flushPendingSave() {
+    if (this.saveThrottleDirty) {
+      this.saveThrottleDirty = false;
+      this.lastBgSaveMs = Date.now();
+      this.save();
+    }
   }
 
   hasMutation(id: MutationId): boolean {
@@ -484,6 +562,7 @@ export class SkillTreeManager {
       this.state.mutationClaimedLevels.push(forLevelId);
     }
     this.save();
+    this.evaluateAchievements();
   }
 
   hasClaimedMutationForLevel(levelId: string): boolean {
@@ -552,6 +631,7 @@ export class SkillTreeManager {
     this.state.skillPoints -= cost;
     this.state.nodeRanks[nodeId] = this.getRank(nodeId) + 1;
     this.save();
+    this.evaluateAchievements();
     return true;
   }
 
@@ -571,6 +651,7 @@ export class SkillTreeManager {
     if (!this.state.completedLevels.includes(levelId)) {
       this.state.completedLevels.push(levelId);
       this.save();
+      this.evaluateAchievements();
     }
   }
 
@@ -578,13 +659,15 @@ export class SkillTreeManager {
     const r = (id: string) => this.getRank(id);
     const echoMult = this.hasMutation('colony_echo') ? 1.3 : 1.0;
     const metabMult = this.hasMutation('fast_metabolism') ? 1.18 : 1.0;
+    const achSpeedMult = this.getAchievementSpeedMult();
+    const totalGlobalSpeed = metabMult * achSpeedMult;
     const acidBonus = this.hasMutation('acid_jaws') ? 1 : 0;
     const twinBonus = this.hasMutation('twin_workers') ? 2 : 0;
     const hasCompassMut = this.hasMutation('compass_cd');
 
     return {
       globalLifeMult: (1 + r('colony_life') * 0.25) * echoMult,
-      globalSpeedMult: metabMult,
+      globalSpeedMult: totalGlobalSpeed,
       crystalBonus: r('colony_crystal'),
       crystalLuckChance: this.hasMutation('crystal_luck') ? 0.25 : 0,
       hardBlockBonusDmg: r('colony_armor') + acidBonus,
@@ -593,25 +676,25 @@ export class SkillTreeManager {
       compassCooldownSec: hasCompassMut ? 78 : 120,
       compassDuration: hasCompassMut ? 7.0 : 5.0,
       worker: {
-        speedMult: (1 + r('worker_spd') * 0.22) * metabMult,
+        speedMult: (1 + r('worker_spd') * 0.22) * totalGlobalSpeed,
         dmgBonus: r('worker_dmg'),
         lifeMult: 1 + r('worker_life') * 0.35,
         maxActive: 6 + twinBonus + r('worker_cap') * 3
       },
       warrior: {
-        speedMult: (1 + r('warrior_spd') * 0.22) * metabMult,
+        speedMult: (1 + r('warrior_spd') * 0.22) * totalGlobalSpeed,
         dmgBonus: r('warrior_dmg') * 2,
         radiusBonus: r('warrior_cleave') * 0.65,
         maxActive: 2 + r('warrior_cap') * 2
       },
       scout: {
-        speedMult: (1 + r('scout_spd') * 0.25) * metabMult,
+        speedMult: (1 + r('scout_spd') * 0.25) * totalGlobalSpeed,
         dmgBonus: r('scout_dmg'),
         lifeMult: 1 + r('scout_life') * 0.4,
         maxActive: 4 + r('scout_cap') * 3
       },
       queen: {
-        spawnRateMult: (1 + r('queen_rate') * 0.25) * metabMult,
+        spawnRateMult: (1 + r('queen_rate') * 0.25) * totalGlobalSpeed,
         broodDmgBonus: r('queen_brood_dmg'),
         broodLifeMult: 1 + r('queen_brood_life') * 0.35,
         maxActive: 1 + r('queen_brood_life')

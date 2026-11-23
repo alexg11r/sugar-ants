@@ -2,6 +2,7 @@ import { ANT_TYPES, PLAYABLE_ANTS } from '../core/ants';
 import { SOUNDTRACKS } from '../core/audio';
 import { LEVELS } from '../core/levels';
 import {
+  AchievementDef,
   AntSkinId,
   ArtifactDef,
   LevelDefinition,
@@ -9,6 +10,7 @@ import {
   SkillIcon,
   SkillNodeDef
 } from '../core/types';
+import { ACHIEVEMENTS } from '../game/achievements';
 import { SECRET_ARTIFACTS, renderArtifactSvg } from '../game/artifacts';
 import { GameEngine } from '../game/engine';
 import { MenuBackground } from '../game/menuBg';
@@ -126,6 +128,7 @@ export class HudController {
   private mainMenuEl = document.getElementById('main-menu')!;
   private menuContinueSubEl = document.getElementById('menu-continue-sub')!;
   private menuArtCountEl = document.getElementById('menu-art-count')!;
+  private menuAchCountEl = document.getElementById('menu-ach-count')!;
   private menuProgressCountEl = document.getElementById('menu-progress-count')!;
   private menuMutCountEl = document.getElementById('menu-mut-count')!;
 
@@ -135,6 +138,7 @@ export class HudController {
   private levelNameEl = document.getElementById('level-name')!;
   private statMutCountEl = document.getElementById('stat-mut-count')!;
   private statArtifactsCountEl = document.getElementById('stat-artifacts-count')!;
+  private statAchCountEl = document.getElementById('stat-ach-count')!;
   private statSpEl = document.getElementById('stat-sp')!;
   private statArtEl = document.getElementById('stat-art')!;
   private statDigEl = document.getElementById('stat-dig')!;
@@ -241,6 +245,7 @@ export class HudController {
       this.engine.skillTree.updateSettings({ soundtrack: track.id });
       this.showToast(`♪ Саундтрек: ${track.name}`);
     };
+    this.engine.skillTree.onAchievementUnlocked = (ach) => this.handleAchievementUnlocked(ach);
 
     this.bindButtons();
     this.bindUiSounds();
@@ -406,6 +411,7 @@ export class HudController {
     });
 
     document.getElementById('menu-btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
+    document.getElementById('menu-btn-achievements')!.addEventListener('click', () => this.openAchievementsModal());
     document.getElementById('menu-btn-levels')!.addEventListener('click', () => this.openLevelsModal());
     document.getElementById('menu-btn-mutations')!.addEventListener('click', () => this.openMutationsModal());
     document.getElementById('menu-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
@@ -418,6 +424,7 @@ export class HudController {
     document.getElementById('btn-upgrades')!.addEventListener('click', () => this.openSkillTree());
     document.getElementById('btn-mutations')!.addEventListener('click', () => this.openMutationsModal());
     document.getElementById('btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
+    document.getElementById('btn-achievements')!.addEventListener('click', () => this.openAchievementsModal());
     document.getElementById('btn-levels')!.addEventListener('click', () => this.openLevelsModal());
 
     // Epic 100% Clear Banner buttons
@@ -615,10 +622,16 @@ export class HudController {
     this.mpHudBottomEl.classList.remove('hidden');
     this.mpChatBoxEl.classList.remove('hidden');
 
-    // Permanently discovered secret artifacts also grant +1 starting SP each in Co-op!
+    // Unlock multiplayer achievement & apply permanent +1% per achievement speed bonus + artifact SP bonus!
+    this.engine.skillTree.unlockAchievement('coop_play');
     const artifactBonus = this.engine.skillTree.state.artifacts.length;
+    const achSpeedMult = this.engine.skillTree.getAchievementSpeedMult();
     const baseSp = opts.startingSp ?? 3;
-    this.mp.startMatch({ ...opts, startingSp: baseSp + artifactBonus });
+    this.mp.startMatch({
+      ...opts,
+      startingSp: baseSp + artifactBonus,
+      achievementSpeedMult: achSpeedMult
+    });
     this.syncMpHud();
     this.syncMpVoteBanner();
     this.renderChatLogs();
@@ -632,6 +645,8 @@ export class HudController {
     this.menuMutCountEl.textContent = String(skillTree.state.mutations.length);
     const artCnt = skillTree.state.artifacts.length;
     this.menuArtCountEl.textContent = `${artCnt}/${SECRET_ARTIFACTS.length} • +${artCnt} ♦`;
+    const achCnt = skillTree.state.achievements.length;
+    this.menuAchCountEl.textContent = `${achCnt}/${ACHIEVEMENTS.length} • +${achCnt}% ⚡`;
   }
 
   /* =========================================================
@@ -704,12 +719,19 @@ export class HudController {
     }
   }
 
-  showToast(message: string) {
+  showToast(message: string, variant: 'default' | 'ach' = 'default') {
     const el = document.createElement('div');
-    el.className = 'toast';
+    el.className = variant === 'ach' ? 'toast toast-ach' : 'toast';
     el.textContent = message;
     this.toastContainerEl.appendChild(el);
-    setTimeout(() => el.remove(), 3100);
+    setTimeout(() => el.remove(), variant === 'ach' ? 4100 : 3100);
+  }
+
+  private handleAchievementUnlocked(ach: AchievementDef) {
+    this.engine.audio.playAchievementUnlock();
+    this.showToast(`🏆 Ачивка: ${ach.name} (+1% к скорости!)`, 'ach');
+    this.syncMenuSummary();
+    this.statAchCountEl.textContent = `${this.engine.skillTree.state.achievements.length}/${ACHIEVEMENTS.length}`;
   }
 
   /* =========================================================
@@ -1927,6 +1949,63 @@ export class HudController {
     }
   }
 
+  openAchievementsModal() {
+    const state = this.engine.skillTree.state;
+    const unlockedIds = state.achievements;
+    const unlockedCount = unlockedIds.length;
+    const total = ACHIEVEMENTS.length;
+    const pct = total > 0 ? Math.round((unlockedCount / total) * 100) : 0;
+
+    this.openModal(`🏆 Ачивки (${unlockedCount}/${total})`);
+    this.modalBodyEl.innerHTML = '';
+
+    const summary = document.createElement('div');
+    summary.className = 'ach-summary-bar';
+    summary.innerHTML = `
+      <div class="ach-summary-top">
+        <strong style="font-size:14px;color:#fff6cc;">Бонус скорости всех муравьёв</strong>
+        <span class="ach-bonus-pill">⚡ +${unlockedCount}% к скорости</span>
+      </div>
+      <div class="ach-progress-track">
+        <div class="ach-progress-fill" style="width:${pct}%"></div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.4;">
+        Каждая открытая ачивка навсегда добавляет <strong>+1% к скорости всех муравьёв</strong> (в Классике и Коопе).
+      </div>
+    `;
+    this.modalBodyEl.appendChild(summary);
+
+    // Show unlocked first or keep clear milestone order? Milestone order with crisp golden glow on unlocked!
+    for (const ach of ACHIEVEMENTS) {
+      const isDone = unlockedIds.includes(ach.id);
+      const rawProg = Math.max(0, Math.min(ach.goal, ach.getProgress(state)));
+      const progPct = ach.goal > 0 ? Math.round((rawProg / ach.goal) * 100) : 0;
+
+      const card = document.createElement('div');
+      card.className = `ach-card ${isDone ? 'unlocked' : 'locked'}`;
+      card.style.setProperty('--ach-color', ach.accent);
+      card.innerHTML = `
+        <div class="ach-icon-box">${ach.icon}</div>
+        <div class="card-row-info" style="flex:1;min-width:0;">
+          <div class="card-row-title">
+            <span style="color:${isDone ? ach.accent : 'var(--text-main)'}">${escapeHtml(ach.name)}</span>
+            ${isDone ? '<span class="badge-done">✓ +1% ⚡</span>' : '<span style="font-size:11px;color:var(--text-muted);">+1% ⚡</span>'}
+          </div>
+          <div class="card-row-desc">${escapeHtml(ach.description)}</div>
+          ${
+            !isDone && ach.goal > 1
+              ? `<div class="ach-mini-bar">
+                  <div class="ach-mini-track"><div class="ach-mini-fill" style="width:${progPct}%"></div></div>
+                  <span class="ach-mini-num">${rawProg.toLocaleString('ru-RU')} / ${ach.goal.toLocaleString('ru-RU')}</span>
+                </div>`
+              : ''
+          }
+        </div>
+      `;
+      this.modalBodyEl.appendChild(card);
+    }
+  }
+
   openCreditsModal() {
     this.openModal('✦ Авторы — Sugar Ants');
     this.modalBodyEl.innerHTML = `
@@ -1961,6 +2040,7 @@ export class HudController {
     this.levelNameEl.textContent = world.level.name;
     this.statMutCountEl.textContent = String(skillTree.state.mutations.length);
     this.statArtifactsCountEl.textContent = `${skillTree.state.artifacts.length}/${SECRET_ARTIFACTS.length}`;
+    this.statAchCountEl.textContent = `${skillTree.state.achievements.length}/${ACHIEVEMENTS.length}`;
     this.statSpEl.textContent = String(skillTree.state.skillPoints);
 
     const artPct =
@@ -2449,7 +2529,7 @@ export class HudController {
 
     const resetRow = document.createElement('div');
     resetRow.className = 'card-row';
-    resetRow.innerHTML = `<div class="card-row-info"><div class="card-row-title">Сброс прогресса</div><div class="card-row-desc">Очистить пройденные уровни и мутации</div></div>`;
+    resetRow.innerHTML = `<div class="card-row-info"><div class="card-row-title">Сброс прогресса</div><div class="card-row-desc">Очистить уровни, мутации, находки и ачивки</div></div>`;
     const resetBtn = document.createElement('button');
     resetBtn.className = 'action-btn danger';
     resetBtn.textContent = 'Сбросить';
@@ -2463,7 +2543,7 @@ export class HudController {
         // Ignore
       }
       this.engine.loadLevel(LEVELS[0].id, true);
-      this.showToast('Прогресс, мутации и находки сброшены');
+      this.showToast('Прогресс, мутации, находки и ачивки сброшены');
       this.sync();
       this.closeModal();
     });

@@ -1,4 +1,4 @@
-import { computeReachableMask, isReachableTerrainSquare } from './reachability';
+import { computeReachableWithDist, isReachableTerrainSquare } from './reachability';
 import { ArtifactDef, CellType, LevelDefinition, WorldStats } from './types';
 
 export interface DigResult {
@@ -120,13 +120,15 @@ export class World {
         const n2 =
           Math.sin(x * 0.11 - y * 0.09) * 0.65 +
           Math.cos((x + y) * 0.07) * 0.45;
-        const hardness = n1 * 0.65 + n2 * 0.55 + (distFromNest / Math.max(w, h)) * 0.8;
+        // Progressive geological depth: soft soil near nest -> dense Stone & Obsidian in far outer reaches!
+        const depthFactor = distFromNest / (Math.min(w, h) * 0.5);
+        const hardness = n1 * 0.55 + n2 * 0.45 + depthFactor * 1.15;
 
-        if (distFromNest < 34) {
+        if (distFromNest < 30) {
           this.setBlock(idx, CellType.SoftSoil);
         } else if (hardness > 1.75) {
           this.setBlock(idx, CellType.Obsidian);
-        } else if (hardness > 1.1) {
+        } else if (hardness > 1.05) {
           this.setBlock(idx, CellType.Stone);
         } else if (hardness > 0.35) {
           this.setBlock(idx, CellType.Clay);
@@ -166,56 +168,84 @@ export class World {
     // Reveal vision around initial nest
     this.revealCircle(this.nestX, this.nestY, nestRadius + this.revealRadius);
 
-    // 3b. BFS Flood-Fill Reachability from Nest: guarantees Sugar, Artifacts & Crystals NEVER spawn inside sealed HiddenArt loops!
-    this.reachableMask = computeReachableMask(this.cells, w, h, [{ x: this.nestX, y: this.nestY }]);
+    // 3b. BFS Flood-Fill Reachability + Exact Path Distance from Nest:
+    // Guarantees Sugar, Artifacts & Crystals NEVER spawn inside sealed HiddenArt loops!
+    const reach = computeReachableWithDist(this.cells, w, h, [{ x: this.nestX, y: this.nestY }]);
+    this.reachableMask = reach.reachable;
+    const distMap = reach.dist;
 
-    // 4. Place the Sugar Cube strictly inside the BFS-reachable territory (360° outward from center!)
-    let placedSugar = false;
-    for (let attempt = 0; attempt < 900; attempt++) {
-      const sx = Math.floor(w * 0.08 + Math.random() * (w * 0.84));
-      const sy = Math.floor(h * 0.08 + Math.random() * (h * 0.84));
-      const distFromNest = Math.hypot(sx - this.nestX, sy - this.nestY);
-      if (distFromNest < Math.min(w, h) * 0.3) continue;
-      if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, sx, sy, 4)) continue;
-
-      this.sugarX = sx;
-      this.sugarY = sy;
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          this.setBlock((sy + dy) * w + (sx + dx), CellType.Sugar);
-        }
+    // 4. Place the Sugar Cube DEEP in the far outer reaches (top 22% BFS path distance & far from nest!)
+    // so levels require genuine colony growth & exploration instead of being beaten in 5 minutes!
+    const validSugarSpots: { x: number; y: number; bfsDist: number; euclid: number }[] = [];
+    let maxSpotBfs = 0;
+    for (let y = 8; y < h - 8; y += 2) {
+      for (let x = 8; x < w - 8; x += 2) {
+        if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, 4)) continue;
+        const bd = distMap[y * w + x];
+        if (bd <= 0) continue;
+        const euclid = Math.hypot(x - this.nestX, y - this.nestY);
+        if (bd > maxSpotBfs) maxSpotBfs = bd;
+        validSugarSpots.push({ x, y, bfsDist: bd, euclid });
       }
-      placedSugar = true;
-      break;
     }
 
-    // Deterministic guaranteed-reachable fallback: pick the farthest reachable terrain square from the nest!
-    if (!placedSugar) {
+    const minEuclid = Math.min(w, h) * 0.48; // >= 134px straight-line on 440x280
+    let deepPool = validSugarSpots.filter((p) => p.bfsDist >= maxSpotBfs * 0.78 && p.euclid >= minEuclid);
+    if (deepPool.length === 0) {
+      deepPool = validSugarSpots.filter((p) => p.bfsDist >= maxSpotBfs * 0.68);
+    }
+
+    if (deepPool.length > 0) {
+      const pick = deepPool[Math.floor(Math.random() * deepPool.length)];
+      this.sugarX = pick.x;
+      this.sugarY = pick.y;
+    } else if (validSugarSpots.length > 0) {
+      validSugarSpots.sort((a, b) => b.bfsDist - a.bfsDist);
+      this.sugarX = validSugarSpots[0].x;
+      this.sugarY = validSugarSpots[0].y;
+    } else {
+      // Absolute last-resort reachable fallback
       let bestX = this.nestX;
       let bestY = Math.max(12, this.nestY - 40);
       let bestDist = -1;
-      for (const margin of [3, 2]) {
-        for (let y = 8; y < h - 8; y += 2) {
-          for (let x = 8; x < w - 8; x += 2) {
-            if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, margin)) continue;
-            const d = Math.hypot(x - this.nestX, y - this.nestY);
-            if (d > bestDist) {
-              bestDist = d;
-              bestX = x;
-              bestY = y;
-            }
+      for (let y = 8; y < h - 8; y += 2) {
+        for (let x = 8; x < w - 8; x += 2) {
+          if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, 2)) continue;
+          const d = distMap[y * w + x];
+          if (d > bestDist) {
+            bestDist = d;
+            bestX = x;
+            bestY = y;
           }
         }
-        if (bestDist > 0) break;
       }
       this.sugarX = bestX;
       this.sugarY = bestY;
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
-          if (this.cells[idx] !== CellType.HiddenArt) {
-            this.setBlock(idx, CellType.Sugar);
-          }
+    }
+
+    // Encase Sugar inside a natural dense Stone/Obsidian geode vault so rushing it requires genuine colony upgrades!
+    for (let dy = -14; dy <= 14; dy++) {
+      for (let dx = -14; dx <= 14; dx++) {
+        const sx = this.sugarX + dx;
+        const sy = this.sugarY + dy;
+        if (!this.inBounds(sx, sy)) continue;
+        const idx = sy * w + sx;
+        const cur = this.cells[idx] as CellType;
+        if (cur === CellType.HiddenArt || cur === CellType.Empty) continue;
+        const d = Math.hypot(dx, dy) + (this.noise[idx] / 255) * 2.2;
+        if (d < 9.5) {
+          this.setBlock(idx, CellType.Obsidian);
+        } else if (d < 14.5 && (cur === CellType.SoftSoil || cur === CellType.Clay)) {
+          this.setBlock(idx, CellType.Stone);
+        }
+      }
+    }
+
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const idx = (this.sugarY + dy) * w + (this.sugarX + dx);
+        if (this.cells[idx] !== CellType.HiddenArt) {
+          this.setBlock(idx, CellType.Sugar);
         }
       }
     }

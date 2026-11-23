@@ -352,7 +352,8 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px 20px;
+  overflow-y: auto;
 }
 
 .menu-bg-canvas {
@@ -370,7 +371,8 @@ body,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 18px;
+  margin: auto;
   animation: menu-fade 0.48s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -521,8 +523,8 @@ body,
 .mbtn {
   position: relative;
   width: 100%;
-  min-height: 54px;
-  padding: 10px 18px;
+  min-height: 50px;
+  padding: 9px 16px;
   border-radius: 10px;
   border: 2px solid rgba(130, 225, 170, 0.38);
   background: rgba(5, 14, 9, 0.84);
@@ -592,6 +594,16 @@ body,
   border-color: #ff8ea0;
   background: linear-gradient(135deg, rgba(255, 122, 138, 0.24), rgba(44, 16, 26, 0.92));
   box-shadow: 0 0 24px rgba(255, 122, 138, 0.36);
+}
+
+.mbtn-ach {
+  border-color: rgba(255, 216, 69, 0.46);
+}
+
+.mbtn-ach:hover {
+  border-color: #ffe26a;
+  background: linear-gradient(135deg, rgba(255, 216, 69, 0.24), rgba(44, 34, 12, 0.92));
+  box-shadow: 0 0 24px rgba(255, 216, 69, 0.38);
 }
 
 .mbtn-accent {
@@ -978,6 +990,11 @@ body,
   color: #ffc2cb;
 }
 
+.pill-ach {
+  border-color: rgba(255, 216, 69, 0.48);
+  color: #ffe78a;
+}
+
 .chevron {
   opacity: 0.6;
   font-size: 11px;
@@ -1293,6 +1310,140 @@ body,
   font-weight: 500;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
   animation: toast-in 0.25s ease, toast-out 0.35s ease 2.6s forwards;
+}
+
+.toast.toast-ach {
+  border: 1.5px solid #ffe26a;
+  background: linear-gradient(135deg, rgba(58, 44, 10, 0.96), rgba(14, 28, 18, 0.96));
+  color: #fff6c9;
+  font-weight: 700;
+  box-shadow:
+    0 10px 34px rgba(0, 0, 0, 0.65),
+    0 0 24px rgba(255, 216, 69, 0.42);
+  animation: toast-in 0.28s cubic-bezier(0.22, 1.35, 0.36, 1), toast-out 0.4s ease 3.6s forwards;
+}
+
+/* =========================================================
+   ACHIEVEMENTS MODAL & PROGRESS BARS
+   ========================================================= */
+.ach-summary-bar {
+  background: linear-gradient(135deg, rgba(64, 48, 12, 0.58), rgba(14, 28, 20, 0.88));
+  border: 1.5px solid rgba(255, 216, 69, 0.48);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ach-summary-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ach-bonus-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 216, 69, 0.16);
+  border: 1px solid rgba(255, 216, 69, 0.52);
+  color: #ffe78a;
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ach-progress-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ach-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3ce87a, #ffe26a);
+  box-shadow: 0 0 12px rgba(255, 216, 69, 0.45);
+  transition: width 0.3s ease;
+}
+
+.ach-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 11px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ach-card.unlocked {
+  border-color: color-mix(in srgb, var(--ach-color, #ffe26a) 68%, transparent);
+  background: color-mix(in srgb, var(--ach-color, #ffe26a) 11%, rgba(6, 16, 12, 0.92));
+  box-shadow: 0 5px 18px color-mix(in srgb, var(--ach-color, #ffe26a) 18%, transparent);
+}
+
+.ach-card.locked {
+  opacity: 0.72;
+}
+
+.ach-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.ach-card.unlocked .ach-icon-box {
+  border-color: var(--ach-color, #ffe26a);
+  background: color-mix(in srgb, var(--ach-color, #ffe26a) 18%, rgba(6, 14, 10, 0.92));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--ach-color, #ffe26a) 30%, transparent);
+}
+
+.ach-card.locked .ach-icon-box {
+  filter: grayscale(0.75);
+}
+
+.ach-mini-bar {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ach-mini-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.ach-mini-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ach-color, #3ce87a);
+}
+
+.ach-mini-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 @keyframes toast-in {

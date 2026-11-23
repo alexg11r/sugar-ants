@@ -956,6 +956,15 @@ export class MeditativeAudio {
     this.playToneInternal(880, 0.34, 0.085, 'sine', 0.06);
   }
 
+  /** Warm golden triumphant chime when unlocking an Achievement (+1% ant speed!) */
+  playAchievementUnlock() {
+    const notes = [587.33, 739.99, 880.0, 1174.66];
+    notes.forEach((f, idx) => {
+      this.playToneInternal(f, 0.55, 0.085, 'sine', idx * 0.065);
+      this.playToneInternal(f * 1.5, 0.3, 0.025, 'triangle', idx * 0.065 + 0.02);
+    });
+  }
+
   /** Magical shimmering arpeggio when discovering a Secret Collectible Artifact (e.g. Креветочка Руся!) */
   playArtifactFound() {
     const notes = [523.25, 659.25, 783.99, 987.77, 1174.66, 1567.98];
