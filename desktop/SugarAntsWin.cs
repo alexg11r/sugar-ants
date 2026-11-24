@@ -10,12 +10,19 @@ using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
+#if DEMO_VERSION
+[assembly: AssemblyTitle("Sugar Ants Demo")]
+[assembly: AssemblyDescription("Sugar Ants Demo — Meditative Pixel-Art Ant Colony Game")]
+[assembly: AssemblyCompany("GrAx Studio")]
+[assembly: AssemblyProduct("Sugar Ants Demo")]
+#else
 [assembly: AssemblyTitle("Sugar Ants")]
 [assembly: AssemblyDescription("Sugar Ants — Meditative Pixel-Art Ant Colony Game")]
 [assembly: AssemblyCompany("GrAx Studio")]
 [assembly: AssemblyProduct("Sugar Ants")]
-[assembly: AssemblyVersion("1.3.2.0")]
-[assembly: AssemblyFileVersion("1.3.2.0")]
+#endif
+[assembly: AssemblyVersion("1.3.3.0")]
+[assembly: AssemblyFileVersion("1.3.3.0")]
 
 namespace SugarAntsDesktop
 {
@@ -29,7 +36,15 @@ namespace SugarAntsDesktop
 
     public class GameWindow : Form
     {
+#if DEMO_VERSION
+        private const string AppTitle = "Sugar Ants Demo";
+        private const string AppDataFolder = "SugarAntsDemo";
+        private const string VirtualHost = "demo.sugarants.app";
+#else
+        private const string AppTitle = "Sugar Ants";
+        private const string AppDataFolder = "SugarAnts";
         private const string VirtualHost = "sugarants.app";
+#endif
         private readonly string _webRoot;
         private readonly bool _selfTest;
         private readonly string _logPath;
@@ -54,7 +69,7 @@ namespace SugarAntsDesktop
             string dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "GrAxStudio",
-                "SugarAnts"
+                AppDataFolder
             );
             Directory.CreateDirectory(dir);
             return Path.Combine(dir, "display.json");
@@ -111,7 +126,7 @@ namespace SugarAntsDesktop
             _windowedHeight = Math.Max(540, _prefs.Height);
             Log("GameWindow ctor (defaultFullscreen=" + _prefs.Fullscreen + ")");
 
-            Text = "Sugar Ants";
+            Text = AppTitle;
             BackColor = Color.FromArgb(5, 15, 10);
             MinimumSize = new Size(800, 540);
             KeyPreview = true;
@@ -288,7 +303,7 @@ namespace SugarAntsDesktop
                 string userDataDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "GrAxStudio",
-                    "SugarAnts",
+                    AppDataFolder,
                     "WebView2"
                 );
                 Directory.CreateDirectory(userDataDir);
@@ -458,7 +473,9 @@ namespace SugarAntsDesktop
             Uri u;
             if (!Uri.TryCreate(url, UriKind.Absolute, out u)) return;
             if ((u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp) &&
-                string.Equals(u.Host, "t.me", StringComparison.OrdinalIgnoreCase))
+                (string.Equals(u.Host, "t.me", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(u.Host, "boosty.to", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(u.Host, "www.boosty.to", StringComparison.OrdinalIgnoreCase)))
             {
                 try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); } catch { }
             }

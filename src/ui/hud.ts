@@ -1,6 +1,12 @@
 import { ANT_TYPES, PLAYABLE_ANTS } from '../core/ants';
 import { SOUNDTRACKS } from '../core/audio';
-import { hideExternalLinks, TELEGRAM_URL } from '../core/buildConfig';
+import {
+  BOOSTY_URL,
+  DEMO_MAX_LEVELS,
+  hideExternalLinks,
+  isDemoVersion,
+  TELEGRAM_URL
+} from '../core/buildConfig';
 import { isMobileDevice } from '../core/device';
 import {
   RESOLUTION_PRESETS,
@@ -10,6 +16,7 @@ import {
   subscribeDisplayChanges
 } from '../core/display';
 import { downloadArtworkPng, renderArtworkToCanvas } from '../core/gallery';
+import { BOOSTY_QR_SVG, TELEGRAM_QR_SVG } from '../core/qrAssets';
 import { notifyYandexGameplayStart, notifyYandexGameplayStop } from '../core/yandexSdk';
 import {
   formatNum,
@@ -431,7 +438,7 @@ export class HudController {
   private applyLanguage() {
     const lang = getLang();
     document.documentElement.lang = lang;
-    document.title = t('docTitle');
+    document.title = isDemoVersion ? t('docTitle').replace('Sugar Ants', 'Sugar Ants Demo') : t('docTitle');
     this.menuLangCodeEl.textContent = lang.toUpperCase();
 
     const setText = (id: string, text: string) => {
@@ -448,6 +455,11 @@ export class HudController {
     setText('intro-skip-note', t('skipNote'));
 
     // Main Menu
+    const demoBadgeEl = document.getElementById('menu-demo-badge');
+    if (demoBadgeEl) {
+      demoBadgeEl.textContent = t('demoBadge');
+      demoBadgeEl.classList.toggle('hidden', !isDemoVersion);
+    }
     setText('menu-tagline', t('tagline'));
     setText('menu-mp-label', t('multiplayer'));
     setText('menu-mp-meta', t('mpMeta'));
@@ -459,6 +471,7 @@ export class HudController {
     setText('menu-lbl-mutations', t('mutations'));
     setText('menu-lbl-settings', t('settings'));
     setText('menu-lbl-credits', t('credits'));
+    setText('menu-boosty-text', t('allContentBoosty'));
     setText('menu-tg-text', t('ourTelegram'));
 
     // Classic HUD tooltips & labels
@@ -1210,7 +1223,11 @@ export class HudController {
       this.menuPlayLabelEl.textContent = t('play');
       this.menuContinueSubEl.textContent = loc(lvl.name, lvl.nameEn);
     }
-    this.menuProgressCountEl.textContent = `${skillTree.state.completedLevels.length}/${LEVELS.length}`;
+    const maxMaps = isDemoVersion ? DEMO_MAX_LEVELS : LEVELS.length;
+    const completedInScope = isDemoVersion
+      ? skillTree.state.completedLevels.filter((id) => LEVELS.findIndex((l) => l.id === id) < DEMO_MAX_LEVELS).length
+      : skillTree.state.completedLevels.length;
+    this.menuProgressCountEl.textContent = `${completedInScope}/${maxMaps}`;
     this.menuGalleryCountEl.textContent = `${skillTree.getDiscoveredGalleryCount()}/${LEVELS.length}`;
     this.menuMutCountEl.textContent = String(skillTree.state.mutations.length);
     const artCnt = skillTree.state.artifacts.length;
@@ -2439,18 +2456,26 @@ export class HudController {
 
   showClassicEpicClearBanner(level: LevelDefinition) {
     const idx = LEVELS.findIndex((l) => l.id === level.id);
-    const nextLvl = LEVELS[(idx + 1) % LEVELS.length];
+    const isDemoCap = isDemoVersion && idx >= DEMO_MAX_LEVELS - 1;
     this.epicCurrentLevel = level;
     this.epicClearTitleEl.textContent = loc(level.name, level.nameEn);
-    this.epicBtnNextEl.textContent = t('epicNextNamed', { name: loc(nextLvl.name, nextLvl.nameEn) });
-    this.epicNextAction = () => {
-      this.engine.loadLevel(nextLvl.id, true);
-      this.engine.paused = true;
-      this.playPreGameIntro(() => {
-        this.enterClassicGame();
-        this.engine.playNestRevealBurst();
-      });
-    };
+    if (isDemoCap) {
+      this.epicBtnNextEl.textContent = t('demoUnlockCta');
+      this.epicNextAction = () => {
+        this.openDemoCompleteModal();
+      };
+    } else {
+      const nextLvl = LEVELS[(idx + 1) % LEVELS.length];
+      this.epicBtnNextEl.textContent = t('epicNextNamed', { name: loc(nextLvl.name, nextLvl.nameEn) });
+      this.epicNextAction = () => {
+        this.engine.loadLevel(nextLvl.id, true);
+        this.engine.paused = true;
+        this.playPreGameIntro(() => {
+          this.enterClassicGame();
+          this.engine.playNestRevealBurst();
+        });
+      };
+    }
     this.epicClearBannerEl.classList.remove('hidden');
   }
 
@@ -2879,7 +2904,13 @@ export class HudController {
     this.openModal(t('creditsTitle'));
     const tgBlock = hideExternalLinks
       ? ''
-      : `<div style="display:flex;justify-content:center;margin-top:12px;">
+      : `<div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:12px;">
+          <a data-external-link="boosty" href="${BOOSTY_URL}" target="_blank" rel="noopener noreferrer" class="boosty-link-btn" style="padding:8px 16px;font-size:13px;">
+            <svg class="boosty-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M13.4 2.2 6.8 13.1c-.9 1.5-.3 3.5 1.3 4.2l1.2.5-1.1 3.7c-.2.6.5 1.1 1 .7l7.9-6.6c1.2-1 1.4-2.8.4-4l-1.5-1.8 1.6-6.2c.2-.8-.8-1.3-1.3-.7l-2.9 3.6V2.5c0-.6-.7-.9-1-.3z" />
+            </svg>
+            <span>${t('allContentBoosty')}</span>
+          </a>
           <a data-external-link="telegram" href="${TELEGRAM_URL}" target="_blank" rel="noopener noreferrer" class="tg-donate-btn" style="padding:8px 16px;font-size:13px;">
             <svg class="tg-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="currentColor" d="M21.9 4.6c.3-1.2-.8-2.2-1.9-1.7L2.6 9.8c-1.2.5-1.1 2.2.1 2.6l4.4 1.4 1.7 5.3c.3 1 1.6 1.3 2.4.6l2.6-2.4 4.6 3.4c.9.7 2.2.2 2.4-.9L21.9 4.6zm-4.1 3.7-7.7 6.8-.5 3.1-1.2-3.9 9.4-6z" />
@@ -3385,7 +3416,8 @@ export class HudController {
 
     for (let i = 0; i < LEVELS.length; i++) {
       const lvl = LEVELS[i];
-      const unlocked = this.engine.skillTree.isLevelUnlocked(lvl.id);
+      const demoLocked = isDemoVersion && i >= DEMO_MAX_LEVELS;
+      const unlocked = !demoLocked && this.engine.skillTree.isLevelUnlocked(lvl.id);
       const isDone = this.engine.skillTree.state.completedLevels.includes(lvl.id);
       const rec = this.engine.skillTree.getRecord(lvl.id);
       const isSavedRun = Boolean(savedRun && savedRun.levelId === lvl.id);
@@ -3409,7 +3441,7 @@ export class HudController {
             ${rec.cleared100 ? `<span class="badge-done" style="border-color:rgba(255,226,106,0.55);color:#ffe26a;">${t('badge100')}</span>` : isDone ? `<span class="badge-done">${t('badgeDone')}</span>` : ''}
             ${isSavedRun && savedRun ? `<span class="badge-done" style="border-color:rgba(53,214,255,0.45);color:#8ce8ff;">💾 ${savedRun.digPct}%</span>` : ''}
           </div>
-          <div class="card-row-desc">${unlocked ? escapeHtml(lvlSub) : t('mapLockedDesc')}</div>
+          <div class="card-row-desc">${unlocked ? escapeHtml(lvlSub) : demoLocked ? t('demoMapLockedDesc') : t('mapLockedDesc')}</div>
         </div>
       `;
 
@@ -3418,35 +3450,45 @@ export class HudController {
       actionsWrap.style.gap = '6px';
       actionsWrap.style.flexShrink = '0';
 
-      if (unlocked && isSavedRun) {
-        const contBtn = document.createElement('button');
-        contBtn.className = 'action-btn primary';
-        contBtn.textContent = t('btnContinue');
-        contBtn.addEventListener('click', () => {
+      if (demoLocked) {
+        const demoBtn = document.createElement('button');
+        demoBtn.className = 'action-btn demo-full-btn';
+        demoBtn.textContent = t('demoBtnFull');
+        demoBtn.addEventListener('click', () => {
+          this.openDemoCompleteModal();
+        });
+        actionsWrap.appendChild(demoBtn);
+      } else {
+        if (unlocked && isSavedRun) {
+          const contBtn = document.createElement('button');
+          contBtn.className = 'action-btn primary';
+          contBtn.textContent = t('btnContinue');
+          contBtn.addEventListener('click', () => {
+            this.engine.audio.ensureStarted();
+            this.closeModal();
+            this.enterClassicGame();
+          });
+          actionsWrap.appendChild(contBtn);
+        }
+
+        const btn = document.createElement('button');
+        btn.className = `action-btn${unlocked && !isSavedRun ? ' primary' : ''}`;
+        btn.disabled = !unlocked;
+        btn.textContent = !unlocked ? t('btnLocked') : isSavedRun ? t('btnRestart') : t('btnPlay');
+        btn.addEventListener('click', () => {
           this.engine.audio.ensureStarted();
           this.closeModal();
-          this.enterClassicGame();
+          this.engine.loadLevel(lvl.id, true);
+          this.engine.paused = true;
+          this.menuBg.stop();
+          this.mainMenuEl.classList.add('hidden');
+          this.playPreGameIntro(() => {
+            this.enterClassicGame();
+            this.engine.playNestRevealBurst();
+          });
         });
-        actionsWrap.appendChild(contBtn);
+        actionsWrap.appendChild(btn);
       }
-
-      const btn = document.createElement('button');
-      btn.className = `action-btn${unlocked && !isSavedRun ? ' primary' : ''}`;
-      btn.disabled = !unlocked;
-      btn.textContent = !unlocked ? t('btnLocked') : isSavedRun ? t('btnRestart') : t('btnPlay');
-      btn.addEventListener('click', () => {
-        this.engine.audio.ensureStarted();
-        this.closeModal();
-        this.engine.loadLevel(lvl.id, true);
-        this.engine.paused = true;
-        this.menuBg.stop();
-        this.mainMenuEl.classList.add('hidden');
-        this.playPreGameIntro(() => {
-          this.enterClassicGame();
-          this.engine.playNestRevealBurst();
-        });
-      });
-      actionsWrap.appendChild(btn);
       row.appendChild(actionsWrap);
       this.modalBodyEl.appendChild(row);
     }
@@ -3549,9 +3591,14 @@ export class HudController {
   }
 
   private openPostSugarNextModal(level: LevelDefinition) {
+    const idx = LEVELS.findIndex((l) => l.id === level.id);
+    if (isDemoVersion && idx >= DEMO_MAX_LEVELS - 1) {
+      this.openDemoCompleteModal();
+      return;
+    }
+
     this.openModal(t('postSugarTitle'));
     this.modalBodyEl.innerHTML = '';
-    const idx = LEVELS.findIndex((l) => l.id === level.id);
     const nextLevel = idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1] : null;
 
     const box = document.createElement('div');
@@ -3580,6 +3627,80 @@ export class HudController {
       });
       actions.appendChild(nextBtn);
     }
+    this.modalBodyEl.appendChild(actions);
+  }
+
+  /** Demo completion showcase: 2 scannable QR codes (Boosty & Telegram) + clickable links! */
+  openDemoCompleteModal() {
+    this.openModal(t('demoCompleteTitle'));
+    this.modalBodyEl.innerHTML = `
+      <div class="demo-complete-wrap">
+        <p class="demo-complete-sub">${t('demoCompleteSub')}</p>
+        <div class="demo-qr-grid">
+          <div class="demo-qr-card demo-qr-boosty">
+            <div class="demo-qr-frame">${BOOSTY_QR_SVG}</div>
+            <div class="demo-qr-title">${t('demoQrBoostyTitle')}</div>
+            <div class="demo-qr-hint">${t('demoQrBoostyHint')}</div>
+            <a
+              id="demo-link-boosty"
+              href="${BOOSTY_URL}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="demo-qr-btn boosty"
+            >
+              <svg class="boosty-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M13.4 2.2 6.8 13.1c-.9 1.5-.3 3.5 1.3 4.2l1.2.5-1.1 3.7c-.2.6.5 1.1 1 .7l7.9-6.6c1.2-1 1.4-2.8.4-4l-1.5-1.8 1.6-6.2c.2-.8-.8-1.3-1.3-.7l-2.9 3.6V2.5c0-.6-.7-.9-1-.3z" />
+              </svg>
+              <span>boosty.to/graxstudio ↗</span>
+            </a>
+          </div>
+          <div class="demo-qr-card demo-qr-tg">
+            <div class="demo-qr-frame">${TELEGRAM_QR_SVG}</div>
+            <div class="demo-qr-title">${t('demoQrTgTitle')}</div>
+            <div class="demo-qr-hint">${t('demoQrTgHint')}</div>
+            <a
+              id="demo-link-tg"
+              href="${TELEGRAM_URL}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="demo-qr-btn tg"
+            >
+              <svg class="tg-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M21.9 4.6c.3-1.2-.8-2.2-1.9-1.7L2.6 9.8c-1.2.5-1.1 2.2.1 2.6l4.4 1.4 1.7 5.3c.3 1 1.6 1.3 2.4.6l2.6-2.4 4.6 3.4c.9.7 2.2.2 2.4-.9L21.9 4.6zm-4.1 3.7-7.7 6.8-.5 3.1-1.2-3.9 9.4-6z" />
+              </svg>
+              <span>t.me/graxstudio ↗</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'demo-complete-actions';
+
+    if (this.mode === 'classic') {
+      const stayBtn = document.createElement('button');
+      stayBtn.className = 'action-btn';
+      stayBtn.textContent = t('stayAndDig');
+      stayBtn.addEventListener('click', () => this.closeModal());
+      actions.appendChild(stayBtn);
+
+      const menuBtn = document.createElement('button');
+      menuBtn.className = 'action-btn primary';
+      menuBtn.textContent = t('demoToMenu');
+      menuBtn.addEventListener('click', () => {
+        this.closeModal();
+        this.showMainMenu();
+      });
+      actions.appendChild(menuBtn);
+    } else {
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'action-btn primary';
+      closeBtn.textContent = t('continueBtn');
+      closeBtn.addEventListener('click', () => this.closeModal());
+      actions.appendChild(closeBtn);
+    }
+
     this.modalBodyEl.appendChild(actions);
   }
 
@@ -3791,7 +3912,7 @@ export class HudController {
     for (const track of SOUNDTRACKS) {
       const card = document.createElement('button');
       card.className = `track-card${s.soundtrack === track.id ? ' active' : ''}`;
-      card.innerHTML = `<strong>${escapeHtml(loc(track.name, track.nameEn))}</strong><small>${escapeHtml(loc(track.subtitle, track.subtitleEn))}</small>`;
+      card.innerHTML = `<strong>${escapeHtml(loc(track.name, track.nameEn))}</strong>`;
       card.addEventListener('click', () => {
         skillTree.updateSettings({ soundtrack: track.id, musicEnabled: true });
         audio.ensureStarted();

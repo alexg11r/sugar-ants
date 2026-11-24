@@ -1,6 +1,7 @@
 import { ANT_TYPES, AntManager } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
+import { isDemoVersion } from '../core/buildConfig';
 import { getOptimalDpr } from '../core/device';
 import { getCanvasRenderScale } from '../core/display';
 import { loc, t } from '../core/i18n';
@@ -12,7 +13,7 @@ import { World, WorldSnapshot } from '../core/world';
 import { getArtifactForLevel } from './artifacts';
 import { SkillTreeManager } from './skillTree';
 
-const ACTIVE_RUN_STORAGE_KEY = 'sugar_ants_active_run_v1';
+const ACTIVE_RUN_STORAGE_KEY = isDemoVersion ? 'sugar_ants_active_run_demo_v1' : 'sugar_ants_active_run_v1';
 export const BEACON_DURATION_SEC = 30;
 export const BEACON_COOLDOWN_SEC = 120;
 export const BONUS_SP_INTERVAL_SEC = 300; // +1 Skill Point every 5 minutes on all maps!

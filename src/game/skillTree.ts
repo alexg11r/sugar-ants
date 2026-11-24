@@ -1,3 +1,4 @@
+import { DEMO_MAX_LEVELS, isDemoVersion } from '../core/buildConfig';
 import { setLang } from '../core/i18n';
 import { LEVELS } from '../core/levels';
 import {
@@ -16,7 +17,7 @@ import {
 } from '../core/types';
 import { findNewlyEarnedAchievements, getAchievementById } from './achievements';
 
-const STORAGE_KEY = 'sugar_ants_save_v3';
+const STORAGE_KEY = isDemoVersion ? 'sugar_ants_save_demo_v3' : 'sugar_ants_save_v3';
 
 export const BRANCH_COLORS: Record<
   SkillBranch,
@@ -929,7 +930,9 @@ export class SkillTreeManager {
 
   isLevelUnlocked(levelId: string): boolean {
     const idx = LEVELS.findIndex((l) => l.id === levelId);
-    if (idx <= 0) return true;
+    if (idx < 0) return false;
+    if (isDemoVersion && idx >= DEMO_MAX_LEVELS) return false;
+    if (idx === 0) return true;
     const prevLevel = LEVELS[idx - 1];
     return this.state.completedLevels.includes(prevLevel.id);
   }

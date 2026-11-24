@@ -319,6 +319,24 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   creditsThanksName: { ru: '🦐 Креветочке Русе', en: '🦐 Rusya the Shrimp' },
   creditsThanksPlayers: { ru: 'и всем игрокам!', en: 'and all players!' },
   creditsTgBtn: { ru: 'Наш Telegram', en: 'Our Telegram' },
+  allContentBoosty: { ru: 'Весь контент', en: 'All Content' },
+
+  // Demo Version
+  demoBadge: { ru: 'ДЕМО', en: 'DEMO' },
+  demoMapLockedDesc: { ru: 'Доступно в полной версии Sugar Ants', en: 'Available in the full version of Sugar Ants' },
+  demoBtnFull: { ru: 'Полная версия', en: 'Full Version' },
+  demoCompleteTitle: { ru: '🎉 Демо-версия пройдена!', en: '🎉 Demo Complete!' },
+  demoCompleteSub: {
+    ru: 'Вы прошли оба уровня демо-версии! В полной версии вас ждут ещё 6 уникальных карт, секретные находки и испытания.',
+    en: 'You completed both demo levels! 6 more unique maps, secret artifacts, and challenges await in the full version.'
+  },
+  demoQrBoostyTitle: { ru: 'Весь контент на Boosty', en: 'All Content on Boosty' },
+  demoQrBoostyHint: { ru: 'Полная версия, обновления и бонусы', en: 'Full version, updates & exclusives' },
+  demoQrTgTitle: { ru: 'Наш Telegram', en: 'Our Telegram' },
+  demoQrTgHint: { ru: 'Новости, билды и общение', en: 'News, builds & community' },
+  demoOpenLink: { ru: 'Перейти ↗', en: 'Open Link ↗' },
+  demoToMenu: { ru: 'В главное меню', en: 'Main Menu' },
+  demoUnlockCta: { ru: '🎁 Полная версия', en: '🎁 Full Version' },
 
   // Engine & Gameplay Toasts
   toastPrevMapLocked: { ru: 'Сначала пройдите предыдущий уровень!', en: 'Clear the previous map first!' },
