@@ -471,7 +471,7 @@ export class AntManager {
   }
 
   private computeDamage(baseDmg: number, cell: CellType, stats: ColonyStats): number {
-    let dmg = baseDmg;
+    let dmg = baseDmg + (stats.globalDmgBonus || 0);
     if (
       stats.hardBlockBonusDmg > 0 &&
       (cell === CellType.Clay || cell === CellType.Stone || cell === CellType.Obsidian)

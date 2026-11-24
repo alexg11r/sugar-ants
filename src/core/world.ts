@@ -98,7 +98,7 @@ export class World {
   readonly width: number;
   readonly height: number;
   readonly level: LevelDefinition;
-  readonly revealRadius: number;
+  revealRadius: number;
 
   cells: Uint8Array;
   hp: Uint8Array;
@@ -298,6 +298,27 @@ export class World {
     const baseHp = BLOCK_HP[type] ?? 1;
     this.hp[idx] = baseHp;
     this.maxHp[idx] = baseHp;
+  }
+
+  /** Dynamically expands tunnel vision radius when player upgrades "Чутьё колонии"! */
+  setRevealRadius(nextRadius: number) {
+    const clamped = Math.max(18, Math.round(nextRadius));
+    if (clamped <= this.revealRadius) {
+      this.revealRadius = clamped;
+      return;
+    }
+    this.revealRadius = clamped;
+    // Immediately expand vision around the nest & existing dug empty corridors (sampled cleanly)!
+    this.revealCircle(this.nestX, this.nestY, 9 + this.revealRadius);
+    const step = 6;
+    for (let y = 4; y < this.height - 4; y += step) {
+      const row = y * this.width;
+      for (let x = 4; x < this.width - 4; x += step) {
+        if (this.cells[row + x] === CellType.Empty) {
+          this.revealCircle(x, y, this.revealRadius);
+        }
+      }
+    }
   }
 
   private generate() {

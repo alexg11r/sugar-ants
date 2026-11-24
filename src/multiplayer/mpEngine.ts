@@ -700,11 +700,15 @@ export class MultiplayerEngine {
 
   getLocalColonyStats(): ColonyStats {
     const r = (id: string) => this.getSkillRank(id);
-    const achSpd = this.achievementSpeedMult;
+    const achSpd = this.achievementSpeedMult * (1 + r('all_speed') * 0.1);
     const workerEvo = r('worker_evo') > 0;
     return {
-      globalLifeMult: 1 + r('colony_life') * 0.25,
+      globalLifeMult: (1 + r('colony_life') * 0.25) * (1 + r('all_life') * 0.15),
       globalSpeedMult: achSpd,
+      globalDmgBonus: r('all_dmg'),
+      visionBonusPx: r('all_vision') * 5,
+      beaconDurationSec: 30 + r('all_beacon') * 10,
+      beaconCooldownSec: Math.max(45, 120 - r('all_beacon') * 20),
       crystalBonus: r('colony_crystal'),
       crystalLuckChance: 0,
       hardBlockBonusDmg: r('colony_armor'),

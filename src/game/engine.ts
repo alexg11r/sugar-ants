@@ -125,6 +125,7 @@ export class GameEngine {
       this.beaconCooldown = restored.beaconCooldown;
       this.runElapsedSec = restored.runElapsedSec;
       this.hasActiveRun = true;
+      this.syncWorldUpgrades();
       this.renderer = new WorldRenderer(this.world.width, this.world.height);
       this.resize();
     } else {
@@ -133,6 +134,7 @@ export class GameEngine {
         LEVELS[0];
       const startArtifact = this.pickUncollectedArtifact(startLevel.id);
       this.world = new World(startLevel, skillTree.hasMutation('far_sense'), startArtifact);
+      this.syncWorldUpgrades();
       this.renderer = new WorldRenderer(this.world.width, this.world.height);
       this.resize();
       this.resetCamera();
@@ -301,6 +303,13 @@ export class GameEngine {
     this.beaconMode = false;
     this.canvas.style.cursor = this.touchPanMode ? 'grab' : 'crosshair';
     this.callbacks.onHudSync();
+  }
+
+  /** Applies dynamic world-level colony upgrades (such as "Чутьё колонии" vision radius)! */
+  syncWorldUpgrades() {
+    const stats = this.skillTree.getColonyStats();
+    const baseVision = this.skillTree.hasMutation('far_sense') ? 36 : 22;
+    this.world.setRevealRadius(baseVision + stats.visionBonusPx);
   }
 
   zoomBy(factor: number) {
@@ -643,13 +652,15 @@ export class GameEngine {
       this.sugarRushTimer = Math.max(0, this.sugarRushTimer - dt);
     }
 
-    // Pheromone Beacon 30s active duration -> 2 min (120s) cooldown!
+    const stats = this.skillTree.getColonyStats();
+
+    // Pheromone Beacon active duration (base 30s) -> cooldown (base 2 min / 120s)!
     if (this.beacon) {
       this.beacon.timeLeft -= dt;
       if (this.beacon.timeLeft <= 0) {
         this.particles.spawn(this.beacon.x, this.beacon.y, 66, 245, 197, 8, 16, 0.7, 1.4);
         this.beacon = null;
-        this.beaconCooldown = BEACON_COOLDOWN_SEC;
+        this.beaconCooldown = stats.beaconCooldownSec;
         this.callbacks.onHudSync();
       }
     } else if (this.beaconCooldown > 0) {
@@ -674,7 +685,6 @@ export class GameEngine {
       }
     }
 
-    const stats = this.skillTree.getColonyStats();
     const rushMult = this.sugarRushTimer > 0 ? 1.6 : 1;
     const events = this.ants.update(simDt, this.world, this.particles, stats, this.beacon, rushMult);
 
@@ -940,16 +950,17 @@ export class GameEngine {
         return;
       }
 
-      // Pheromone Beacon placement mode (30s active duration -> 2 min cooldown!)
+      // Pheromone Beacon placement mode (base 30s active duration -> 2 min cooldown!)
       if (this.beaconMode) {
         const wPos = this.screenToWorld(e.clientX, e.clientY);
         const cx = Math.max(8, Math.min(this.world.width - 8, wPos.x));
         const cy = Math.max(8, Math.min(this.world.height - 8, wPos.y));
+        const bDur = this.skillTree.getColonyStats().beaconDurationSec;
         this.beacon = {
           x: cx,
           y: cy,
-          timeLeft: BEACON_DURATION_SEC,
-          maxDuration: BEACON_DURATION_SEC
+          timeLeft: bDur,
+          maxDuration: bDur
         };
         this.beaconMode = false;
         this.canvas.style.cursor = 'crosshair';
@@ -957,7 +968,7 @@ export class GameEngine {
         this.audio.playBeaconPlace();
         this.particles.spawn(cx, cy, 66, 245, 197, 16, 26, 0.95, 1.9);
         this.saveRunProgress();
-        this.callbacks.onToast(t('toastBeaconSet'));
+        this.callbacks.onToast(t('toastBeaconSet', { sec: bDur }));
         this.callbacks.onHudSync();
         return;
       }

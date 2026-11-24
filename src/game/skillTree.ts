@@ -473,12 +473,108 @@ export const SKILL_NODES: SkillNodeDef[] = [
     cost: 5,
     maxRank: 3,
     requires: ['worker_life', 'colony_life']
+  },
+
+  // SIDE PANEL — Standalone General Ant Upgrades (Always Accessible Beside Main Tree!)
+  {
+    id: 'all_speed',
+    gx: -10,
+    gy: 0,
+    branch: 'colony',
+    shape: 'square',
+    icon: 'speed',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
+    title: 'Общая скорость',
+    titleEn: 'Swarm Speed',
+    description: '+10% к скорости движения и копания ВСЕХ муравьёв в колонии.',
+    descriptionEn: '+10% movement and digging speed for ALL ants in your colony.',
+    cost: 2,
+    maxRank: 4,
+    requires: []
+  },
+  {
+    id: 'all_dmg',
+    gx: -10,
+    gy: 1,
+    branch: 'colony',
+    shape: 'square',
+    icon: 'sword',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
+    title: 'Общая сила',
+    titleEn: 'Swarm Might',
+    description: '+1 к урону каждого укуса ВСЕХ муравьёв по любым блокам.',
+    descriptionEn: '+1 damage per bite for ALL ants against every block type.',
+    cost: 4,
+    maxRank: 3,
+    requires: []
+  },
+  {
+    id: 'all_life',
+    gx: -10,
+    gy: 2,
+    branch: 'colony',
+    shape: 'circle',
+    icon: 'hourglass',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
+    title: 'Общая живучесть',
+    titleEn: 'Swarm Vitality',
+    description: '+15% к времени жизни ВСЕХ муравьёв (складывается с веткой колонии).',
+    descriptionEn: '+15% lifespan for ALL ants (stacks with colony branch).',
+    cost: 2,
+    maxRank: 4,
+    requires: []
+  },
+  {
+    id: 'all_vision',
+    gx: -10,
+    gy: 3,
+    branch: 'colony',
+    shape: 'circle',
+    icon: 'radar',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
+    title: 'Чутьё колонии',
+    titleEn: 'Colony Sense',
+    description: 'Увеличивает радиус обнаружения кристаллов и подземных находок вокруг тоннелей (+5 пикс. за ранг).',
+    descriptionEn: 'Expands crystal & underground find vision radius around tunnels (+5 px per rank).',
+    cost: 3,
+    maxRank: 3,
+    requires: []
+  },
+  {
+    id: 'all_beacon',
+    gx: -10,
+    gy: 4,
+    branch: 'colony',
+    shape: 'square',
+    icon: 'beacon',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
+    title: 'Мощные феромоны',
+    titleEn: 'Potent Pheromones',
+    description: '+10 сек к длительности феромонной метки и -20 сек к её кулдауну.',
+    descriptionEn: '+10s Pheromone Beacon duration and -20s Beacon cooldown.',
+    cost: 3,
+    maxRank: 3,
+    requires: []
   }
 ];
 
 export interface ColonyStats {
   globalLifeMult: number;
   globalSpeedMult: number;
+  globalDmgBonus: number;
+  visionBonusPx: number;
+  beaconDurationSec: number;
+  beaconCooldownSec: number;
   crystalBonus: number;
   crystalLuckChance: number;
   hardBlockBonusDmg: number;
@@ -940,15 +1036,22 @@ export class SkillTreeManager {
     const echoMult = this.hasMutation('colony_echo') ? 1.3 : 1.0;
     const metabMult = this.hasMutation('fast_metabolism') ? 1.18 : 1.0;
     const achSpeedMult = this.getAchievementSpeedMult();
-    const totalGlobalSpeed = metabMult * achSpeedMult;
+    const generalSpeedMult = 1 + r('all_speed') * 0.1;
+    const generalLifeMult = 1 + r('all_life') * 0.15;
+    const totalGlobalSpeed = metabMult * achSpeedMult * generalSpeedMult;
     const acidBonus = this.hasMutation('acid_jaws') ? 1 : 0;
     const twinBonus = this.hasMutation('twin_workers') ? 2 : 0;
     const hasCompassMut = this.hasMutation('compass_cd');
     const workerEvo = r('worker_evo') > 0;
+    const beaconRank = r('all_beacon');
 
     return {
-      globalLifeMult: (1 + r('colony_life') * 0.25) * echoMult,
+      globalLifeMult: (1 + r('colony_life') * 0.25) * generalLifeMult * echoMult,
       globalSpeedMult: totalGlobalSpeed,
+      globalDmgBonus: r('all_dmg'),
+      visionBonusPx: r('all_vision') * 5,
+      beaconDurationSec: 30 + beaconRank * 10,
+      beaconCooldownSec: Math.max(45, 120 - beaconRank * 20),
       crystalBonus: r('colony_crystal'),
       crystalLuckChance: this.hasMutation('crystal_luck') ? 0.25 : 0,
       hardBlockBonusDmg: r('colony_armor') + acidBonus,

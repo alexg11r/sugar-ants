@@ -88,7 +88,8 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   tipDig: { ru: 'Прогрызено породы', en: 'Terrain excavated' },
   tipSugar: { ru: 'Статус поиска сахара', en: 'Sugar hunt status' },
   tipRush: { ru: 'Сахарная лихорадка: скорость ×1.6!', en: 'Sugar Rush: ×1.6 colony speed!' },
-  tipAuto: { ru: 'Авто-призыв муравьёв включён', en: 'Auto-summon ants active' },
+  tipAuto: { ru: 'Авто-призыв муравьёв: нажми, чтобы вкл/выкл', en: 'Auto-summon ants: click to toggle on/off' },
+  autoFabLabel: { ru: 'Авто', en: 'Auto' },
   tipBeacon: {
     ru: 'Феромонная метка (B): 30 сек, кулдаун 2 мин — притягивает Рабочих и выводок',
     en: 'Pheromone Beacon (B): 30s active, 2m cooldown — draws Workers & Brood'
@@ -147,8 +148,9 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   epicNext: { ru: 'Следующая карта →', en: 'Next Map →' },
   epicNextNamed: { ru: 'Далее: {name} →', en: 'Next: {name} →' },
 
-  // Skill Tree Inspector
+  // Skill Tree Inspector & Side General Upgrades
   stTitle: { ru: 'Дерево навыков', en: 'Skill Tree' },
+  stGeneralTitle: { ru: 'Общие для всех', en: 'All-Ant Upgrades' },
   stSelectNode: { ru: 'Выберите узел', en: 'Select a node' },
   stDefaultDesc: {
     ru: 'Наведите на любой узел, чтобы увидеть описание. Нажмите на доступный узел, чтобы изучить его.',
@@ -312,8 +314,8 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   },
   toastBeaconCleared: { ru: '📍 Феромонная метка рассеялась', en: '📍 Pheromone Beacon dissipated' },
   toastBeaconSet: {
-    ru: '📍 Метка поставлена на 30 сек! Рабочие и выводок тянутся туда',
-    en: '📍 Beacon active for 30s! Free Workers & Brood are drawn there'
+    ru: '📍 Метка поставлена на {sec} сек! Рабочие и выводок тянутся туда',
+    en: '📍 Beacon active for {sec}s! Free Workers & Brood are drawn there'
   },
   toastBloodhoundGo: {
     ru: '🧭 Ищейка взяла след сахара! Следуй за золотым хвостом!',

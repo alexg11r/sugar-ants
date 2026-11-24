@@ -26,7 +26,7 @@ import { ACHIEVEMENTS } from '../game/achievements';
 import { SECRET_ARTIFACTS, renderArtifactSvg } from '../game/artifacts';
 import { GameEngine } from '../game/engine';
 import { MenuBackground } from '../game/menuBg';
-import { getMutationDef, pickMutationChoices } from '../game/mutations';
+import { MUTATIONS, pickMutationChoices, renderMutationSvg } from '../game/mutations';
 import { BRANCH_COLORS, SKILL_NODES } from '../game/skillTree';
 import { computeCoopMapSize, MultiplayerEngine } from '../multiplayer/mpEngine';
 import {
@@ -128,6 +128,18 @@ function renderSkillSvg(icon: SkillIcon): string {
         <polygon points="12,2 16,8 22,12 16,16 12,22 8,16 2,12 8,8" fill="currentColor" fill-opacity="0.24"/>
         <circle cx="12" cy="12" r="3" fill="currentColor"/>
       </svg>`;
+    case 'radar':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9" stroke-opacity="0.45"/>
+        <circle cx="12" cy="12" r="5" stroke-opacity="0.8"/>
+        <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
+        <path d="M12 12 L18.5 6.5"/>
+      </svg>`;
+    case 'beacon':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 21 C12 21 6.5 14.5 6.5 9.8 A5.5 5.5 0 1 1 17.5 9.8 C17.5 14.5 12 21 12 21 Z" fill="currentColor" fill-opacity="0.25"/>
+        <circle cx="12" cy="9.5" r="2.2" fill="currentColor"/>
+      </svg>`;
   }
 }
 
@@ -170,6 +182,9 @@ export class HudController {
   private btnTouchPanIconEl = document.getElementById('btn-touch-pan-icon')!;
   private btnTouchPanLblEl = document.getElementById('btn-touch-pan-lbl')!;
   private beaconDockEl = document.getElementById('beacon-dock')!;
+  private btnAutoSummonEl = document.getElementById('btn-auto-summon')!;
+  private autoFabLabelEl = document.getElementById('auto-fab-label')!;
+  private autoFabStatusEl = document.getElementById('auto-fab-status')!;
   private beaconFabLabelEl = document.getElementById('beacon-fab-label')!;
   private beaconFabStatusEl = document.getElementById('beacon-fab-status')!;
   private mpTouchCamControlsEl = document.getElementById('mp-touch-cam-controls')!;
@@ -185,7 +200,6 @@ export class HudController {
   private sugarChipEl = document.getElementById('sugar-chip')!;
   private rushChipEl = document.getElementById('rush-chip')!;
   private statRushEl = document.getElementById('stat-rush')!;
-  private autoChipEl = document.getElementById('auto-chip')!;
   private btnBeaconEl = document.getElementById('btn-beacon')!;
   private antBarEl = document.getElementById('ant-bar')!;
   private upgradeBadgeEl = document.getElementById('upgrade-badge')!;
@@ -227,6 +241,7 @@ export class HudController {
 
   // Skill tree elements
   private stOverlayEl = document.getElementById('skill-tree-overlay')!;
+  private stGeneralNodesEl = document.getElementById('st-general-nodes')!;
   private stLinksEl = document.getElementById('st-links') as unknown as SVGSVGElement;
   private stNodesEl = document.getElementById('st-nodes')!;
   private stPointsNumEl = document.getElementById('st-points-num')!;
@@ -358,8 +373,8 @@ export class HudController {
     setTitle('chip-dig', t('tipDig'));
     setTitle('sugar-chip', t('tipSugar'));
     setTitle('rush-chip', t('tipRush'));
-    setTitle('auto-chip', t('tipAuto'));
-    setText('auto-chip-text', t('autoShort'));
+    setTitle('btn-auto-summon', t('tipAuto'));
+    this.autoFabLabelEl.textContent = t('autoFabLabel');
     setTitle('btn-beacon', t('tipBeacon'));
     this.beaconFabLabelEl.textContent = t('beaconLabel');
     this.syncTouchPanButton();
@@ -379,6 +394,7 @@ export class HudController {
     setText('epic-btn-save-png', t('epicSavePng'));
 
     // Skill Tree inspector static text
+    setText('st-general-title', `✦ ${t('stGeneralTitle')}`);
     setText('st-points-label', t('stAvailableSp'));
     if (!this.skillTreeOpen) {
       this.stTtCatEl.textContent = t('stTitle');
@@ -740,6 +756,12 @@ export class HudController {
 
     // Classic HUD buttons
     document.getElementById('btn-menu')!.addEventListener('click', () => this.showMainMenu());
+    this.btnAutoSummonEl.addEventListener('click', () => {
+      const next = !this.engine.skillTree.state.settings.autoSummon;
+      this.engine.skillTree.updateSettings({ autoSummon: next });
+      this.sync();
+      this.showToast(next ? t('setAutoSummonOn') : t('setAutoSummonOff'));
+    });
     this.btnBeaconEl.addEventListener('click', () => this.engine.toggleBeaconMode());
     document.getElementById('btn-settings-hud')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('btn-reset-cam')!.addEventListener('click', () => this.engine.resetCamera());
@@ -2768,7 +2790,9 @@ export class HudController {
     this.rushChipEl.classList.toggle('hidden', rushSec <= 0);
     if (rushSec > 0) this.statRushEl.textContent = `${rushSec}${t('secShort')}`;
 
-    this.autoChipEl.classList.toggle('hidden', !skillTree.state.settings.autoSummon);
+    const autoOn = skillTree.state.settings.autoSummon;
+    this.btnAutoSummonEl.classList.toggle('auto-on', autoOn);
+    this.autoFabStatusEl.textContent = autoOn ? t('setOn') : t('setOff');
     this.syncTouchPanButton();
 
     // Left-side Pheromone Beacon button (30s active duration -> 2m cooldown!)
@@ -2896,6 +2920,7 @@ export class HudController {
         if (nodeId === 'warrior_unlock') this.engine.selectAnt('warrior');
         if (nodeId === 'scout_unlock') this.engine.selectAnt('scout');
         if (nodeId === 'queen_unlock') this.engine.selectAnt('queen');
+        this.engine.syncWorldUpgrades();
         this.sync();
       } else {
         this.syncMpHud();
@@ -2911,10 +2936,65 @@ export class HudController {
     this.stNodesEl.classList.toggle('st-entering', animateEnter);
     this.stNodesEl.innerHTML = '';
     this.stLinksEl.innerHTML = '';
+    this.stGeneralNodesEl.innerHTML = '';
 
-    const visibleNodes = SKILL_NODES.filter((n) => adapter.isVisible(n));
+    const visibleNodes = SKILL_NODES.filter((n) => n.panel !== 'side' && adapter.isVisible(n));
+    const sideNodes = SKILL_NODES.filter((n) => n.panel === 'side');
+    const allDisplayed = [...visibleNodes, ...sideNodes];
     const visibleSet = new Set(visibleNodes.map((n) => n.id));
-    if (!visibleSet.has(this.selectedNodeId)) this.selectedNodeId = 'worker_root';
+    if (!allDisplayed.some((n) => n.id === this.selectedNodeId)) this.selectedNodeId = 'worker_root';
+
+    const clearSelectedHighlight = () => {
+      this.stNodesEl.querySelectorAll('.st-node.selected').forEach((n) => n.classList.remove('selected'));
+      this.stGeneralNodesEl.querySelectorAll('.st-side-node.selected').forEach((n) => n.classList.remove('selected'));
+    };
+
+    // Render standalone General Ant Upgrades side panel!
+    for (const node of sideNodes) {
+      const rank = adapter.getRank(node.id);
+      const isMaxed = rank >= node.maxRank;
+      const canBuy = adapter.canBuy(node);
+      const cost = adapter.getCost(node);
+      let stateClass = 'state-locked';
+      if (isMaxed) stateClass = 'state-maxed';
+      else if (canBuy) stateClass = 'state-available';
+      else if (rank > 0) stateClass = 'state-owned';
+
+      const btn = document.createElement('button');
+      btn.className = `st-side-node ${stateClass}${this.selectedNodeId === node.id ? ' selected' : ''}${this.lastBoughtNodeId === node.id ? ' just-bought' : ''}`;
+      btn.dataset.nodeId = node.id;
+      const title = loc(node.title, node.titleEn);
+      const subText = isMaxed ? `✓ ${rank}/${node.maxRank}` : `${rank}/${node.maxRank} • ♦${cost}`;
+      btn.innerHTML = `
+        <span class="st-side-ico">${renderSkillSvg(node.icon)}</span>
+        <span class="st-side-meta">
+          <span class="st-side-name">${escapeHtml(title)}</span>
+          <span class="st-side-sub">${subText}</span>
+        </span>
+      `;
+      btn.addEventListener('pointerenter', (e) => {
+        if (e.pointerType === 'mouse') {
+          this.selectedNodeId = node.id;
+          this.updateInspector(node);
+          clearSelectedHighlight();
+          btn.classList.add('selected');
+        }
+      });
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isTouch = (e as PointerEvent).pointerType === 'touch';
+        if ((!isTouch || this.selectedNodeId === node.id) && adapter.canBuy(node)) {
+          this.selectedNodeId = node.id;
+          this.tryBuySkillNode(node.id);
+        } else {
+          this.selectedNodeId = node.id;
+          this.updateInspector(node);
+          clearSelectedHighlight();
+          btn.classList.add('selected');
+        }
+      });
+      this.stGeneralNodesEl.appendChild(btn);
+    }
 
     for (const node of visibleNodes) {
       const x1 = ORIGIN_X + node.gx * NODE_STEP;
@@ -2964,7 +3044,7 @@ export class HudController {
         if (e.pointerType === 'mouse') {
           this.selectedNodeId = node.id;
           this.updateInspector(node);
-          this.stNodesEl.querySelectorAll('.st-node.selected').forEach((n) => n.classList.remove('selected'));
+          clearSelectedHighlight();
           el.classList.add('selected');
         }
       });
@@ -2978,7 +3058,7 @@ export class HudController {
         } else {
           this.selectedNodeId = node.id;
           this.updateInspector(node);
-          this.stNodesEl.querySelectorAll('.st-node.selected').forEach((n) => n.classList.remove('selected'));
+          clearSelectedHighlight();
           el.classList.add('selected');
         }
       });
@@ -3153,7 +3233,7 @@ export class HudController {
         card.className = 'mutation-choice';
         card.style.setProperty('--mut-color', mut.accent);
         card.innerHTML = `
-          <div class="mutation-icon">${mut.icon}</div>
+          <div class="mutation-icon" style="--mut-color:${mut.accent}">${renderMutationSvg(mut.id)}</div>
           <div class="card-row-info">
             <div class="card-row-title">${escapeHtml(mutName)}</div>
             <div class="card-row-desc">${escapeHtml(mutDesc)}</div>
@@ -3210,24 +3290,39 @@ export class HudController {
   }
 
   openMutationsModal() {
-    this.openModal(t('mutTitle'));
-    this.modalBodyEl.innerHTML = '';
     const owned = this.engine.skillTree.state.mutations;
+    const en = getLang() === 'en';
+    this.openModal(`${t('mutTitle')} (${owned.length}/${MUTATIONS.length})`);
+    this.modalBodyEl.innerHTML = '';
+
     if (owned.length === 0) {
-      this.modalBodyEl.innerHTML = `<div class="story-preview-box"><p><strong>${t('mutEmptyTitle')}</strong></p><p style="margin-top:6px;color:var(--text-muted);font-size:12.5px;">${t('mutEmptyDesc')}</p></div>`;
-      return;
+      const hint = document.createElement('div');
+      hint.className = 'story-preview-box';
+      hint.innerHTML = `<p><strong>${t('mutEmptyTitle')}</strong></p><p style="margin-top:4px;color:var(--text-muted);font-size:12.5px;">${t('mutEmptyDesc')}</p>`;
+      this.modalBodyEl.appendChild(hint);
     }
-    for (const id of owned) {
-      const mut = getMutationDef(id);
-      if (!mut) continue;
+
+    // Active owned mutations first (bright glowing animated icons!), then discoverable mutations below!
+    const sorted = [
+      ...MUTATIONS.filter((m) => owned.includes(m.id)),
+      ...MUTATIONS.filter((m) => !owned.includes(m.id))
+    ];
+    for (const mut of sorted) {
+      const isOwned = owned.includes(mut.id);
       const row = document.createElement('div');
-      row.className = 'card-row';
-      row.style.borderColor = mut.accent;
+      row.className = `card-row${isOwned ? '' : ' locked-row'}`;
+      if (isOwned) {
+        row.style.borderColor = mut.accent;
+        row.style.boxShadow = `0 6px 20px color-mix(in srgb, ${mut.accent} 22%, transparent)`;
+      }
       row.innerHTML = `
-        <div style="display:flex;align-items:center;gap:12px;">
-          <div class="mutation-icon" style="--mut-color:${mut.accent}">${mut.icon}</div>
-          <div class="card-row-info">
-            <div class="card-row-title">${escapeHtml(loc(mut.name, mut.nameEn))}</div>
+        <div style="display:flex;align-items:center;gap:12px;width:100%;">
+          <div class="mutation-icon" style="--mut-color:${mut.accent}${isOwned ? '' : ';opacity:0.65;filter:saturate(0.55);'}">${renderMutationSvg(mut.id)}</div>
+          <div class="card-row-info" style="flex:1;">
+            <div class="card-row-title">
+              <span style="color:${isOwned ? mut.accent : 'var(--text-main)'}">${escapeHtml(loc(mut.name, mut.nameEn))}</span>
+              ${isOwned ? `<span class="badge-done">✓ ${en ? 'Active' : 'Активна'}</span>` : `<span style="font-size:10.5px;color:var(--text-muted);">🔒 ${en ? 'Find Sugar' : 'За сахар'}</span>`}
+            </div>
             <div class="card-row-desc">${escapeHtml(loc(mut.description, mut.descriptionEn))}</div>
           </div>
         </div>

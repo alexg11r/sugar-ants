@@ -115,9 +115,6 @@
             <span>⚡</span>
             <span id="stat-rush">15с</span>
           </div>
-          <div id="auto-chip" class="stat-chip auto-chip hidden" title="Авто-призыв муравьёв включён">
-            <span id="auto-chip-text">🤖 Авто</span>
-          </div>
         </div>
 
         <div class="hud-group hud-right">
@@ -187,8 +184,13 @@
       <!-- Toast notifications -->
       <div id="toast-container" class="toast-container"></div>
 
-      <!-- Left-Side Pheromone Beacon Action Control (30s active, 2m cooldown!) -->
+      <!-- Left-Side Quick Action Dock (Auto-Summon Toggle + Pheromone Beacon 30s / 2m CD!) -->
       <div id="beacon-dock" class="beacon-left-dock hidden">
+        <button id="btn-auto-summon" class="beacon-fab auto-fab" title="Авто-призыв муравьёв: нажми, чтобы вкл/выкл">
+          <span class="beacon-fab-icon">🤖</span>
+          <span id="auto-fab-label" class="beacon-fab-label">Авто</span>
+          <span id="auto-fab-status" class="beacon-fab-status">Выкл</span>
+        </button>
         <button id="btn-beacon" class="beacon-fab" title="Феромонная метка (B): 30 сек, кулдаун 2 мин">
           <span class="beacon-fab-key">B</span>
           <span class="beacon-fab-icon">📍</span>
@@ -331,6 +333,11 @@
         <button id="skill-tree-close" class="st-close-btn" aria-label="Закрыть дерево навыков">X</button>
 
         <div class="st-layout">
+          <aside class="st-general-panel">
+            <div id="st-general-title" class="st-general-title">✦ Общие для всех</div>
+            <div id="st-general-nodes" class="st-general-nodes"></div>
+          </aside>
+
           <div class="st-viewport">
             <div id="st-canvas-wrap" class="st-canvas-wrap">
               <svg id="st-links" class="st-links"></svg>

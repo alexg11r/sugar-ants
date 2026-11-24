@@ -127,7 +127,9 @@ export type SkillIcon =
   | 'swarm'
   | 'compass'
   | 'poison'
-  | 'evo';
+  | 'evo'
+  | 'radar'
+  | 'beacon';
 
 export interface SkillNodeDef {
   id: string;
@@ -136,6 +138,8 @@ export interface SkillNodeDef {
   branch: SkillBranch;
   shape: SkillShape;
   icon: SkillIcon;
+  /** Optional 'side' panel renders standalone general colony upgrades beside the main ant tree */
+  panel?: 'side';
   category: string;
   categoryEn: string;
   title: string;
