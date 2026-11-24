@@ -8,6 +8,7 @@
     "dev:store": "vite --mode store",
     "build": "tsc && vite build",
     "build:store": "tsc && vite build --mode store",
+    "build:yandex": "tsc && vite build --mode yandex",
     "preview": "vite preview"
   },
   "devDependencies": {

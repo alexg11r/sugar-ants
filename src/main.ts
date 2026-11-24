@@ -1,5 +1,6 @@
 import './style.css';
 import { MeditativeAudio } from './core/audio';
+import { initYandexSdk } from './core/yandexSdk';
 import { GameEngine } from './game/engine';
 import { MenuBackground } from './game/menuBg';
 import { SkillTreeManager } from './game/skillTree';
@@ -39,3 +40,4 @@ const mp = new MultiplayerEngine(mpCanvas, audio, {
 
 hud = new HudController(engine, mp, menuBg);
 engine.start();
+initYandexSdk();

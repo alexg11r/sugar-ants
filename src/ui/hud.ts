@@ -3,6 +3,7 @@ import { SOUNDTRACKS } from '../core/audio';
 import { hideExternalLinks, TELEGRAM_URL } from '../core/buildConfig';
 import { isMobileDevice } from '../core/device';
 import { downloadArtworkPng, renderArtworkToCanvas } from '../core/gallery';
+import { notifyYandexGameplayStart, notifyYandexGameplayStop } from '../core/yandexSdk';
 import {
   formatNum,
   formatPlayTime,
@@ -1044,6 +1045,7 @@ export class HudController {
     this.closeSkillTree();
     this.hideSugarCinematic();
     this.engine.paused = true;
+    notifyYandexGameplayStop();
     this.mp.stop();
 
     this.hudTopEl.classList.add('hidden');
@@ -1091,6 +1093,7 @@ export class HudController {
     this.touchCamControlsEl.classList.remove('hidden');
     this.syncTouchPanButton();
     this.engine.paused = false;
+    notifyYandexGameplayStart();
     this.sync();
     this.renderTutorialHint();
   }
@@ -3069,7 +3072,10 @@ export class HudController {
     this.closeModal();
     this.closeAutoPopover();
     this.skillTreeOpen = true;
-    if (this.mode === 'classic') this.engine.paused = true;
+    if (this.mode === 'classic') {
+      this.engine.paused = true;
+      notifyYandexGameplayStop();
+    }
     this.lastBoughtNodeId = null;
     this.stOverlayEl.classList.remove('hidden');
     this.renderSkillTree(true);
@@ -3077,7 +3083,10 @@ export class HudController {
 
   closeSkillTree() {
     this.skillTreeOpen = false;
-    if (this.mode === 'classic') this.engine.paused = false;
+    if (this.mode === 'classic') {
+      this.engine.paused = false;
+      notifyYandexGameplayStart();
+    }
     this.stOverlayEl.classList.add('hidden');
     if (this.mode === 'classic') this.sync();
     if (this.mode === 'mp') this.syncMpHud();

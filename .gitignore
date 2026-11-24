@@ -1,6 +1,13 @@
 node_modules/
 dist/
+release/
+desktop-stage/
+desktop-out/
+android/
 backups/
+*.jks
+*.keystore
+keystore.properties
 .DS_Store
 Thumbs.db
 *.log
