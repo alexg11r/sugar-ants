@@ -129,6 +129,7 @@ export class MeditativeAudio {
   private padNodes: { stop: () => void }[] = [];
   private noiseBuffer: AudioBuffer | null = null;
   private seqTimer: number | null = null;
+  private nextStepTime = 0;
   private autoSwitchTimer: number | null = null;
   private stepIndex = 0;
 
@@ -214,7 +215,12 @@ export class MeditativeAudio {
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx();
+      // Use 'playback' latencyHint so Android/iOS allocate a generous hardware audio buffer (eliminates mobile crackles & stutter!)
+      try {
+        this.ctx = new AudioCtx({ latencyHint: 'playback' });
+      } catch {
+        this.ctx = new AudioCtx();
+      }
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = 1.0;
       this.masterGain.connect(this.ctx.destination);
@@ -236,6 +242,13 @@ export class MeditativeAudio {
       }
       this.noiseBuffer = buf;
 
+      // Auto-resume cleanly whenever mobile WebView/browser returns to foreground
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && this.ctx && this.isAnyAudioEnabled() && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+      });
+
       this.initialized = true;
       this.rebuildMusicEngine();
       this.resetAutoSwitchTimer();
@@ -243,6 +256,40 @@ export class MeditativeAudio {
     } catch {
       this.initialized = false;
     }
+  }
+
+  /**
+   * Hardware-clock Web Audio lookahead scheduler (Chris Wilson pattern):
+   * Schedules musical steps 280ms ahead on AudioContext.currentTime every 45ms so
+   * mobile JS frame hiccups / GC pauses NEVER cause soundtrack stutter or rhythm drift!
+   */
+  private startLookaheadSequencer(stepSec: number, onStep: (stepIndex: number, when: number) => void) {
+    if (!this.ctx) return;
+    const scheduleAheadSec = 0.28;
+    const lookaheadMs = 45;
+    this.nextStepTime = this.ctx.currentTime + 0.06;
+
+    const tick = () => {
+      if (!this.ctx || !this.settings.musicEnabled || this.ctx.state !== 'running') {
+        if (this.ctx) this.nextStepTime = this.ctx.currentTime + 0.06;
+        return;
+      }
+      const now = this.ctx.currentTime;
+      // If thread paused (e.g. backgrounded phone), cleanly re-anchor without a burst of catch-up notes!
+      if (this.nextStepTime < now - 0.15) {
+        this.nextStepTime = now + 0.06;
+      }
+      let guard = 0;
+      while (this.nextStepTime < now + scheduleAheadSec && guard < 8) {
+        onStep(this.stepIndex, this.nextStepTime);
+        this.nextStepTime += stepSec;
+        this.stepIndex++;
+        guard++;
+      }
+    };
+
+    tick();
+    this.seqTimer = window.setInterval(tick, lookaheadMs);
   }
 
   private stopMusicEngine() {
@@ -322,11 +369,11 @@ export class MeditativeAudio {
       this.padNodes.push(osc, lfo);
     });
 
-    this.seqTimer = window.setInterval(() => {
-      if (!this.settings.musicEnabled || !this.ctx || this.ctx.state !== 'running') return;
+    this.startLookaheadSequencer(track.melodyIntervalMs / 1000, (_idx, when) => {
       const note = track.scale[Math.floor(Math.random() * track.scale.length)];
-      this.playToneInternal(note, 2.2, 0.055, 'sine', 0, true);
-    }, track.melodyIntervalMs);
+      const delay = Math.max(0, when - (this.ctx?.currentTime ?? when));
+      this.playToneInternal(note, 2.2, 0.055, 'sine', delay, true);
+    });
   }
 
   /* =========================================================
@@ -351,8 +398,8 @@ export class MeditativeAudio {
     drone.start();
     this.padNodes.push(drone);
 
-    // 76 BPM => 16th note = 197ms
-    const stepMs = 197;
+    // 76 BPM => 16th note = 0.197s (hardware-clock lookahead scheduled!)
+    const stepSec = 0.197;
     const bassBars = [65.41, 51.91, 49.0, 58.27]; // C2 -> Ab1 -> G1 -> Bb1
     const chords: number[][] = [
       [261.63, 311.13, 392.0, 466.16], // Cm7
@@ -362,50 +409,35 @@ export class MeditativeAudio {
     ];
     const hauntNotes = [523.25, 466.16, 415.3, 392.0, 311.13];
 
-    this.seqTimer = window.setInterval(() => {
-      if (!this.settings.musicEnabled || !this.ctx || this.ctx.state !== 'running') return;
-      const step = this.stepIndex % 16;
-      const bar = Math.floor(this.stepIndex / 16) % 4;
-      const swingDelay = step % 2 === 1 ? 0.022 : 0;
+    this.startLookaheadSequencer(stepSec, (idx, when) => {
+      const step = idx % 16;
+      const bar = Math.floor(idx / 16) % 4;
+      const t = when + (step % 2 === 1 ? 0.022 : 0);
 
-      // Moody boom-bap kick: 0, 7, 10 (with slight variation)
       if (step === 0 || step === 10 || (step === 7 && bar % 2 === 1)) {
-        this.playDrumKick(125, 40, 0.28, 0.26, swingDelay);
+        this.playDrumKick(125, 40, 0.28, 0.26, t);
       }
-
-      // Dusty dark snare on beats 2 & 4 (steps 4, 12)
       if (step === 4 || step === 12) {
-        this.playTripHopSnare(swingDelay);
+        this.playTripHopSnare(t);
       }
-
-      // Muted swung hi-hat
       if (step % 2 === 0 || step === 15) {
         const accent = step % 4 === 2 ? 0.045 : 0.024;
-        this.playHat(accent, 0.05, 5200, swingDelay);
+        this.playHat(accent, 0.05, 5200, t);
       }
-
-      // Deep sub-bass pulse on steps 0, 6, 10
       if (step === 0 || step === 10) {
-        const root = bassBars[bar];
-        this.playWarmBass(root, step === 0 ? 0.95 : 0.65, 0.2, swingDelay);
+        this.playWarmBass(bassBars[bar], step === 0 ? 0.95 : 0.65, 0.2, t);
       }
-
-      // Moody Rhodes-like electric piano chord on beat 1 (and syncopated hit on 14)
       if (step === 0) {
         const chord = chords[bar];
-        chord.forEach((f, idx) => {
-          this.playRhodesNote(f, 2.4, 0.042, idx * 0.028);
+        chord.forEach((f, cIdx) => {
+          this.playRhodesNote(f, 2.4, 0.042, when + cIdx * 0.028);
         });
       }
-
-      // Occasional eerie Portishead vibrato sine motif
       if ((step === 6 || step === 14) && Math.random() < 0.42) {
         const f = hauntNotes[Math.floor(Math.random() * hauntNotes.length)];
-        this.playVibratoLead(f, 1.4, 0.036, swingDelay);
+        this.playVibratoLead(f, 1.4, 0.036, t);
       }
-
-      this.stepIndex++;
-    }, stepMs);
+    });
   }
 
   /* =========================================================
@@ -414,7 +446,7 @@ export class MeditativeAudio {
   private startTripHopDubEngine() {
     if (!this.ctx || !this.musicBus) return;
 
-    const stepMs = 208; // 72 BPM
+    const stepSec = 0.208; // 72 BPM
     const bassBars = [73.42, 73.42, 58.27, 65.41]; // D2 -> D2 -> Bb1 -> C2
     const dubChords: number[][] = [
       [293.66, 349.23, 440.0], // Dm
@@ -423,41 +455,32 @@ export class MeditativeAudio {
       [261.63, 329.63, 392.0]   // C
     ];
 
-    this.seqTimer = window.setInterval(() => {
-      if (!this.settings.musicEnabled || !this.ctx || this.ctx.state !== 'running') return;
-      const step = this.stepIndex % 16;
-      const bar = Math.floor(this.stepIndex / 16) % 4;
-      const swing = step % 2 === 1 ? 0.025 : 0;
+    this.startLookaheadSequencer(stepSec, (idx, when) => {
+      const step = idx % 16;
+      const bar = Math.floor(idx / 16) % 4;
+      const t = when + (step % 2 === 1 ? 0.025 : 0);
 
-      // Deep dub kick pattern
       if (step === 0 || step === 9 || (step === 11 && bar === 3)) {
-        this.playDrumKick(115, 36, 0.34, 0.27, swing);
+        this.playDrumKick(115, 36, 0.34, 0.27, t);
       }
-      // Crisp rimshot on 4 & 12 + dub snare ghost
       if (step === 4 || step === 12) {
-        this.playTripHopSnare(swing);
+        this.playTripHopSnare(t);
       }
       if (step === 6 || step === 14) {
-        this.playAnalogRim(0.045);
+        this.playAnalogRim(0.045, t);
       }
       if (step % 2 === 0) {
-        this.playHat(step % 4 === 2 ? 0.04 : 0.02, 0.045, 4800, swing);
+        this.playHat(step % 4 === 2 ? 0.04 : 0.02, 0.045, 4800, t);
       }
-
-      // Heavy dub sub-bass
       if (step === 0 || step === 6 || step === 10) {
-        this.playWarmBass(bassBars[bar], 0.85, 0.22, swing);
+        this.playWarmBass(bassBars[bar], 0.85, 0.22, t);
       }
-
-      // Echoed dub chord stab on off-beat (step 3 + quiet echo on step 6)
       if (step === 3) {
-        dubChords[bar].forEach((f) => this.playRhodesNote(f, 0.9, 0.048, swing));
+        dubChords[bar].forEach((f) => this.playRhodesNote(f, 0.9, 0.048, t));
       } else if (step === 6) {
-        dubChords[bar].forEach((f) => this.playRhodesNote(f, 0.7, 0.024, swing));
+        dubChords[bar].forEach((f) => this.playRhodesNote(f, 0.7, 0.024, t));
       }
-
-      this.stepIndex++;
-    }, stepMs);
+    });
   }
 
   /* =========================================================
@@ -466,39 +489,35 @@ export class MeditativeAudio {
   private startTripHopVelvetEngine() {
     if (!this.ctx || !this.musicBus) return;
 
-    const stepMs = 183; // 82 BPM
+    const stepSec = 0.183; // 82 BPM
     const bassBars = [82.41, 65.41, 73.42, 61.74]; // E2 -> C2 -> D2 -> B1
     const harpNotes = [329.63, 392.0, 493.88, 587.33, 659.25, 493.88, 392.0, 369.99];
 
-    this.seqTimer = window.setInterval(() => {
-      if (!this.settings.musicEnabled || !this.ctx || this.ctx.state !== 'running') return;
-      const step = this.stepIndex % 16;
-      const bar = Math.floor(this.stepIndex / 16) % 4;
-      const swing = step % 2 === 1 ? 0.018 : 0;
+    this.startLookaheadSequencer(stepSec, (idx, when) => {
+      const step = idx % 16;
+      const bar = Math.floor(idx / 16) % 4;
+      const t = when + (step % 2 === 1 ? 0.018 : 0);
 
       if (step === 0 || step === 7 || step === 10) {
-        this.playDrumKick(132, 42, 0.25, 0.23, swing);
+        this.playDrumKick(132, 42, 0.25, 0.23, t);
       }
       if (step === 4 || step === 12) {
-        this.playTripHopSnare(swing);
+        this.playTripHopSnare(t);
       }
       if (step % 2 === 0 || step === 13) {
-        this.playHat(0.026, 0.04, 6000, swing);
+        this.playHat(0.026, 0.04, 6000, t);
       }
       if (step === 0 || step === 8) {
-        this.playWarmBass(bassBars[bar], 0.9, 0.17, swing);
+        this.playWarmBass(bassBars[bar], 0.9, 0.17, t);
       }
-      // Melancholic plucked harp / Rhodes arpeggio
       if (step % 2 === 0) {
         const n = harpNotes[(step / 2 + bar) % harpNotes.length];
-        this.playRhodesNote(n, 1.3, 0.036, swing);
+        this.playRhodesNote(n, 1.3, 0.036, t);
       }
       if (step === 12 && bar % 2 === 1) {
-        this.playVibratoLead(659.25, 1.5, 0.03, swing);
+        this.playVibratoLead(659.25, 1.5, 0.03, t);
       }
-
-      this.stepIndex++;
-    }, stepMs);
+    });
   }
 
   /* =========================================================
@@ -545,56 +564,44 @@ export class MeditativeAudio {
       this.padNodes.push(osc);
     });
 
-    // 114 BPM => 16th note = 131ms
-    const stepMs = 131;
+    // 114 BPM => 16th note = 0.131s (hardware-clock lookahead scheduled!)
+    const stepSec = 0.131;
     const arpScale = [349.23, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0];
     const bassProg = [87.31, 73.42, 116.54, 130.81]; // F2 -> D2 -> Bb2 -> C3
 
-    this.seqTimer = window.setInterval(() => {
-      if (!this.settings.musicEnabled || !this.ctx || this.ctx.state !== 'running') return;
-      const step = this.stepIndex % 16;
-      const bar = Math.floor(this.stepIndex / 16) % 4;
+    this.startLookaheadSequencer(stepSec, (idx, when) => {
+      const step = idx % 16;
+      const bar = Math.floor(idx / 16) % 4;
 
-      // Tight hypnotic SAW-style analog kick
       if (step === 0 || step === 6 || step === 10 || (step === 14 && bar === 3)) {
-        this.playDrumKick(155, 48, 0.16, 0.19, 0);
+        this.playDrumKick(155, 48, 0.16, 0.19, when);
       }
-
-      // Syncopated crisp IDM micro-clicks & hats
       if (step === 2 || step === 5 || step === 8 || step === 11 || step === 13 || step === 15) {
         const bright = step === 8 || step === 15 ? 8500 : 6200;
         const vol = step === 8 ? 0.038 : 0.02;
-        this.playHat(vol, 0.028, bright, 0);
+        this.playHat(vol, 0.028, bright, when);
       }
-
-      // Soft analog rim/snare ghost hits
       if (step === 4 || step === 12 || (step === 9 && bar % 2 === 1)) {
-        this.playAnalogRim(step === 9 ? 0.035 : 0.065);
+        this.playAnalogRim(step === 9 ? 0.035 : 0.065, when);
       }
-
-      // Warm sub-bass pulse
       if (step === 0 || step === 8) {
-        this.playWarmBass(bassProg[bar], 0.55, 0.13, 0);
+        this.playWarmBass(bassProg[bar], 0.55, 0.13, when);
       }
-
-      // Polyrhythmic FM glassy bell plucks (5-step & 7-step cycling!)
-      if (this.stepIndex % 3 === 0 || this.stepIndex % 5 === 0) {
-        const noteIdx = (this.stepIndex * 2 + bar) % arpScale.length;
+      if (idx % 3 === 0 || idx % 5 === 0) {
+        const noteIdx = (idx * 2 + bar) % arpScale.length;
         if (Math.random() < 0.72) {
-          this.playFmBell(arpScale[noteIdx], 0.85, 0.048);
+          this.playFmBell(arpScale[noteIdx], 0.85, 0.048, when);
         }
       }
-
-      this.stepIndex++;
-    }, stepMs);
+    });
   }
 
   /* =========================================================
-     SYNTHESIS PRIMITIVES
+     SYNTHESIS PRIMITIVES (EXACT HARDWARE-CLOCK TIMING + CLEAN GC)
      ========================================================= */
-  private playDrumKick(startHz: number, endHz: number, dur: number, vol: number, delay: number) {
+  private playDrumKick(startHz: number, endHz: number, dur: number, vol: number, atTime: number) {
     if (!this.ctx || !this.musicBus) return;
-    const now = this.ctx.currentTime + delay;
+    const now = Math.max(this.ctx.currentTime, atTime);
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = 'sine';
@@ -606,15 +613,17 @@ export class MeditativeAudio {
 
     osc.connect(gain);
     gain.connect(this.musicBus);
+    osc.onended = () => {
+      try { osc.disconnect(); gain.disconnect(); } catch {}
+    };
     osc.start(now);
     osc.stop(now + dur + 0.02);
   }
 
-  private playTripHopSnare(delay: number) {
+  private playTripHopSnare(atTime: number) {
     if (!this.ctx || !this.musicBus || !this.noiseBuffer) return;
-    const now = this.ctx.currentTime + delay;
+    const now = Math.max(this.ctx.currentTime, atTime);
 
-    // Band-passed dusty noise crack
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
 
@@ -630,10 +639,12 @@ export class MeditativeAudio {
     src.connect(filter);
     filter.connect(gain);
     gain.connect(this.musicBus);
+    src.onended = () => {
+      try { src.disconnect(); filter.disconnect(); gain.disconnect(); } catch {}
+    };
     src.start(now);
     src.stop(now + 0.26);
 
-    // Low snare body thump
     const body = this.ctx.createOscillator();
     body.type = 'triangle';
     body.frequency.setValueAtTime(190, now);
@@ -643,13 +654,16 @@ export class MeditativeAudio {
     bGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
     body.connect(bGain);
     bGain.connect(this.musicBus);
+    body.onended = () => {
+      try { body.disconnect(); bGain.disconnect(); } catch {}
+    };
     body.start(now);
     body.stop(now + 0.12);
   }
 
-  private playHat(vol: number, dur: number, hpFreq: number, delay: number) {
+  private playHat(vol: number, dur: number, hpFreq: number, atTime: number) {
     if (!this.ctx || !this.musicBus || !this.noiseBuffer) return;
-    const now = this.ctx.currentTime + delay;
+    const now = Math.max(this.ctx.currentTime, atTime);
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
 
@@ -664,13 +678,16 @@ export class MeditativeAudio {
     src.connect(filter);
     filter.connect(gain);
     gain.connect(this.musicBus);
+    src.onended = () => {
+      try { src.disconnect(); filter.disconnect(); gain.disconnect(); } catch {}
+    };
     src.start(now);
     src.stop(now + dur + 0.01);
   }
 
-  private playAnalogRim(vol: number) {
+  private playAnalogRim(vol: number, atTime?: number) {
     if (!this.ctx || !this.musicBus) return;
-    const now = this.ctx.currentTime;
+    const now = Math.max(this.ctx.currentTime, atTime ?? this.ctx.currentTime);
     const osc = this.ctx.createOscillator();
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(720, now);
@@ -680,13 +697,16 @@ export class MeditativeAudio {
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
     osc.connect(gain);
     gain.connect(this.musicBus);
+    osc.onended = () => {
+      try { osc.disconnect(); gain.disconnect(); } catch {}
+    };
     osc.start(now);
     osc.stop(now + 0.06);
   }
 
-  private playWarmBass(freq: number, dur: number, vol: number, delay: number) {
+  private playWarmBass(freq: number, dur: number, vol: number, atTime: number) {
     if (!this.ctx || !this.musicBus) return;
-    const now = this.ctx.currentTime + delay;
+    const now = Math.max(this.ctx.currentTime, atTime);
     const osc = this.ctx.createOscillator();
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(freq, now);
@@ -704,13 +724,16 @@ export class MeditativeAudio {
     osc.connect(filter);
     filter.connect(gain);
     gain.connect(this.musicBus);
+    osc.onended = () => {
+      try { osc.disconnect(); filter.disconnect(); gain.disconnect(); } catch {}
+    };
     osc.start(now);
     osc.stop(now + dur + 0.03);
   }
 
-  private playRhodesNote(freq: number, dur: number, vol: number, delay: number) {
+  private playRhodesNote(freq: number, dur: number, vol: number, atTime: number) {
     if (!this.ctx || !this.musicBus) return;
-    const now = this.ctx.currentTime + delay;
+    const now = Math.max(this.ctx.currentTime, atTime);
     const osc = this.ctx.createOscillator();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(freq, now);
@@ -731,15 +754,21 @@ export class MeditativeAudio {
     tine.connect(tineGain);
     tineGain.connect(this.musicBus);
     gain.connect(this.musicBus);
+    osc.onended = () => {
+      try { osc.disconnect(); gain.disconnect(); } catch {}
+    };
+    tine.onended = () => {
+      try { tine.disconnect(); tineGain.disconnect(); } catch {}
+    };
     osc.start(now);
     tine.start(now);
     osc.stop(now + dur + 0.04);
     tine.stop(now + 0.28);
   }
 
-  private playVibratoLead(freq: number, dur: number, vol: number, delay: number) {
+  private playVibratoLead(freq: number, dur: number, vol: number, atTime: number) {
     if (!this.ctx || !this.musicBus) return;
-    const now = this.ctx.currentTime + delay;
+    const now = Math.max(this.ctx.currentTime, atTime);
     const osc = this.ctx.createOscillator();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(freq, now);
@@ -758,15 +787,18 @@ export class MeditativeAudio {
 
     osc.connect(gain);
     gain.connect(this.musicBus);
+    osc.onended = () => {
+      try { osc.disconnect(); vib.disconnect(); vibGain.disconnect(); gain.disconnect(); } catch {}
+    };
     osc.start(now);
     vib.start(now);
     osc.stop(now + dur + 0.05);
     vib.stop(now + dur + 0.05);
   }
 
-  private playFmBell(freq: number, dur: number, vol: number) {
+  private playFmBell(freq: number, dur: number, vol: number, atTime?: number) {
     if (!this.ctx || !this.musicBus) return;
-    const now = this.ctx.currentTime;
+    const now = Math.max(this.ctx.currentTime, atTime ?? this.ctx.currentTime);
     const carrier = this.ctx.createOscillator();
     const mod = this.ctx.createOscillator();
     const modGain = this.ctx.createGain();
@@ -789,6 +821,9 @@ export class MeditativeAudio {
     carrier.connect(outGain);
     outGain.connect(this.musicBus);
 
+    carrier.onended = () => {
+      try { carrier.disconnect(); mod.disconnect(); modGain.disconnect(); outGain.disconnect(); } catch {}
+    };
     carrier.start(now);
     mod.start(now);
     carrier.stop(now + dur + 0.03);
@@ -838,6 +873,9 @@ export class MeditativeAudio {
 
     osc.connect(gain);
     gain.connect(isMusic ? this.musicBus : this.sfxBus);
+    osc.onended = () => {
+      try { osc.disconnect(); gain.disconnect(); } catch {}
+    };
     osc.start(now);
     osc.stop(now + duration + 0.05);
   }

@@ -1,268 +1,301 @@
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 using System.Reflection;
-using System.Text;
-using System.Threading;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 [assembly: AssemblyTitle("Sugar Ants")]
 [assembly: AssemblyDescription("Sugar Ants — Meditative Pixel-Art Ant Colony Game")]
 [assembly: AssemblyCompany("GrAx Studio")]
 [assembly: AssemblyProduct("Sugar Ants")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.3.1.0")]
+[assembly: AssemblyFileVersion("1.3.1.0")]
 
 namespace SugarAntsDesktop
 {
-    static class Program
+    public class GameWindow : Form
     {
-        private static volatile bool _running = true;
-        private static TcpListener _listener;
-        private static string _webRoot;
+        private const string VirtualHost = "sugarants.app";
+        private readonly string _webRoot;
+        private readonly bool _selfTest;
+        private readonly string _logPath;
+        private WebView2 _webView;
+        private bool _isFullscreen = false;
+        private FormBorderStyle _prevBorderStyle;
+        private FormWindowState _prevWindowState;
+        private Rectangle _prevBounds;
 
-        [STAThread]
-        static void Main(string[] args)
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        private void Log(string msg)
         {
-            string exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            _webRoot = Path.GetFullPath(Path.Combine(exeDir, "web"));
-
-            if (!Directory.Exists(_webRoot) || !File.Exists(Path.Combine(_webRoot, "index.html")))
-            {
-                MessageBox.Show(
-                    "Could not find game files in the 'web' folder next to Sugar Ants.exe.\n" +
-                    "Please extract the entire archive before launching.",
-                    "Sugar Ants",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-                return;
-            }
-
-            // Use a fixed preferred loopback port so localStorage saves persist across launches!
-            int port = StartLocalServer();
-            if (port <= 0)
-            {
-                MessageBox.Show(
-                    "Could not start local game server on 127.0.0.1.",
-                    "Sugar Ants",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-                return;
-            }
-
-            // Support --self-test flag for automated build verification
-            if (args != null && args.Length > 0 && args[0] == "--self-test")
-            {
-                try
-                {
-                    using (var wc = new WebClient())
-                    {
-                        string html = wc.DownloadString("http://127.0.0.1:" + port + "/index.html");
-                        if (!html.Contains("Sugar Ants")) Environment.ExitCode = 2;
-                    }
-                }
-                catch
-                {
-                    Environment.ExitCode = 3;
-                }
-                StopServer();
-                return;
-            }
-
-            string gameUrl = "http://127.0.0.1:" + port + "/index.html";
-            string profileDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "GrAxStudio",
-                "SugarAnts",
-                "Profile"
-            );
-            Directory.CreateDirectory(profileDir);
-
-            string browserExe = FindAppBrowser();
-            if (browserExe != null)
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = browserExe,
-                    Arguments = string.Format(
-                        "--app=\"{0}\" --user-data-dir=\"{1}\" --window-size=1280,800 --no-first-run --no-default-browser-check --disable-features=msEdgeSidebarV2",
-                        gameUrl,
-                        profileDir
-                    ),
-                    UseShellExecute = false
-                };
-
-                try
-                {
-                    using (Process proc = Process.Start(psi))
-                    {
-                        if (proc != null)
-                        {
-                            proc.WaitForExit();
-                        }
-                    }
-                }
-                catch
-                {
-                    LaunchFallback(gameUrl);
-                }
-            }
-            else
-            {
-                LaunchFallback(gameUrl);
-            }
-
-            StopServer();
+            if (string.IsNullOrEmpty(_logPath)) return;
+            try { File.AppendAllText(_logPath, DateTime.Now.ToString("HH:mm:ss.fff ") + msg + Environment.NewLine); } catch { }
         }
 
-        private static void LaunchFallback(string url)
+        public GameWindow(string webRoot, bool selfTest, string logPath)
         {
+            _webRoot = webRoot;
+            _selfTest = selfTest;
+            _logPath = logPath;
+            Log("GameWindow ctor");
+
+            Text = "Sugar Ants";
+            BackColor = Color.FromArgb(5, 15, 10);
+            StartPosition = FormStartPosition.CenterScreen;
+            ClientSize = new Size(1280, 800);
+            MinimumSize = new Size(800, 540);
+            KeyPreview = true;
+
             try
             {
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                Thread.Sleep(60000);
+                Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            }
+            catch { }
+
+            if (_selfTest)
+            {
+                ShowInTaskbar = false;
+                Opacity = 0.01;
+            }
+
+            _webView = new WebView2
+            {
+                Dock = DockStyle.Fill,
+                DefaultBackgroundColor = Color.FromArgb(5, 15, 10)
+            };
+            Controls.Add(_webView);
+
+            Load += async (s, e) => await InitWebViewAsync();
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
+            {
+                int dark = 1;
+                // DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 20H1+ & Windows 11)
+                DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int));
             }
             catch { }
         }
 
-        private static string FindAppBrowser()
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            string[] candidates = new[]
+            if (keyData == Keys.F11 || keyData == (Keys.Alt | Keys.Enter))
             {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google", "Chrome", "Application", "chrome.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Google", "Chrome", "Application", "chrome.exe")
-            };
-
-            foreach (string path in candidates)
-            {
-                if (!string.IsNullOrEmpty(path) && File.Exists(path)) return path;
+                ToggleFullscreen();
+                return true;
             }
-            return null;
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private static int StartLocalServer()
+        private void ToggleFullscreen()
         {
-            int[] preferredPorts = new[] { 47832, 47833, 47834, 47835, 0 };
-            foreach (int p in preferredPorts)
+            if (!_isFullscreen)
             {
-                try
-                {
-                    var listener = new TcpListener(IPAddress.Loopback, p);
-                    listener.Start();
-                    _listener = listener;
-                    int boundPort = ((IPEndPoint)listener.LocalEndpoint).Port;
-
-                    var acceptThread = new Thread(AcceptLoop) { IsBackground = true };
-                    acceptThread.Start();
-                    return boundPort;
-                }
-                catch { }
+                _prevBorderStyle = FormBorderStyle;
+                _prevWindowState = WindowState;
+                _prevBounds = Bounds;
+                FormBorderStyle = FormBorderStyle.None;
+                WindowState = FormWindowState.Normal;
+                Bounds = Screen.FromControl(this).Bounds;
+                _isFullscreen = true;
             }
-            return -1;
-        }
-
-        private static void StopServer()
-        {
-            _running = false;
-            try { if (_listener != null) _listener.Stop(); } catch { }
-        }
-
-        private static void AcceptLoop()
-        {
-            while (_running)
+            else
             {
-                try
-                {
-                    TcpClient client = _listener.AcceptTcpClient();
-                    ThreadPool.QueueUserWorkItem(_ => HandleClient(client));
-                }
-                catch
-                {
-                    if (!_running) break;
-                }
+                FormBorderStyle = _prevBorderStyle;
+                Bounds = _prevBounds;
+                WindowState = _prevWindowState;
+                _isFullscreen = false;
             }
         }
 
-        private static void HandleClient(TcpClient client)
+        private async Task InitWebViewAsync()
         {
-            using (client)
+            try
             {
-                try
+                string userDataDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "GrAxStudio",
+                    "SugarAnts",
+                    "WebView2"
+                );
+                Directory.CreateDirectory(userDataDir);
+
+                Log("Creating CoreWebView2Environment...");
+                var opts = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+                var env = await CoreWebView2Environment.CreateAsync(null, userDataDir, opts);
+                Log("Environment created, calling EnsureCoreWebView2Async...");
+                await _webView.EnsureCoreWebView2Async(env);
+                Log("CoreWebView2 ready!");
+
+                var core = _webView.CoreWebView2;
+                core.Settings.AreDefaultContextMenusEnabled = false;
+                core.Settings.AreDevToolsEnabled = false;
+                core.Settings.IsStatusBarEnabled = false;
+                core.Settings.IsZoomControlEnabled = false;
+                core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+
+                // Map local 'web' directory to clean HTTPS virtual host — ZERO localhost port, ZERO browser popup!
+                core.SetVirtualHostNameToFolderMapping(
+                    VirtualHost,
+                    _webRoot,
+                    CoreWebView2HostResourceAccessKind.Allow
+                );
+
+                // Keep all game navigation strictly inside the standalone window; only allow explicit Telegram click externally
+                core.NewWindowRequested += (sender, args) =>
                 {
-                    client.ReceiveTimeout = 5000;
-                    client.SendTimeout = 5000;
-                    using (NetworkStream stream = client.GetStream())
-                    using (var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, true))
+                    args.Handled = true;
+                    OpenAllowedExternal(args.Uri);
+                };
+
+                core.NavigationStarting += (sender, args) =>
+                {
+                    Log("NavigationStarting: " + args.Uri);
+                    Uri u;
+                    if (Uri.TryCreate(args.Uri, UriKind.Absolute, out u))
                     {
-                        string requestLine = reader.ReadLine();
-                        if (string.IsNullOrEmpty(requestLine)) return;
-
-                        // Drain remaining HTTP headers
-                        string line;
-                        while (!string.IsNullOrEmpty(line = reader.ReadLine())) { }
-
-                        string[] parts = requestLine.Split(' ');
-                        if (parts.Length < 2) return;
-
-                        string rawUrl = Uri.UnescapeDataString(parts[1]);
-                        int qIdx = rawUrl.IndexOf('?');
-                        if (qIdx >= 0) rawUrl = rawUrl.Substring(0, qIdx);
-                        if (string.IsNullOrEmpty(rawUrl) || rawUrl == "/") rawUrl = "/index.html";
-
-                        string relPath = rawUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                        string fullPath = Path.GetFullPath(Path.Combine(_webRoot, relPath));
-
-                        // Strict sandbox check inside _webRoot
-                        if (!fullPath.StartsWith(_webRoot, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
+                        if (string.Equals(u.Scheme, "about", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(u.Scheme, "data", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(u.Scheme, "blob", StringComparison.OrdinalIgnoreCase))
                         {
-                            byte[] notFound = Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nNot Found");
-                            stream.Write(notFound, 0, notFound.Length);
                             return;
                         }
-
-                        byte[] body = File.ReadAllBytes(fullPath);
-                        string mime = GuessMime(fullPath);
-                        string header =
-                            "HTTP/1.1 200 OK\r\n" +
-                            "Content-Type: " + mime + "\r\n" +
-                            "Content-Length: " + body.Length + "\r\n" +
-                            "Cache-Control: no-cache\r\n" +
-                            "Connection: close\r\n\r\n";
-                        byte[] headerBytes = Encoding.ASCII.GetBytes(header);
-                        stream.Write(headerBytes, 0, headerBytes.Length);
-                        stream.Write(body, 0, body.Length);
+                        if (!string.Equals(u.Host, VirtualHost, StringComparison.OrdinalIgnoreCase))
+                        {
+                            args.Cancel = true;
+                            if (args.IsUserInitiated)
+                            {
+                                OpenAllowedExternal(args.Uri);
+                            }
+                        }
                     }
+                };
+
+                if (_selfTest)
+                {
+                    core.NavigationCompleted += async (sender, args) =>
+                    {
+                        Log("NavigationCompleted: success=" + args.IsSuccess + " status=" + args.WebErrorStatus);
+                        if (!args.IsSuccess)
+                        {
+                            Environment.ExitCode = 4;
+                            Close();
+                            return;
+                        }
+                        await Task.Delay(700);
+                        string check = await core.ExecuteScriptAsync(
+                            "(function(){return JSON.stringify({title:document.title,hasCanvas:!!document.getElementById('game-canvas'),hasMenu:!!document.getElementById('main-menu'),hasSpTimer:!!document.getElementById('stat-sp-timer')});})()"
+                        );
+                        Log("WEBVIEW2_SELF_TEST=" + check);
+                        if (check != null && check.Contains("Sugar Ants") && check.Contains("true"))
+                        {
+                            Environment.ExitCode = 0;
+                        }
+                        else
+                        {
+                            Environment.ExitCode = 5;
+                        }
+                        Close();
+                    };
                 }
-                catch { }
+
+                Log("Navigating to https://" + VirtualHost + "/index.html");
+                core.Navigate("https://" + VirtualHost + "/index.html");
+            }
+            catch (WebView2RuntimeNotFoundException ex)
+            {
+                Log("WebView2RuntimeNotFoundException: " + ex.Message);
+                if (_selfTest)
+                {
+                    Environment.ExitCode = 10;
+                    Close();
+                    return;
+                }
+                var res = MessageBox.Show(
+                    "Для запуска Sugar Ants требуется компонент Microsoft Edge WebView2 Runtime (встроен в Windows 10/11).\n" +
+                    "Открыть официальную страницу загрузки Microsoft WebView2?\n\n" +
+                    "Microsoft Edge WebView2 Runtime is required to run Sugar Ants. Open Microsoft's download page?",
+                    "Sugar Ants",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information
+                );
+                if (res == DialogResult.Yes)
+                {
+                    try { Process.Start(new ProcessStartInfo("https://go.microsoft.com/fwlink/p/?LinkId=2124703") { UseShellExecute = true }); } catch { }
+                }
+                Close();
+            }
+            catch (Exception ex)
+            {
+                Log("WebView2 Init Error: " + ex);
+                if (_selfTest)
+                {
+                    Environment.ExitCode = 11;
+                    Close();
+                    return;
+                }
+                MessageBox.Show("Ошибка запуска Sugar Ants:\n" + ex.Message, "Sugar Ants", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Close();
             }
         }
 
-        private static string GuessMime(string filePath)
+        private static void OpenAllowedExternal(string url)
         {
-            string ext = Path.GetExtension(filePath).ToLowerInvariant();
-            switch (ext)
+            Uri u;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out u)) return;
+            if ((u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp) &&
+                string.Equals(u.Host, "t.me", StringComparison.OrdinalIgnoreCase))
             {
-                case ".html": return "text/html; charset=utf-8";
-                case ".js":
-                case ".mjs": return "application/javascript; charset=utf-8";
-                case ".css": return "text/css; charset=utf-8";
-                case ".svg": return "image/svg+xml";
-                case ".png": return "image/png";
-                case ".jpg":
-                case ".jpeg": return "image/jpeg";
-                case ".ico": return "image/x-icon";
-                case ".json":
-                case ".webmanifest": return "application/manifest+json; charset=utf-8";
-                case ".wasm": return "application/wasm";
-                default: return "application/octet-stream";
+                try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); } catch { }
             }
+        }
+    }
+
+    static class Program
+    {
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
+
+        [STAThread]
+        static void Main(string[] args)
+        {
+            try { SetProcessDPIAware(); } catch { }
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+            string webRoot = Path.GetFullPath(Path.Combine(exeDir, "web"));
+            bool selfTest = args != null && args.Length > 0 && args[0] == "--self-test";
+            string logPath = (args != null && args.Length > 1) ? args[1] : null;
+
+            if (!Directory.Exists(webRoot) || !File.Exists(Path.Combine(webRoot, "index.html")))
+            {
+                if (selfTest)
+                {
+                    Environment.ExitCode = 2;
+                    return;
+                }
+                MessageBox.Show(
+                    "Не найдена папка 'web' рядом с Sugar Ants.exe.\nПожалуйста, распакуйте весь архив перед запуском.\n\n" +
+                    "Could not find the 'web' folder next to Sugar Ants.exe. Please extract the full archive first.",
+                    "Sugar Ants",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+                return;
+            }
+
+            Application.Run(new GameWindow(webRoot, selfTest, logPath));
         }
     }
 }

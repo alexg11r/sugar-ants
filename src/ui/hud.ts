@@ -204,6 +204,7 @@ export class HudController {
   private statArtifactsCountEl = document.getElementById('stat-artifacts-count')!;
   private statAchCountEl = document.getElementById('stat-ach-count')!;
   private statSpEl = document.getElementById('stat-sp')!;
+  private statSpTimerEl = document.getElementById('stat-sp-timer')!;
   private statArtEl = document.getElementById('stat-art')!;
   private statDigEl = document.getElementById('stat-dig')!;
   private statSugarEl = document.getElementById('stat-sugar')!;
@@ -434,6 +435,7 @@ export class HudController {
     setTitle('btn-artifacts', t('tipArtifacts'));
     setTitle('btn-achievements', t('tipAchievements'));
     setTitle('chip-sp', t('tipSp'));
+    setTitle('chip-sp-timer', t('tipSpTimer'));
     setTitle('chip-art', t('tipArt'));
     setTitle('chip-dig', t('tipDig'));
     setTitle('sugar-chip', t('tipSugar'));
@@ -990,9 +992,9 @@ export class HudController {
       }
     });
 
-    // Auto-reconnect MQTT & resync exact map/chat/vote whenever returning from minimized window/tab!
+    // Auto-reconnect MQTT & resync exact map/chat/vote ONLY when in an active Multiplayer match!
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) return;
+      if (document.hidden || this.mode !== 'mp') return;
       onlineDirectory.ensureLiveConnection();
       if (this.mode === 'mp' && this.mpTransport && !this.mpTransport.isHost) {
         setTimeout(() => {
@@ -2878,6 +2880,8 @@ export class HudController {
     this.statArtifactsCountEl.textContent = `${skillTree.state.artifacts.length}/${SECRET_ARTIFACTS.length}`;
     this.statAchCountEl.textContent = `${skillTree.state.achievements.length}/${ACHIEVEMENTS.length}`;
     this.statSpEl.textContent = String(skillTree.state.skillPoints);
+    const spSec = Math.max(0, Math.ceil(this.engine.bonusSpTimerSec));
+    this.statSpTimerEl.textContent = `${Math.floor(spSec / 60)}:${String(spSec % 60).padStart(2, '0')}`;
 
     const artPct = stats.mapCleared
       ? 100

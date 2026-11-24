@@ -84,6 +84,8 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   tipArtifacts: { ru: 'Секретные находки (+1 стартовое очко навыков)', en: 'Secret Finds (+1 starting Skill Point each)' },
   tipAchievements: { ru: 'Ачивки (+1% к скорости всех муравьёв за каждую)', en: 'Achievements (+1% all-ant speed each)' },
   tipSp: { ru: 'Очки навыков (из кристаллов и находок)', en: 'Skill Points (from crystals & finds)' },
+  tipSpTimer: { ru: 'Бонусное +1 очко навыков каждые 5 минут', en: 'Bonus +1 Skill Point every 5 minutes' },
+  toastTimedSp: { ru: '⏳ +1 ♦ очко навыков (бонус за 5 минут)!', en: '⏳ +1 ♦ Skill Point (5-minute bonus)!' },
   tipArt: { ru: 'Открыто скрытой картины', en: 'Hidden artwork revealed' },
   tipDig: { ru: 'Прогрызено породы', en: 'Terrain excavated' },
   tipSugar: { ru: 'Статус поиска сахара', en: 'Sugar hunt status' },

@@ -539,26 +539,55 @@ export class World {
       }
     }
 
-    // 5. Place Skill Point Crystals (2 nearby within initial sight in any direction around center!)
+    // 5. Place Skill Point Crystals (2 nearby on every map + 4 extra close-range starter crystals on Map 1!)
     let placedCrystals = 0;
-    const nearBands = [
+    const isFirstMap = this.level.id === 'prism';
+    const nearBands: { rMin: number; rMax: number; sectorStart?: number; sectorSpan?: number }[] = [
       { rMin: 15, rMax: 24 },
       { rMin: 18, rMax: 27 }
     ];
+    if (isFirstMap) {
+      // +4 extra Skill Crystals spread cleanly around all 4 quadrants near the starting Nest on Map 1!
+      nearBands.push(
+        { rMin: 14, rMax: 26, sectorStart: 0, sectorSpan: Math.PI * 0.5 },
+        { rMin: 15, rMax: 28, sectorStart: Math.PI * 0.5, sectorSpan: Math.PI * 0.5 },
+        { rMin: 16, rMax: 30, sectorStart: Math.PI, sectorSpan: Math.PI * 0.5 },
+        { rMin: 16, rMax: 32, sectorStart: Math.PI * 1.5, sectorSpan: Math.PI * 0.5 }
+      );
+    }
     for (const band of nearBands) {
-      for (let attempt = 0; attempt < 240; attempt++) {
-        const ang = Math.random() * Math.PI * 2;
+      let ok = false;
+      for (let attempt = 0; attempt < 320; attempt++) {
+        const ang =
+          band.sectorStart !== undefined && band.sectorSpan !== undefined
+            ? band.sectorStart + Math.random() * band.sectorSpan
+            : Math.random() * Math.PI * 2;
         const dist = band.rMin + Math.random() * (band.rMax - band.rMin);
         const cx = Math.round(this.nestX + Math.cos(ang) * dist);
         const cy = Math.round(this.nestY + Math.sin(ang) * dist);
         if (this.tryPlaceCrystal(cx, cy)) {
           placedCrystals++;
+          ok = true;
           break;
+        }
+      }
+      // Fallback wider radius if a quadrant had dense art lines
+      if (!ok && isFirstMap) {
+        for (let attempt = 0; attempt < 260; attempt++) {
+          const ang = Math.random() * Math.PI * 2;
+          const dist = 14 + Math.random() * 24;
+          const cx = Math.round(this.nestX + Math.cos(ang) * dist);
+          const cy = Math.round(this.nestY + Math.sin(ang) * dist);
+          if (this.tryPlaceCrystal(cx, cy)) {
+            placedCrystals++;
+            break;
+          }
         }
       }
     }
 
-    for (let attempt = 0; attempt < 2400 && placedCrystals < this.level.crystalCount; attempt++) {
+    const targetCrystalCount = this.level.crystalCount + (isFirstMap ? 4 : 0);
+    for (let attempt = 0; attempt < 2600 && placedCrystals < targetCrystalCount; attempt++) {
       const cx = Math.floor(w * 0.08 + Math.random() * (w * 0.84));
       const cy = Math.floor(h * 0.08 + Math.random() * (h * 0.84));
       if (this.reachableMask[cy * w + cx] !== 1) continue;

@@ -14,6 +14,7 @@ import { SkillTreeManager } from './skillTree';
 const ACTIVE_RUN_STORAGE_KEY = 'sugar_ants_active_run_v1';
 export const BEACON_DURATION_SEC = 30;
 export const BEACON_COOLDOWN_SEC = 120;
+export const BONUS_SP_INTERVAL_SEC = 300; // +1 Skill Point every 5 minutes on all maps!
 
 interface ActiveRunSnapshot {
   v: 1;
@@ -26,6 +27,7 @@ interface ActiveRunSnapshot {
   beacon?: PheromoneBeacon | null;
   beaconCooldown?: number;
   runElapsedSec?: number;
+  bonusSpTimerSec?: number;
 }
 
 export interface EngineCallbacks {
@@ -64,6 +66,8 @@ export class GameEngine {
   sugarRushTimer = 0;
   /** Elapsed active seconds in the current level run (for personal speed records!) */
   runElapsedSec = 0;
+  /** Countdown in seconds until the next periodic +1 Skill Point reward (every 5 minutes on all maps!) */
+  bonusSpTimerSec = BONUS_SP_INTERVAL_SEC;
   /** True when an in-progress mid-map run exists (either restored from disk or played in this session) */
   private hasActiveRun = false;
   /** Held keyboard keys for smooth PC WASD / Arrow camera panning */
@@ -127,6 +131,7 @@ export class GameEngine {
       this.beacon = restored.beacon ? { ...restored.beacon } : null;
       this.beaconCooldown = restored.beaconCooldown;
       this.runElapsedSec = restored.runElapsedSec;
+      this.bonusSpTimerSec = restored.bonusSpTimerSec;
       this.hasActiveRun = true;
       this.syncWorldUpgrades();
       this.renderer = new WorldRenderer(this.world.width, this.world.height);
@@ -155,6 +160,7 @@ export class GameEngine {
     beacon: PheromoneBeacon | null;
     beaconCooldown: number;
     runElapsedSec: number;
+    bonusSpTimerSec: number;
   } | null {
     try {
       const raw = localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
@@ -205,7 +211,11 @@ export class GameEngine {
           typeof snap.beaconCooldown === 'number' && Number.isFinite(snap.beaconCooldown)
             ? Math.max(0, Math.min(BEACON_COOLDOWN_SEC, snap.beaconCooldown))
             : 0,
-        runElapsedSec: typeof snap.runElapsedSec === 'number' && Number.isFinite(snap.runElapsedSec) ? snap.runElapsedSec : 0
+        runElapsedSec: typeof snap.runElapsedSec === 'number' && Number.isFinite(snap.runElapsedSec) ? snap.runElapsedSec : 0,
+        bonusSpTimerSec:
+          typeof snap.bonusSpTimerSec === 'number' && Number.isFinite(snap.bonusSpTimerSec) && snap.bonusSpTimerSec > 0
+            ? Math.min(BONUS_SP_INTERVAL_SEC, snap.bonusSpTimerSec)
+            : BONUS_SP_INTERVAL_SEC
       };
     } catch {
       return null;
@@ -229,7 +239,8 @@ export class GameEngine {
         camera: { ...this.camera },
         beacon: this.beacon ? { ...this.beacon } : null,
         beaconCooldown: this.beaconCooldown,
-        runElapsedSec: this.runElapsedSec
+        runElapsedSec: this.runElapsedSec,
+        bonusSpTimerSec: this.bonusSpTimerSec
       };
       localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, JSON.stringify(payload));
       this.hasActiveRun = true;
@@ -342,6 +353,18 @@ export class GameEngine {
       if (rawDt > 60) {
         const extra = rawDt - 60;
         this.ants.compassCooldown = Math.max(0, this.ants.compassCooldown - extra);
+        if (!this.world.stats.mapCleared) {
+          this.bonusSpTimerSec -= extra;
+          let extraSp = 0;
+          while (this.bonusSpTimerSec <= 0) {
+            this.bonusSpTimerSec += BONUS_SP_INTERVAL_SEC;
+            extraSp++;
+          }
+          if (extraSp > 0) {
+            this.skillTree.addSkillPoints(extraSp);
+            this.callbacks.onToast(t('toastSpGain', { n: extraSp }));
+          }
+        }
         if (this.beacon) {
           this.beacon.timeLeft -= extra;
           if (this.beacon.timeLeft <= 0) {
@@ -448,6 +471,7 @@ export class GameEngine {
     this.beaconCooldown = 0;
     this.sugarRushTimer = 0;
     this.runElapsedSec = 0;
+    this.bonusSpTimerSec = BONUS_SP_INTERVAL_SEC;
     this.lastLaunchWorld = null;
     this.fireworkAccum = 0;
     this.autoSaveAccum = 0;
@@ -941,6 +965,18 @@ export class GameEngine {
     this.elapsed += dt;
     this.runElapsedSec += dt;
     this.skillTree.recordPlayTime(dt);
+
+    // Periodic +1 Skill Point every 5 minutes (300s) on ALL maps!
+    if (!this.world.stats.mapCleared) {
+      this.bonusSpTimerSec -= dt;
+      if (this.bonusSpTimerSec <= 0) {
+        this.bonusSpTimerSec += BONUS_SP_INTERVAL_SEC;
+        this.skillTree.addSkillPoints(1);
+        this.audio.playCrystal();
+        this.callbacks.onToast(t('toastTimedSp'));
+        this.callbacks.onHudSync();
+      }
+    }
 
     // Dramatic bullet-time slow-motion & decaying camera impact rumble on Sugar discovery!
     if (this.cameraShake > 0) {

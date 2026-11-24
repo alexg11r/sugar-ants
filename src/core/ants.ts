@@ -913,6 +913,58 @@ export class AntManager {
     ant.legPhase += dt * speed * 1.1;
   }
 
+  /** Picks a smooth, non-oscillating deflection angle for a Warrior that hit HiddenArt, Sugar, or a corner pinch */
+  private deflectWarrior(ant: Ant, world: World) {
+    const dir = ant.wallSlideDir || (Math.random() < 0.5 ? 1 : -1);
+    const offsets = [
+      dir * Math.PI * 0.34,
+      dir * Math.PI * 0.52,
+      dir * Math.PI * 0.72,
+      -dir * Math.PI * 0.34,
+      -dir * Math.PI * 0.52,
+      -dir * Math.PI * 0.72,
+      dir * Math.PI * 0.92,
+      Math.PI
+    ];
+
+    let bestAngle = ant.fixedAngle + dir * Math.PI * 0.52;
+    let bestScore = -1e9;
+
+    for (let i = 0; i < offsets.length; i++) {
+      const cand = ant.fixedAngle + offsets[i];
+      const px = Math.round(ant.x + Math.cos(cand) * 1.7);
+      const py = Math.round(ant.y + Math.sin(cand) * 1.7);
+      if (!world.inBounds(px, py) || !world.isInsidePlayable(px, py)) continue;
+      if (world.hasArtBetween(ant.x, ant.y, px, py)) continue;
+
+      const c = world.getCell(px, py);
+      if (c === CellType.HiddenArt || c === CellType.Sugar) continue;
+
+      let score = 10 - i * 0.9; // Strongly prefer staying consistent with wallSlideDir & shallow glide!
+      if (!this.hitsArtAlong(world, ant.x, ant.y, cand, 3.6)) {
+        score += 12;
+      } else if (!this.hitsArtAlong(world, ant.x, ant.y, cand, 2.2)) {
+        score += 5;
+      }
+      if (c === CellType.Empty && world.canAntStep(ant.x, ant.y, ant.x + Math.cos(cand) * 1.1, ant.y + Math.sin(cand) * 1.1)) {
+        score += 6;
+      } else if (world.isTerrain(c)) {
+        score += 4;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestAngle = cand;
+        if (offsets[i] !== Math.PI) {
+          ant.wallSlideDir = offsets[i] >= 0 ? 1 : -1;
+        }
+      }
+    }
+
+    ant.fixedAngle = bestAngle + (Math.random() - 0.5) * 0.1;
+    ant.angle = ant.fixedAngle;
+  }
+
   private updateWarrior(
     ant: Ant,
     dt: number,
@@ -940,28 +992,29 @@ export class AntManager {
     const iy = Math.round(probeY);
 
     if (!world.inBounds(ix, iy)) {
-      if (ix < 2 || ix >= world.width - 2) ant.fixedAngle = Math.PI - ant.fixedAngle;
-      if (iy < 2 || iy >= world.height - 2) ant.fixedAngle = -ant.fixedAngle;
-      ant.angle = ant.fixedAngle;
+      this.deflectWarrior(ant, world);
       return;
     }
 
     const ahead = world.getCell(ix, iy);
     const nx = ant.x + Math.cos(ant.angle) * speed * dt;
     const ny = ant.y + Math.sin(ant.angle) * speed * dt;
-    const hitBarrier = ahead === CellType.HiddenArt || !world.isInsidePlayable(ix, iy);
+    const blockedByArt =
+      ahead === CellType.HiddenArt ||
+      ahead === CellType.Sugar ||
+      !world.isInsidePlayable(ix, iy) ||
+      world.hasArtBetween(ant.x, ant.y, ix, iy);
 
-    if (ahead === CellType.Empty && !hitBarrier && world.canAntStep(ant.x, ant.y, nx, ny)) {
+    if (ahead === CellType.Empty && !blockedByArt && world.canAntStep(ant.x, ant.y, nx, ny)) {
       ant.x = nx;
       ant.y = ny;
       ant.legPhase += dt * speed * 1.45;
-    } else if (hitBarrier || ahead === CellType.Empty) {
-      if (ahead === CellType.HiddenArt) {
+    } else if (blockedByArt || ahead === CellType.Empty) {
+      if (ahead === CellType.HiddenArt || ahead === CellType.Sugar) {
         const res = world.dig(ix, iy, radius, 1, ant.x, ant.y);
         this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
       }
-      ant.fixedAngle += (Math.random() < 0.5 ? 1 : -1) * (Math.PI * 0.35);
-      ant.angle = ant.fixedAngle;
+      this.deflectWarrior(ant, world);
     } else {
       ant.legPhase += dt * 3.8;
       if (ant.biteTimer <= 0) {
@@ -970,6 +1023,10 @@ export class AntManager {
         const dmg = this.computeDamage(rawDmg, ahead, stats);
         const res = world.dig(probeX, probeY, radius, dmg, ant.x, ant.y);
         this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events);
+        // If corner-pinched against HiddenArt and bite dealt 0 real dig/damage, deflect cleanly instead of getting stuck!
+        if (res.dugCount === 0 && res.damagedCount === 0 && !res.sugarHit) {
+          this.deflectWarrior(ant, world);
+        }
       }
     }
   }
