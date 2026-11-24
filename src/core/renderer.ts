@@ -249,11 +249,15 @@ export class WorldRenderer {
   private glowImgData: ImageData;
   private glowData32: Uint32Array;
 
-  // Fast quarter-res hardware-filtered bloom canvas (replaces slow CPU ctx.filter='blur()' on mobile!)
+  // Fast dual-scale hardware-filtered bloom canvases (zero ctx.filter='blur()' GPU stalls or black-buffer glitches!)
   private bloomCanvas: HTMLCanvasElement;
   private bloomCtx: CanvasRenderingContext2D;
   private bloomW = 1;
   private bloomH = 1;
+  private bloomWideCanvas: HTMLCanvasElement;
+  private bloomWideCtx: CanvasRenderingContext2D;
+  private bloomWideW = 1;
+  private bloomWideH = 1;
 
   private width = 0;
   private height = 0;
@@ -268,6 +272,8 @@ export class WorldRenderer {
     this.glowCtx = this.glowCanvas.getContext('2d')!;
     this.bloomCanvas = document.createElement('canvas');
     this.bloomCtx = this.bloomCanvas.getContext('2d')!;
+    this.bloomWideCanvas = document.createElement('canvas');
+    this.bloomWideCtx = this.bloomWideCanvas.getContext('2d')!;
     this.imgData = this.offCtx.createImageData(1, 1);
     this.imgData32 = new Uint32Array(this.imgData.data.buffer);
     this.glowImgData = this.glowCtx.createImageData(1, 1);
@@ -288,14 +294,19 @@ export class WorldRenderer {
     this.glowImgData = this.glowCtx.createImageData(width, height);
     this.glowData32 = new Uint32Array(this.glowImgData.data.buffer);
 
-    this.bloomW = Math.max(1, Math.ceil(width * 0.35));
-    this.bloomH = Math.max(1, Math.ceil(height * 0.35));
+    this.bloomW = Math.max(1, Math.ceil(width * 0.36));
+    this.bloomH = Math.max(1, Math.ceil(height * 0.36));
     this.bloomCanvas.width = this.bloomW;
     this.bloomCanvas.height = this.bloomH;
+
+    this.bloomWideW = Math.max(1, Math.ceil(width * 0.15));
+    this.bloomWideH = Math.max(1, Math.ceil(height * 0.15));
+    this.bloomWideCanvas.width = this.bloomWideW;
+    this.bloomWideCanvas.height = this.bloomWideH;
     this.lastVisualVersion = -1;
   }
 
-  private rebuildWorldTextures(world: World, time: number, mobile: boolean) {
+  private rebuildWorldTextures(world: World, time: number) {
     const w = world.width;
     const h = world.height;
     const data = this.imgData.data;
@@ -623,12 +634,14 @@ export class WorldRenderer {
     this.offCtx.putImageData(this.imgData, 0, 0);
     this.glowCtx.putImageData(this.glowImgData, 0, 0);
 
-    // Pre-downsample glow onto quarter-res hardware canvas for ultra-fast mobile bloom (zero CPU blur!)
-    if (mobile) {
-      this.bloomCtx.clearRect(0, 0, this.bloomW, this.bloomH);
-      this.bloomCtx.imageSmoothingEnabled = true;
-      this.bloomCtx.drawImage(this.glowCanvas, 0, 0, this.bloomW, this.bloomH);
-    }
+    // Dual-scale hardware bilinear downsample bloom for ALL platforms (silky 60 FPS, zero ctx.filter GPU stalls!)
+    this.bloomCtx.clearRect(0, 0, this.bloomW, this.bloomH);
+    this.bloomCtx.imageSmoothingEnabled = true;
+    this.bloomCtx.drawImage(this.glowCanvas, 0, 0, this.bloomW, this.bloomH);
+
+    this.bloomWideCtx.clearRect(0, 0, this.bloomWideW, this.bloomWideH);
+    this.bloomWideCtx.imageSmoothingEnabled = true;
+    this.bloomWideCtx.drawImage(this.bloomCanvas, 0, 0, this.bloomWideW, this.bloomWideH);
   }
 
   render(
@@ -661,9 +674,15 @@ export class WorldRenderer {
     const elapsedSinceRebuild = now - this.lastRebuildMs;
     const animInterval = mobile ? (world.stats.mapCleared ? 60 : 95) : (world.stats.mapCleared ? 34 : 55);
     const dirtyInterval = mobile ? 26 : 14;
+    const forceBurstRebuild = dirty && sugarBurst !== null && sugarBurst.progress < 0.08;
 
-    if (worldChanged || (dirty && elapsedSinceRebuild >= dirtyInterval) || elapsedSinceRebuild >= animInterval) {
-      this.rebuildWorldTextures(world, time, mobile);
+    if (
+      worldChanged ||
+      forceBurstRebuild ||
+      (dirty && elapsedSinceRebuild >= dirtyInterval) ||
+      elapsedSinceRebuild >= animInterval
+    ) {
+      this.rebuildWorldTextures(world, time);
       this.lastWorldRef = world;
       this.lastVisualVersion = world.visualVersion;
       this.lastRebuildMs = now;
@@ -695,24 +714,26 @@ export class WorldRenderer {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(this.offscreen, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
 
-      // Soft bloom pass: ultra-fast hardware downsampled bloom on mobile (ZERO CPU blur stall!), full blur on desktop!
+      // Multi-scale GPU-native bilinear bloom pass (ZERO ctx.filter blur shader stalls or Chromium black-buffer glitches!)
       ctx.globalCompositeOperation = 'lighter';
       ctx.imageSmoothingEnabled = true;
-      if (mobile) {
-        const bSx = (srcX / w) * this.bloomW;
-        const bSy = (srcY / h) * this.bloomH;
-        const bSw = (srcW / w) * this.bloomW;
-        const bSh = (srcH / h) * this.bloomH;
-        ctx.globalAlpha = world.stats.mapCleared ? 0.72 : 0.48;
-        ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
-        ctx.globalAlpha = world.stats.mapCleared ? 0.45 : 0.28;
-        ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
-      } else {
-        ctx.filter = `blur(${Math.max(4, Math.min(12, z * (world.stats.mapCleared ? 1.9 : 1.5)))}px)`;
-        ctx.globalAlpha = world.stats.mapCleared ? 0.85 : 0.58;
-        ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
-        ctx.filter = 'none';
-      }
+
+      const bwSx = (srcX / w) * this.bloomWideW;
+      const bwSy = (srcY / h) * this.bloomWideH;
+      const bwSw = (srcW / w) * this.bloomWideW;
+      const bwSh = (srcH / h) * this.bloomWideH;
+      ctx.globalAlpha = world.stats.mapCleared ? 0.62 : 0.42;
+      ctx.drawImage(this.bloomWideCanvas, bwSx, bwSy, bwSw, bwSh, dstX, dstY, dstW, dstH);
+
+      const bSx = (srcX / w) * this.bloomW;
+      const bSy = (srcY / h) * this.bloomH;
+      const bSw = (srcW / w) * this.bloomW;
+      const bSh = (srcH / h) * this.bloomH;
+      ctx.globalAlpha = world.stats.mapCleared ? 0.56 : 0.38;
+      ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
+
+      ctx.globalAlpha = world.stats.mapCleared ? 0.34 : 0.22;
+      ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
       ctx.globalAlpha = 1;
     }
 
@@ -771,33 +792,44 @@ export class WorldRenderer {
         ctx.fillRect(0, 0, viewW, viewH);
       }
 
-      // 2. 16 rotating golden & diamond-cyan cathedral god-rays radiating from the Sugar crystal
+      // 2. 12 rotating golden & diamond-cyan cathedral god-rays reusing ONLY 2 radial gradients (zero GC/GPU churn!)
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(time * 0.62);
-      const beamLen = Math.max(140, Math.min(Math.max(viewW, viewH) * 0.85, camera.zoom * (22 + p * 46)));
-      for (let r = 0; r < 16; r++) {
-        const ang = (r / 16) * Math.PI * 2;
-        const isMajor = r % 2 === 0;
-        const spread = isMajor ? 0.095 : 0.048;
-        const pulse = 0.82 + 0.18 * Math.sin(time * 6 + r * 1.3);
-        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, beamLen * (isMajor ? 1 : 0.78));
-        if (isMajor) {
-          grad.addColorStop(0, `rgba(255, 254, 232, ${0.65 * fade * pulse})`);
-          grad.addColorStop(0.42, `rgba(255, 224, 102, ${0.32 * fade * pulse})`);
-          grad.addColorStop(1, 'rgba(255, 224, 102, 0)');
-        } else {
-          grad.addColorStop(0, `rgba(215, 252, 255, ${0.48 * fade * pulse})`);
-          grad.addColorStop(0.45, `rgba(110, 234, 255, ${0.22 * fade * pulse})`);
-          grad.addColorStop(1, 'rgba(110, 234, 255, 0)');
-        }
-        ctx.fillStyle = grad;
-        ctx.beginPath();
+      const beamLen = Math.max(140, Math.min(Math.max(viewW, viewH) * 0.8, camera.zoom * (20 + p * 42)));
+      const minorLen = beamLen * 0.78;
+      const majorPulse = 0.88 + 0.12 * Math.sin(time * 5.2);
+      const minorPulse = 0.88 + 0.12 * Math.cos(time * 6.0);
+
+      const majorGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, beamLen);
+      majorGrad.addColorStop(0, `rgba(255, 254, 232, ${0.68 * fade * majorPulse})`);
+      majorGrad.addColorStop(0.42, `rgba(255, 224, 102, ${0.34 * fade * majorPulse})`);
+      majorGrad.addColorStop(1, 'rgba(255, 224, 102, 0)');
+
+      ctx.fillStyle = majorGrad;
+      ctx.beginPath();
+      for (let r = 0; r < 6; r++) {
+        const ang = (r / 6) * Math.PI * 2;
         ctx.moveTo(0, 0);
-        ctx.arc(0, 0, beamLen * (isMajor ? 1 : 0.78), ang - spread, ang + spread);
+        ctx.arc(0, 0, beamLen, ang - 0.105, ang + 0.105);
         ctx.closePath();
-        ctx.fill();
       }
+      ctx.fill();
+
+      const minorGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, minorLen);
+      minorGrad.addColorStop(0, `rgba(215, 252, 255, ${0.5 * fade * minorPulse})`);
+      minorGrad.addColorStop(0.45, `rgba(110, 234, 255, ${0.24 * fade * minorPulse})`);
+      minorGrad.addColorStop(1, 'rgba(110, 234, 255, 0)');
+
+      ctx.fillStyle = minorGrad;
+      ctx.beginPath();
+      for (let r = 0; r < 6; r++) {
+        const ang = ((r + 0.5) / 6) * Math.PI * 2;
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, minorLen, ang - 0.055, ang + 0.055);
+        ctx.closePath();
+      }
+      ctx.fill();
       ctx.restore();
 
       // 3. 4 staggered chromatic shockwave rings (white flash -> gold -> ice cyan -> prism violet!)
@@ -858,19 +890,19 @@ export class WorldRenderer {
       ctx.arc(sx, sy, coreR, 0, Math.PI * 2);
       ctx.fill();
 
-      const spikeLen = Math.max(36, camera.zoom * (9 + Math.sin(p * Math.PI) * 9));
+      const spikeLen = Math.max(36, camera.zoom * (8.5 + Math.sin(p * Math.PI) * 8.5));
+      const spGrad = ctx.createLinearGradient(-spikeLen, 0, spikeLen, 0);
+      spGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+      spGrad.addColorStop(0.5, `rgba(255, 254, 235, ${0.92 * fade})`);
+      spGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(Math.sin(time * 2.2) * 0.12);
+      ctx.fillStyle = spGrad;
       for (let sp = 0; sp < 4; sp++) {
         ctx.rotate(Math.PI * 0.25);
         const len = sp % 2 === 0 ? spikeLen : spikeLen * 0.62;
         const wHalf = Math.max(1.8, camera.zoom * (sp % 2 === 0 ? 0.34 : 0.22));
-        const spGrad = ctx.createLinearGradient(-len, 0, len, 0);
-        spGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        spGrad.addColorStop(0.5, `rgba(255, 254, 235, ${0.92 * fade})`);
-        spGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = spGrad;
         ctx.beginPath();
         ctx.moveTo(-len, 0);
         ctx.lineTo(0, -wHalf);

@@ -137,6 +137,10 @@ export class World {
   stats: WorldStats;
   /** Incremented whenever cells, HP, exposure or fog change (used by renderer to skip redundant pixel rebuilds!) */
   visualVersion = 1;
+  /** Throttled cache of remaining interior terrain coordinates for >=98% endgame cleanup steering */
+  private cleanupSpots: { x: number; y: number }[] = [];
+  private cleanupSpotsVersion = -1;
+  private cleanupNextRefreshMs = 0;
 
   constructor(
     level: LevelDefinition,
@@ -832,7 +836,7 @@ export class World {
         }
 
         if (cell === CellType.Sugar) {
-          this.sugarExposed = true;
+          this.exposeSugarChamber();
           if (!this.stats.sugarFound) {
             this.stats.sugarFound = true;
             result.sugarHit = true;
@@ -1064,7 +1068,7 @@ export class World {
           continue;
         }
         if (c === CellType.Sugar) {
-          this.sugarExposed = true;
+          this.exposeSugarChamber();
           if (!this.stats.sugarFound) {
             this.stats.sugarFound = true;
             result.sugarHit = true;
@@ -1089,20 +1093,128 @@ export class World {
     }
   }
 
+  /** Immediately illuminates a generous scenic chamber around Sugar so close-up zoom is never dark! */
+  exposeSugarChamber(force = false) {
+    if (this.sugarExposed && !force) return;
+    this.sugarExposed = true;
+    this.revealCircle(this.sugarX, this.sugarY, Math.max(this.revealRadius + 18, 42));
+    this.visualVersion++;
+  }
+
+  /** Fraction [0..1] of playable interior terrain blocks excavated so far */
+  getDigProgress(): number {
+    if (this.stats.mapCleared) return 1;
+    if (this.stats.totalBreakable <= 0) return 0;
+    return Math.min(1, this.stats.dugBreakable / this.stats.totalBreakable);
+  }
+
+  /** True once >= 98% of interior blocks are cleared and map is still being mopped up toward 99.5% */
+  isEndgameCleanup(): boolean {
+    return !this.stats.mapCleared && this.getDigProgress() >= 0.98;
+  }
+
   /**
-   * When almost every single interior pixel is genuinely excavated (>=99.85% AND <=65 tiny corner specks left),
-   * sweeps the final microscopic specks right up to 1px HiddenArt edges & dotted arcs,
+   * Returns a nearby un-dug interior terrain coordinate during the >= 98% endgame cleanup phase.
+   * Refreshes an internal edge-prioritized coordinate cache at most once every 650ms (O(1) per ant turn!).
+   */
+  getCleanupTarget(fromX: number, fromY: number): { x: number; y: number } | null {
+    if (!this.isEndgameCleanup()) return null;
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const needsRefresh =
+      this.cleanupSpots.length === 0 ||
+      (this.cleanupSpotsVersion !== this.visualVersion && now >= this.cleanupNextRefreshMs);
+
+    if (needsRefresh) {
+      this.refreshCleanupSpots(now);
+    }
+
+    const spots = this.cleanupSpots;
+    if (spots.length === 0) return null;
+
+    const w = this.width;
+    const samples = Math.min(18, spots.length);
+    let best: { x: number; y: number } | null = null;
+    let bestDistSq = Infinity;
+
+    for (let s = 0; s < samples; s++) {
+      const idxInList = Math.floor(Math.random() * spots.length);
+      const pt = spots[idxInList];
+      const cell = this.cells[pt.y * w + pt.x] as CellType;
+      if (!this.isTerrain(cell)) {
+        // Lazily swap-pop already-dug spot
+        spots[idxInList] = spots[spots.length - 1];
+        spots.pop();
+        if (spots.length === 0) break;
+        continue;
+      }
+      const dx = pt.x - fromX;
+      const dy = pt.y - fromY;
+      const dSq = dx * dx + dy * dy;
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        best = pt;
+      }
+    }
+
+    return best;
+  }
+
+  private refreshCleanupSpots(nowMs: number) {
+    const w = this.width;
+    const h = this.height;
+    const cells = this.cells;
+    const interior = this.interiorMask;
+    const isEdge = this.isEdge;
+    const edgeSpots: { x: number; y: number }[] = [];
+    const fallbackSpots: { x: number; y: number }[] = [];
+
+    for (let y = 1; y < h - 1; y++) {
+      const row = y * w;
+      for (let x = 1; x < w - 1; x++) {
+        const idx = row + x;
+        if (interior[idx] !== 1) continue;
+        const c = cells[idx] as CellType;
+        if (!this.isTerrain(c)) continue;
+        if (isEdge[idx] === 1) {
+          edgeSpots.push({ x, y });
+        } else if (fallbackSpots.length < 400) {
+          fallbackSpots.push({ x, y });
+        }
+      }
+    }
+
+    const chosen = edgeSpots.length > 0 ? edgeSpots : fallbackSpots;
+    // Cap list size smoothly via even stride so sampling stays cache-friendly & evenly spread across pockets
+    if (chosen.length > 420) {
+      const step = chosen.length / 420;
+      const trimmed: { x: number; y: number }[] = [];
+      for (let i = 0; i < 420; i++) {
+        trimmed.push(chosen[Math.floor(i * step)]);
+      }
+      this.cleanupSpots = trimmed;
+    } else {
+      this.cleanupSpots = chosen;
+    }
+
+    this.cleanupSpotsVersion = this.visualVersion;
+    this.cleanupNextRefreshMs = nowMs + 650;
+  }
+
+  /**
+   * When >= 99.5% of playable interior blocks are excavated, automatically sweeps the final 0.5%,
    * reveals 100% of the HiddenArt masterpiece, and enables the spotless iridescent shimmer finale!
    */
   checkAndFinishClear(): boolean {
     if (this.stats.mapCleared || this.stats.totalBreakable < 100) return false;
     const rem = this.stats.totalBreakable - this.stats.dugBreakable;
-    const maxStraySpecks = Math.min(65, Math.max(18, Math.round(this.stats.totalBreakable * 0.0015)));
-    if (rem > maxStraySpecks) {
+    const clearedRatio = this.stats.dugBreakable / this.stats.totalBreakable;
+    if (clearedRatio < 0.995 && rem > 18) {
       return false;
     }
 
     this.stats.mapCleared = true;
+    this.cleanupSpots = [];
     this.poisonEntries.clear();
     this.poisonMask.fill(0);
     this.isEdge.fill(0);
@@ -1148,7 +1260,7 @@ export class World {
             result.artRevealed++;
           }
         } else if (nCell === CellType.Sugar) {
-          this.sugarExposed = true;
+          this.exposeSugarChamber();
           if (!this.stats.sugarFound) {
             this.stats.sugarFound = true;
             result.sugarHit = true;

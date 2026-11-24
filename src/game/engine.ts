@@ -582,14 +582,18 @@ export class GameEngine {
   private triggerEpicSugarCelebration(isNewRecord: boolean) {
     this.clearSugarBurstTimers();
     this.sugarBurstTime = 0;
-    this.cameraShake = 8.5;
+    this.cameraShake = 8.0;
+
+    // Guarantee the Sugar crystal & wide surrounding subterranean chamber are brightly illuminated on frame 0!
+    this.world.exposeSugarChamber(true);
 
     const foundLevel = this.world.level;
     this.callbacks.onSugarCinematicStart?.(foundLevel);
 
     const { sugarX, sugarY } = this.world;
     const fitZoom = Math.min((this.viewW * 0.88) / this.world.width, (this.viewH * 0.8) / this.world.height);
-    const targetZoom = Math.max(13.5, Math.min(18.5, fitZoom * 4.8));
+    // Scenic cinematic close-up: frames Sugar, approaching tunnels, ants & god-rays cleanly without zooming into dark rock!
+    const targetZoom = Math.max(8.5, Math.min(12.5, fitZoom * 3.3));
     this.cameraEaseTarget = { x: sugarX, y: sugarY, zoom: targetZoom };
 
     // Wave 1 (0ms): Pure white-diamond & gold impact detonation
@@ -804,6 +808,21 @@ export class GameEngine {
       }
     }
 
+    // 3c-endgame. At >= 98% excavated, pinpoint tiny remaining un-dug interior pockets directly!
+    if (w.isEndgameCleanup() && !this.beacon && antType !== 'queen') {
+      const cleanupPt = w.getCleanupTarget(w.nestX, w.nestY);
+      if (cleanupPt) {
+        const sp = w.findNearestEmpty(cleanupPt.x, cleanupPt.y, 24);
+        if (sp && !w.hasArtBetween(sp.x, sp.y, cleanupPt.x, cleanupPt.y)) {
+          return {
+            x: sp.x,
+            y: sp.y,
+            angle: Math.atan2(cleanupPt.y - sp.y, cleanupPt.x - sp.x) + (Math.random() - 0.5) * 0.25
+          };
+        }
+      }
+    }
+
     // 3d. Collect live interior digging frontier cells (Empty interior cells adjacent to diggable interior rock!)
     const frontier: { x: number; y: number }[] = [];
     for (let y = 4; y < height - 4; y += 3) {
@@ -930,7 +949,7 @@ export class GameEngine {
 
     let simDt = dt;
     if (this.sugarBurstTime >= 0) {
-      this.sugarBurstTime += dt;
+      this.sugarBurstTime += Math.min(dt, 0.05);
       if (this.sugarBurstTime < 1.25) {
         simDt = dt * 0.12;
       } else if (this.sugarBurstTime < 2.45) {
@@ -1101,13 +1120,18 @@ export class GameEngine {
     if (events.sugarHit) {
       const { isNewRecord } = this.skillTree.recordSugarWin(this.world.level.id, this.runElapsedSec);
       this.audio.playSugarFound();
-      this.saveRunProgress();
       this.callbacks.onHudSync();
       this.triggerEpicSugarCelebration(isNewRecord);
+      // Defer RLE snapshot serialization off the Sugar impact frame so camera swoop & god-rays stay locked at 60 FPS!
+      this.sugarBurstTimers.push(
+        window.setTimeout(() => {
+          this.saveRunProgress();
+        }, 160)
+      );
     }
 
-    // Epic 100% map-cleared finale: sweep stray pixels, zoom out to showcase shimmering art & fireworks!
-    if (events.dugPixels > 0 && this.world.checkAndFinishClear()) {
+    // Epic 100% map-cleared finale (auto-clears cleanly at >= 99.5%): sweep stray pixels, zoom out & fireworks!
+    if (!this.world.stats.mapCleared && this.world.checkAndFinishClear()) {
       this.skillTree.recordMapClear(this.world.level.id, this.runElapsedSec);
       this.audio.playEpicClearFanfare();
       this.easeCameraToFullMap();

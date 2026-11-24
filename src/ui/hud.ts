@@ -2888,7 +2888,7 @@ export class HudController {
     const digLabel = stats.mapCleared
       ? '100%'
       : rawDigFrac >= 99
-        ? `${Math.min(99.9, Math.floor(rawDigFrac * 10) / 10).toFixed(1)}%`
+        ? `${Math.min(99.4, Math.floor(rawDigFrac * 10) / 10).toFixed(1)}%`
         : `${Math.floor(rawDigFrac)}%`;
 
     this.statArtEl.textContent = `${artPct}%`;

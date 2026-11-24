@@ -2185,7 +2185,7 @@ export class MultiplayerEngine {
   /* =========================================================
      RENDERER (MOBILE-OPTIMIZED + STYLED BASES + SKINS + PINGS)
      ========================================================= */
-  private rebuildTextures(mobile: boolean) {
+  private rebuildTextures() {
     const { width: w, height: h, cells, hp, maxHp, isEdge, revealedMask, artExposed, noise } = this;
     const data = this.imgData.data;
     const data32 = this.imgData32;
@@ -2287,11 +2287,9 @@ export class MultiplayerEngine {
 
     this.offCtx.putImageData(this.imgData, 0, 0);
     this.glowCtx.putImageData(this.glowImgData, 0, 0);
-    if (mobile) {
-      this.bloomCtx.clearRect(0, 0, this.bloomW, this.bloomH);
-      this.bloomCtx.imageSmoothingEnabled = true;
-      this.bloomCtx.drawImage(this.glowCanvas, 0, 0, this.bloomW, this.bloomH);
-    }
+    this.bloomCtx.clearRect(0, 0, this.bloomW, this.bloomH);
+    this.bloomCtx.imageSmoothingEnabled = true;
+    this.bloomCtx.drawImage(this.glowCanvas, 0, 0, this.bloomW, this.bloomH);
   }
 
   private render() {
@@ -2301,7 +2299,7 @@ export class MultiplayerEngine {
     const now = performance.now();
     const rebuildInterval = mobile ? 50 : 28;
     if (this.lastRebuildMs === 0 || now - this.lastRebuildMs >= rebuildInterval) {
-      this.rebuildTextures(mobile);
+      this.rebuildTextures();
       this.lastRebuildMs = now;
     }
 
@@ -2332,21 +2330,14 @@ export class MultiplayerEngine {
 
       ctx.globalCompositeOperation = 'lighter';
       ctx.imageSmoothingEnabled = true;
-      if (mobile) {
-        const bSx = (srcX / w) * this.bloomW;
-        const bSy = (srcY / h) * this.bloomH;
-        const bSw = (srcW / w) * this.bloomW;
-        const bSh = (srcH / h) * this.bloomH;
-        ctx.globalAlpha = this.state.allCleared ? 0.72 : 0.46;
-        ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
-        ctx.globalAlpha = this.state.allCleared ? 0.44 : 0.26;
-        ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
-      } else {
-        ctx.filter = `blur(${Math.max(4, Math.min(12, z * (this.state.allCleared ? 1.9 : 1.5)))}px)`;
-        ctx.globalAlpha = this.state.allCleared ? 0.85 : 0.56;
-        ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
-        ctx.filter = 'none';
-      }
+      const bSx = (srcX / w) * this.bloomW;
+      const bSy = (srcY / h) * this.bloomH;
+      const bSw = (srcW / w) * this.bloomW;
+      const bSh = (srcH / h) * this.bloomH;
+      ctx.globalAlpha = this.state.allCleared ? 0.72 : 0.48;
+      ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
+      ctx.globalAlpha = this.state.allCleared ? 0.44 : 0.26;
+      ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }

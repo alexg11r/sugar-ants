@@ -677,8 +677,9 @@ export class AntManager {
 
     if (ant.turnTimer <= 0) {
       const sliding = (ant.wallSlideTimer || 0) > 0;
+      const cleanupActive = !beacon && world.isEndgameCleanup();
       if (sliding) {
-        // Check if path toward beacon has opened up past the obstacle!
+        // Check if path toward beacon (or >=98% endgame cleanup pocket) has opened up past the obstacle!
         if (beacon) {
           const toBeacon = Math.atan2(beacon.y - ant.y, beacon.x - ant.x);
           if ((ant.wallSlideTimer || 0) < 1.3 && !this.hitsArtAlong(world, ant.x, ant.y, toBeacon, 5.5)) {
@@ -686,6 +687,19 @@ export class AntManager {
             ant.angle = toBeacon + (Math.random() - 0.5) * 0.45;
           } else {
             ant.angle += (Math.random() - 0.5) * 0.24;
+          }
+        } else if (cleanupActive && (ant.wallSlideTimer || 0) < 0.95) {
+          const target = world.getCleanupTarget(ant.x, ant.y);
+          if (target) {
+            const toTarget = Math.atan2(target.y - ant.y, target.x - ant.x);
+            if (!this.hitsArtAlong(world, ant.x, ant.y, toTarget, 5.0)) {
+              ant.wallSlideTimer = 0;
+              ant.angle = toTarget + (Math.random() - 0.5) * 0.42;
+            } else {
+              ant.angle += (Math.random() - 0.5) * 0.28;
+            }
+          } else {
+            ant.angle += (Math.random() - 0.5) * 0.35;
           }
         } else {
           ant.angle += (Math.random() - 0.5) * 0.35;
@@ -718,6 +732,39 @@ export class AntManager {
           ant.angle += (Math.random() - 0.5) * 1.35;
         }
         ant.turnTimer = (isWorker ? 0.55 : 0.35) + Math.random() * 0.5;
+      } else if (cleanupActive && Math.random() < 0.72) {
+        // Endgame cleanup shift (>= 98% dug): Workers & Brood subtly bias toward leftover un-dug interior blocks!
+        const target = world.getCleanupTarget(ant.x, ant.y);
+        if (target) {
+          const dxT = target.x - ant.x;
+          const dyT = target.y - ant.y;
+          const distT = Math.hypot(dxT, dyT);
+          const toTarget = Math.atan2(dyT, dxT);
+          if (distT > 2.5 && this.hitsArtAlong(world, ant.x, ant.y, toTarget, 4.0)) {
+            const leftA = toTarget - Math.PI * 0.48;
+            const rightA = toTarget + Math.PI * 0.48;
+            const leftBlocked = this.hitsArtAlong(world, ant.x, ant.y, leftA, 4.0);
+            const rightBlocked = this.hitsArtAlong(world, ant.x, ant.y, rightA, 4.0);
+            const dir =
+              !leftBlocked && rightBlocked
+                ? -1
+                : leftBlocked && !rightBlocked
+                  ? 1
+                  : ant.wallSlideDir || (Math.random() < 0.5 ? 1 : -1);
+            ant.wallSlideDir = dir;
+            ant.wallSlideTimer = 1.2 + Math.random() * 0.45;
+            ant.angle = toTarget + dir * (Math.PI * 0.48);
+          } else {
+            let diff = toTarget - ant.angle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            ant.angle += diff * 0.62 + (Math.random() - 0.5) * (isWorker ? 0.44 : 0.6);
+          }
+          ant.turnTimer = (isWorker ? 0.46 : 0.32) + Math.random() * 0.42;
+        } else {
+          ant.angle += (Math.random() - 0.5) * (isWorker ? 1.05 : 1.5);
+          ant.turnTimer = (isWorker ? 0.65 : 0.35) + Math.random() * 0.7;
+        }
       } else {
         ant.angle += (Math.random() - 0.5) * (isWorker ? 1.05 : 1.5);
         ant.turnTimer = (isWorker ? 0.65 : 0.35) + Math.random() * 0.7;

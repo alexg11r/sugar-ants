@@ -1583,18 +1583,16 @@ body,
   z-index: 65;
   background: radial-gradient(
     circle at 50% 45%,
-    rgba(255, 220, 95, 0.24) 0%,
-    rgba(12, 22, 16, 0.72) 52%,
-    rgba(3, 8, 6, 0.9) 100%
+    rgba(255, 224, 108, 0.22) 0%,
+    rgba(10, 22, 16, 0.78) 50%,
+    rgba(3, 8, 6, 0.92) 100%
   );
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
   overflow: hidden;
-  animation: sugar-overlay-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: sugar-overlay-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes sugar-overlay-in {
@@ -1608,8 +1606,8 @@ body,
 
 .sugar-diamond-rays {
   position: absolute;
-  width: min(115vmax, 1100px);
-  height: min(115vmax, 1100px);
+  width: min(94vmax, 880px);
+  height: min(94vmax, 880px);
   border-radius: 50%;
   background: repeating-conic-gradient(
     from 0deg,
@@ -1621,6 +1619,7 @@ body,
   mask-image: radial-gradient(circle, #000 10%, transparent 66%);
   -webkit-mask-image: radial-gradient(circle, #000 10%, transparent 66%);
   pointer-events: none;
+  will-change: transform;
   animation: sugar-rays-spin 18s linear infinite;
 }
 
