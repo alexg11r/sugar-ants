@@ -2,6 +2,7 @@ import { setLang } from '../core/i18n';
 import { LEVELS } from '../core/levels';
 import {
   AchievementDef,
+  AutoSummonMode,
   CareerStats,
   GameSettings,
   LevelRecord,
@@ -422,112 +423,59 @@ export const SKILL_NODES: SkillNodeDef[] = [
     requires: ['queen_rate', 'queen_brood_dmg']
   },
 
-  // TOP — Colony (Yellow)
+  // SIDE PANEL — General Colony Upgrades (Displayed as Matching Glowing Skill Cells!)
   {
     id: 'colony_life',
-    gx: -1,
-    gy: -1,
+    gx: -10,
+    gy: 0,
     branch: 'colony',
     shape: 'square',
     icon: 'hourglass',
-    category: 'Колония',
-    categoryEn: 'Colony',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
     title: 'Долгая жизнь',
     titleEn: 'Enduring Colony',
     description: '+25% к времени жизни ВСЕХ муравьёв в колонии.',
     descriptionEn: '+25% lifespan for ALL ants in your colony.',
     cost: 3,
     maxRank: 4,
-    requires: ['worker_life', 'warrior_unlock']
+    requires: []
+  },
+  {
+    id: 'colony_armor',
+    gx: -10,
+    gy: 1,
+    branch: 'colony',
+    shape: 'circle',
+    icon: 'cleave',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
+    title: 'Камнееды',
+    titleEn: 'Stone Eaters',
+    description: '+1 бонусный урон всех муравьёв по плотной глине, камню и обсидиану.',
+    descriptionEn: '+1 bonus damage for all ants against dense Clay, Stone, and Obsidian.',
+    cost: 5,
+    maxRank: 3,
+    requires: []
   },
   {
     id: 'colony_crystal',
-    gx: -1,
-    gy: -2,
+    gx: -10,
+    gy: 2,
     branch: 'colony',
     shape: 'circle',
     icon: 'crystal',
-    category: 'Колония',
-    categoryEn: 'Colony',
+    panel: 'side',
+    category: 'Общие улучшения',
+    categoryEn: 'General Upgrades',
     title: 'Чистый кристалл',
     titleEn: 'Pure Crystal',
     description: '+1 дополнительное очко навыков с каждого найденного кристалла.',
     descriptionEn: '+1 extra Skill Point from every broken crystal.',
     cost: 6,
     maxRank: 2,
-    requires: ['colony_life']
-  },
-  {
-    id: 'colony_armor',
-    gx: 0,
-    gy: -2,
-    branch: 'colony',
-    shape: 'circle',
-    icon: 'cleave',
-    category: 'Колония',
-    categoryEn: 'Colony',
-    title: 'Камнееды',
-    titleEn: 'Stone Eaters',
-    description: '+1 бонусный урон всех муравьёв по плотной глине, камню и базальту.',
-    descriptionEn: '+1 bonus damage for all ants against dense Clay, Stone, and Obsidian.',
-    cost: 5,
-    maxRank: 3,
-    requires: ['worker_life', 'colony_life']
-  },
-
-  // SIDE PANEL — Standalone General Ant Upgrades (Always Accessible Beside Main Tree!)
-  {
-    id: 'all_speed',
-    gx: -10,
-    gy: 0,
-    branch: 'colony',
-    shape: 'square',
-    icon: 'speed',
-    panel: 'side',
-    category: 'Общие улучшения',
-    categoryEn: 'General Upgrades',
-    title: 'Общая скорость',
-    titleEn: 'Swarm Speed',
-    description: '+10% к скорости движения и копания ВСЕХ муравьёв в колонии.',
-    descriptionEn: '+10% movement and digging speed for ALL ants in your colony.',
-    cost: 2,
-    maxRank: 4,
-    requires: []
-  },
-  {
-    id: 'all_dmg',
-    gx: -10,
-    gy: 1,
-    branch: 'colony',
-    shape: 'square',
-    icon: 'sword',
-    panel: 'side',
-    category: 'Общие улучшения',
-    categoryEn: 'General Upgrades',
-    title: 'Общая сила',
-    titleEn: 'Swarm Might',
-    description: '+1 к урону каждого укуса ВСЕХ муравьёв по любым блокам.',
-    descriptionEn: '+1 damage per bite for ALL ants against every block type.',
-    cost: 4,
-    maxRank: 3,
-    requires: []
-  },
-  {
-    id: 'all_life',
-    gx: -10,
-    gy: 2,
-    branch: 'colony',
-    shape: 'circle',
-    icon: 'hourglass',
-    panel: 'side',
-    category: 'Общие улучшения',
-    categoryEn: 'General Upgrades',
-    title: 'Общая живучесть',
-    titleEn: 'Swarm Vitality',
-    description: '+15% к времени жизни ВСЕХ муравьёв (складывается с веткой колонии).',
-    descriptionEn: '+15% lifespan for ALL ants (stacks with colony branch).',
-    cost: 2,
-    maxRank: 4,
     requires: []
   },
   {
@@ -588,6 +536,16 @@ export interface ColonyStats {
   queen: { spawnRateMult: number; broodDmgBonus: number; broodLifeMult: number; maxActive: number };
 }
 
+export function createDefaultAutoSummonTypes(): Record<PlayableAntId, boolean> {
+  return {
+    worker: true,
+    warrior: true,
+    scout: true,
+    queen: true,
+    compass: false
+  };
+}
+
 function createDefaultSettings(): GameSettings {
   return {
     language: 'ru',
@@ -597,7 +555,9 @@ function createDefaultSettings(): GameSettings {
     sfxEnabled: true,
     musicVolume: 0.65,
     sfxVolume: 0.75,
-    autoSummon: false
+    autoSummon: false,
+    autoSummonMode: 'smart',
+    autoSummonTypes: createDefaultAutoSummonTypes()
   };
 }
 
@@ -678,6 +638,9 @@ export class SkillTreeManager {
 
       const parsedSettings = (parsed.settings || {}) as Partial<GameSettings>;
       const legacyVol = typeof parsedSettings.volume === 'number' ? parsedSettings.volume : undefined;
+      const rawMode = parsedSettings.autoSummonMode;
+      const autoSummonMode: AutoSummonMode =
+        rawMode === 'beacon' || rawMode === 'nest' || rawMode === 'smart' ? rawMode : 'smart';
       const settings: GameSettings = {
         ...createDefaultSettings(),
         ...parsedSettings,
@@ -689,7 +652,12 @@ export class SkillTreeManager {
         sfxVolume:
           typeof parsedSettings.sfxVolume === 'number'
             ? parsedSettings.sfxVolume
-            : (legacyVol ?? 0.75)
+            : (legacyVol ?? 0.75),
+        autoSummonMode,
+        autoSummonTypes: {
+          ...createDefaultAutoSummonTypes(),
+          ...(parsedSettings.autoSummonTypes || {})
+        }
       };
 
       const completedLevels = Array.isArray(parsed.completedLevels) ? parsed.completedLevels : [];
@@ -808,17 +776,21 @@ export class SkillTreeManager {
     }
   }
 
-  recordSugarWin(levelId: string, runElapsedSec: number) {
+  recordSugarWin(levelId: string, runElapsedSec: number): { isNewRecord: boolean; prevBestSec: number | null } {
     const rec = this.getRecord(levelId);
+    const prevBestSec = rec.bestSugarSec;
     rec.sugarFound = true;
     rec.wins += 1;
     if (!rec.discoveredAt) rec.discoveredAt = Date.now();
+    let isNewRecord = false;
     if (runElapsedSec > 0 && (rec.bestSugarSec === null || runElapsedSec < rec.bestSugarSec)) {
       rec.bestSugarSec = Math.round(runElapsedSec);
+      isNewRecord = true;
     }
     this.state.career.sugarsFound += 1;
     this.markLevelCompleted(levelId);
     this.save();
+    return { isNewRecord, prevBestSec };
   }
 
   recordMapClear(levelId: string, runElapsedSec: number) {
@@ -1036,9 +1008,7 @@ export class SkillTreeManager {
     const echoMult = this.hasMutation('colony_echo') ? 1.3 : 1.0;
     const metabMult = this.hasMutation('fast_metabolism') ? 1.18 : 1.0;
     const achSpeedMult = this.getAchievementSpeedMult();
-    const generalSpeedMult = 1 + r('all_speed') * 0.1;
-    const generalLifeMult = 1 + r('all_life') * 0.15;
-    const totalGlobalSpeed = metabMult * achSpeedMult * generalSpeedMult;
+    const totalGlobalSpeed = metabMult * achSpeedMult;
     const acidBonus = this.hasMutation('acid_jaws') ? 1 : 0;
     const twinBonus = this.hasMutation('twin_workers') ? 2 : 0;
     const hasCompassMut = this.hasMutation('compass_cd');
@@ -1046,9 +1016,9 @@ export class SkillTreeManager {
     const beaconRank = r('all_beacon');
 
     return {
-      globalLifeMult: (1 + r('colony_life') * 0.25) * generalLifeMult * echoMult,
+      globalLifeMult: (1 + r('colony_life') * 0.25) * echoMult,
       globalSpeedMult: totalGlobalSpeed,
-      globalDmgBonus: r('all_dmg'),
+      globalDmgBonus: 0,
       visionBonusPx: r('all_vision') * 5,
       beaconDurationSec: 30 + beaconRank * 10,
       beaconCooldownSec: Math.max(45, 120 - beaconRank * 20),

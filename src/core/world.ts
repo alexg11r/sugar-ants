@@ -1,4 +1,9 @@
-import { computeReachableMask, computeReachableWithDist, isReachableTerrainSquare } from './reachability';
+import {
+  computeInteriorMask,
+  computeReachableMask,
+  computeReachableWithDist,
+  isReachableTerrainSquare
+} from './reachability';
 import { ArtifactDef, CellType, LevelDefinition, WorldStats } from './types';
 
 export interface WorldSnapshot {
@@ -109,8 +114,10 @@ export class World {
   revealedMask: Uint8Array;
   /** 1 if this HiddenArt pixel has been exposed to Empty space */
   artExposed: Uint8Array;
-  /** 1 if this cell is genuinely reachable by ants from the nest (BFS flood-fill!) */
+  /** 1 if this cell is genuinely reachable by ants with 3x3 clearance (for safe item spawning) */
   reachableMask: Uint8Array;
+  /** 1 if this cell is inside the watertight 4-connected playable cavity right up to HiddenArt faces */
+  interiorMask: Uint8Array;
   /** 1 if this cell is currently corroded by Scout acid poison */
   poisonMask: Uint8Array;
   private poisonEntries = new Map<number, { timeLeft: number; dps: number; accum: number }>();
@@ -151,6 +158,7 @@ export class World {
     this.revealedMask = new Uint8Array(size);
     this.artExposed = new Uint8Array(size);
     this.reachableMask = new Uint8Array(size);
+    this.interiorMask = new Uint8Array(size);
     this.poisonMask = new Uint8Array(size);
     this.noise = new Uint8Array(size);
 
@@ -269,17 +277,23 @@ export class World {
       }
     }
 
-    // Derive 8-connected exposed edges (matching updateNeighbors!) & reachable mask cleanly
+    w.reachableMask = computeReachableMask(w.cells, width, height, [{ x: w.nestX, y: w.nestY }]);
+    w.interiorMask = computeInteriorMask(w.cells, width, height, [{ x: w.nestX, y: w.nestY }]);
+
+    // Derive 8-connected exposed edges strictly from interior dug corridors (zero exterior crumbs!)
     for (let y = 0; y < height; y++) {
       const row = y * width;
       for (let x = 0; x < width; x++) {
         const idx = row + x;
-        if (w.cells[idx] === CellType.Empty) continue;
+        const c = w.cells[idx] as CellType;
+        if (c === CellType.Empty) continue;
+        if (c !== CellType.HiddenArt && w.interiorMask[idx] !== 1) continue;
         let adjEmpty = false;
         for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1) && !adjEmpty; ny++) {
           const nRow = ny * width;
           for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++) {
-            if (w.cells[nRow + nx] === CellType.Empty) {
+            const nIdx = nRow + nx;
+            if (w.cells[nIdx] === CellType.Empty && w.interiorMask[nIdx] === 1) {
               adjEmpty = true;
               break;
             }
@@ -288,7 +302,6 @@ export class World {
         if (adjEmpty) w.isEdge[idx] = 1;
       }
     }
-    w.reachableMask = computeReachableMask(w.cells, width, height, [{ x: w.nestX, y: w.nestY }]);
     w.visualVersion++;
     return w;
   }
@@ -396,10 +409,12 @@ export class World {
     // Reveal vision around initial nest
     this.revealCircle(this.nestX, this.nestY, nestRadius + this.revealRadius);
 
-    // 3b. BFS Flood-Fill Reachability + Exact Path Distance from Nest:
-    // Guarantees Sugar, Artifacts & Crystals NEVER spawn inside sealed HiddenArt loops!
+    // 3b. BFS Flood-Fill Reachability + Exact Path Distance + Watertight Interior Mask from Nest:
+    // reachableMask (3x3 clearance) keeps Sugar/Artifacts/Crystals safely away from walls;
+    // interiorMask (4-connected up to 1px HiddenArt face) defines the EXACT playable cavity!
     const reach = computeReachableWithDist(this.cells, w, h, [{ x: this.nestX, y: this.nestY }]);
     this.reachableMask = reach.reachable;
+    this.interiorMask = computeInteriorMask(this.cells, w, h, [{ x: this.nestX, y: this.nestY }]);
     const distMap = reach.dist;
 
     // 4. Place the Sugar Cube DEEP in the far outer reaches (top 22% BFS path distance & far from nest!)
@@ -557,15 +572,16 @@ export class World {
     this.placeSpecialFinds(CellType.SugarDust, 7 + Math.floor(extraFinds * 0.8), 26);
     this.placeSpecialFinds(CellType.AncientCocoon, 6 + Math.floor(extraFinds * 0.8), 28);
 
-    // 6. Count reachable breakable blocks & mark initial border edges
+    // 6. Count interior breakable blocks & mark initial border edges (strictly inside playable cavity!)
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const idx = y * w + x;
         const cell = this.cells[idx] as CellType;
-        if (this.isTerrain(cell) && this.reachableMask[idx] === 1) {
+        const inside = this.interiorMask[idx] === 1;
+        if (this.isTerrain(cell) && inside) {
           this.stats.totalBreakable++;
         }
-        if (cell !== CellType.Empty && this.hasEmptyNeighbor(x, y)) {
+        if (cell !== CellType.Empty && (cell === CellType.HiddenArt || inside) && this.hasEmptyNeighbor(x, y)) {
           this.isEdge[idx] = 1;
           if (cell === CellType.HiddenArt && !this.artExposed[idx]) {
             this.artExposed[idx] = 1;
@@ -673,17 +689,92 @@ export class World {
     return this.cells[y * this.width + x] as CellType;
   }
 
-  hasEmptyNeighbor(x: number, y: number): boolean {
+  /** True strictly when (x, y) lies inside the watertight 4-connected interior cavity */
+  isInsidePlayable(x: number, y: number): boolean {
+    const ix = Math.round(x);
+    const iy = Math.round(y);
+    if (!this.inBounds(ix, iy)) return false;
+    return this.interiorMask[iy * this.width + ix] === 1;
+  }
+
+  /**
+   * Integer Bresenham line-of-sight check that blocks digs, poison, blasts & movement across
+   * ANY intervening HiddenArt pixel OR diagonal 1px HiddenArt corner pinch!
+   * Note: the endpoint (x1, y1) itself is allowed to be HiddenArt so the near face of art walls still illuminates.
+   */
+  hasArtBetween(x0: number, y0: number, x1: number, y1: number): boolean {
+    let cx = Math.round(x0);
+    let cy = Math.round(y0);
+    const tx = Math.round(x1);
+    const ty = Math.round(y1);
+    if (cx === tx && cy === ty) return false;
+
     const w = this.width;
-    const h = this.height;
-    if (x > 0 && this.cells[y * w + (x - 1)] === CellType.Empty) return true;
-    if (x < w - 1 && this.cells[y * w + (x + 1)] === CellType.Empty) return true;
-    if (y > 0 && this.cells[(y - 1) * w + x] === CellType.Empty) return true;
-    if (y < h - 1 && this.cells[(y + 1) * w + x] === CellType.Empty) return true;
+    const dx = Math.abs(tx - cx);
+    const dy = Math.abs(ty - cy);
+    const sx = cx < tx ? 1 : -1;
+    const sy = cy < ty ? 1 : -1;
+    let err = dx - dy;
+
+    for (let guard = 0; guard < 64; guard++) {
+      const prevX = cx;
+      const prevY = cy;
+      const e2 = 2 * err;
+      let steppedX = false;
+      let steppedY = false;
+      if (e2 > -dy) {
+        err -= dy;
+        cx += sx;
+        steppedX = true;
+      }
+      if (e2 < dx) {
+        err += dx;
+        cy += sy;
+        steppedY = true;
+      }
+
+      if (!this.inBounds(cx, cy)) return true;
+
+      // Block diagonal corner squeeze between two diagonally touching HiddenArt pixels!
+      if (steppedX && steppedY) {
+        const cornerA = this.cells[prevY * w + cx] === CellType.HiddenArt;
+        const cornerB = this.cells[cy * w + prevX] === CellType.HiddenArt;
+        if (cornerA && cornerB) return true;
+      }
+
+      if (cx === tx && cy === ty) break;
+      if (this.cells[cy * w + cx] === CellType.HiddenArt) return true;
+    }
+
     return false;
   }
 
-  dig(cx: number, cy: number, radius: number, damage: number): DigResult {
+  /** Watertight ant step validation: destination must be Empty, inside interiorMask, with zero HiddenArt crossing! */
+  canAntStep(fromX: number, fromY: number, toX: number, toY: number): boolean {
+    const ix = Math.round(toX);
+    const iy = Math.round(toY);
+    if (!this.inBounds(ix, iy)) return false;
+    const idx = iy * this.width + ix;
+    if (this.interiorMask[idx] !== 1 || this.cells[idx] !== CellType.Empty) return false;
+    const fx = Math.round(fromX);
+    const fy = Math.round(fromY);
+    if (fx !== ix || fy !== iy) {
+      if (this.hasArtBetween(fx, fy, ix, iy)) return false;
+    }
+    return true;
+  }
+
+  hasEmptyNeighbor(x: number, y: number): boolean {
+    const w = this.width;
+    const h = this.height;
+    if (x > 0 && this.cells[y * w + (x - 1)] === CellType.Empty && this.interiorMask[y * w + (x - 1)] === 1) return true;
+    if (x < w - 1 && this.cells[y * w + (x + 1)] === CellType.Empty && this.interiorMask[y * w + (x + 1)] === 1) return true;
+    if (y > 0 && this.cells[(y - 1) * w + x] === CellType.Empty && this.interiorMask[(y - 1) * w + x] === 1) return true;
+    if (y < h - 1 && this.cells[(y + 1) * w + x] === CellType.Empty && this.interiorMask[(y + 1) * w + x] === 1) return true;
+    return false;
+  }
+
+  dig(cx: number, cy: number, radius: number, damage: number, sourceX?: number, sourceY?: number): DigResult {
     const result: DigResult = {
       hitSolid: false,
       hitIndestructible: false,
@@ -701,6 +792,8 @@ export class World {
     const rCeil = Math.ceil(radius);
     const rSq = radius * radius;
     const w = this.width;
+    const originX = Math.round(sourceX ?? cx);
+    const originY = Math.round(sourceY ?? cy);
     let revealedNewTunnel = false;
 
     for (let dy = -rCeil; dy <= rCeil; dy++) {
@@ -716,6 +809,17 @@ export class World {
         const idx = y * w + x;
         const cell = this.cells[idx] as CellType;
         if (cell === CellType.Empty) continue;
+
+        // Watertight barrier: NEVER touch cells outside the playable interior cavity!
+        if (cell !== CellType.HiddenArt && this.interiorMask[idx] !== 1) {
+          result.hitIndestructible = true;
+          continue;
+        }
+
+        // Line-of-sight barrier: NEVER dig, damage, or expose through an intervening HiddenArt wall!
+        if (this.hasArtBetween(originX, originY, x, y)) {
+          continue;
+        }
 
         if (cell === CellType.HiddenArt) {
           result.hitIndestructible = true;
@@ -758,11 +862,13 @@ export class World {
     return result;
   }
 
-  /** Applies Scout acid corrosion to nearby breakable blocks so they keep melting over 4.5s! */
-  applyPoison(cx: number, cy: number, radius: number, dps: number, duration = 4.5) {
+  /** Applies Scout acid corrosion strictly to interior blocks with clear line-of-sight (never across HiddenArt!) */
+  applyPoison(cx: number, cy: number, radius: number, dps: number, duration = 4.5, sourceX?: number, sourceY?: number) {
     const rCeil = Math.ceil(radius);
     const rSq = radius * radius;
     const w = this.width;
+    const originX = Math.round(sourceX ?? cx);
+    const originY = Math.round(sourceY ?? cy);
     let touched = false;
     for (let dy = -rCeil; dy <= rCeil; dy++) {
       for (let dx = -rCeil; dx <= rCeil; dx++) {
@@ -771,8 +877,10 @@ export class World {
         const y = Math.round(cy + dy);
         if (!this.inBounds(x, y)) continue;
         const idx = y * w + x;
+        if (this.interiorMask[idx] !== 1) continue;
         const c = this.cells[idx] as CellType;
         if (c === CellType.Empty || c === CellType.HiddenArt || c === CellType.Sugar) continue;
+        if (this.hasArtBetween(originX, originY, x, y)) continue;
         const prev = this.poisonEntries.get(idx);
         if (prev) {
           prev.timeLeft = Math.max(prev.timeLeft, duration);
@@ -932,7 +1040,7 @@ export class World {
     if (!this.clearCluster(sx, sy, CellType.ExplosiveSpore, result)) return;
     result.sporeBlasts.push({ x: sx, y: sy });
 
-    // Organic cavern blast (radius ~9.2px) that safely skips HiddenArt and exposes Sugar!
+    // Organic cavern blast (radius ~9.2px) strictly contained inside interiorMask & blocked by HiddenArt walls!
     const blastR = 9.2;
     const rCeil = Math.ceil(blastR);
     for (let dy = -rCeil; dy <= rCeil; dy++) {
@@ -945,6 +1053,8 @@ export class World {
         if (Math.hypot(dx, dy) + jitter > blastR) continue;
         const c = this.cells[idx] as CellType;
         if (c === CellType.Empty) continue;
+        if (c !== CellType.HiddenArt && this.interiorMask[idx] !== 1) continue;
+        if (this.hasArtBetween(sx, sy, x, y)) continue;
         if (c === CellType.HiddenArt) {
           if (!this.artExposed[idx]) {
             this.artExposed[idx] = 1;
@@ -980,32 +1090,36 @@ export class World {
   }
 
   /**
-   * When >=99% (or <=18 pixels left) of reachable terrain is cleared, sweeps the last few stray pixels,
-   * reveals 100% of the HiddenArt masterpiece, and enables the iridescent shimmer finale!
+   * When almost every single interior pixel is genuinely excavated (>=99.85% AND <=65 tiny corner specks left),
+   * sweeps the final microscopic specks right up to 1px HiddenArt edges & dotted arcs,
+   * reveals 100% of the HiddenArt masterpiece, and enables the spotless iridescent shimmer finale!
    */
   checkAndFinishClear(): boolean {
     if (this.stats.mapCleared || this.stats.totalBreakable < 100) return false;
     const rem = this.stats.totalBreakable - this.stats.dugBreakable;
-    if (this.stats.dugBreakable < this.stats.totalBreakable * 0.99 && rem > 18) {
+    const maxStraySpecks = Math.min(65, Math.max(18, Math.round(this.stats.totalBreakable * 0.0015)));
+    if (rem > maxStraySpecks) {
       return false;
     }
 
     this.stats.mapCleared = true;
     this.poisonEntries.clear();
     this.poisonMask.fill(0);
+    this.isEdge.fill(0);
+    this.revealedMask.fill(255);
+
     const total = this.width * this.height;
     for (let i = 0; i < total; i++) {
       const c = this.cells[i] as CellType;
-      if (this.isTerrain(c) && this.reachableMask[i] === 1) {
+      if (c === CellType.HiddenArt) {
+        this.artExposed[i] = 1;
+      } else if (c === CellType.Sugar || c === CellType.Artifact) {
+        // Keep discovered Sugar & any uncollected Secret Artifact visible cleanly
+      } else if (this.interiorMask[i] === 1 || this.isTerrain(c)) {
+        // Sweep ALL remaining terrain crumbs & special blocks (both interior 1px rims & exterior rock!)
         this.cells[i] = CellType.Empty;
         this.hp[i] = 0;
         this.maxHp[i] = 0;
-        this.isEdge[i] = 0;
-      } else if (c === CellType.HiddenArt) {
-        this.artExposed[i] = 1;
-      }
-      if (this.reachableMask[i] === 1) {
-        this.revealedMask[i] = 255;
       }
     }
     this.stats.dugBreakable = this.stats.totalBreakable;
@@ -1024,6 +1138,7 @@ export class World {
         const nIdx = ny * w + nx;
         const nCell = this.cells[nIdx] as CellType;
         if (nCell === CellType.Empty) continue;
+        if (nCell !== CellType.HiddenArt && this.interiorMask[nIdx] !== 1) continue;
 
         this.isEdge[nIdx] = 1;
         if (nCell === CellType.HiddenArt) {
@@ -1048,8 +1163,11 @@ export class World {
   findNearestEmpty(tx: number, ty: number, maxRadius = 26): { x: number; y: number } | null {
     const ix = Math.round(tx);
     const iy = Math.round(ty);
-    if (this.inBounds(ix, iy) && this.getCell(ix, iy) === CellType.Empty) {
-      return { x: ix, y: iy };
+    if (this.inBounds(ix, iy)) {
+      const idx = iy * this.width + ix;
+      if (this.cells[idx] === CellType.Empty && this.interiorMask[idx] === 1) {
+        return { x: ix, y: iy };
+      }
     }
     for (let r = 1; r <= maxRadius; r++) {
       const steps = r * 8;
@@ -1057,8 +1175,11 @@ export class World {
         const a = (i / steps) * Math.PI * 2;
         const x = Math.round(ix + Math.cos(a) * r);
         const y = Math.round(iy + Math.sin(a) * r);
-        if (this.inBounds(x, y) && this.getCell(x, y) === CellType.Empty) {
-          return { x, y };
+        if (this.inBounds(x, y)) {
+          const idx = y * this.width + x;
+          if (this.cells[idx] === CellType.Empty && this.interiorMask[idx] === 1) {
+            return { x, y };
+          }
         }
       }
     }

@@ -15,6 +15,7 @@ import {
   AchievementDef,
   AntSkinId,
   ArtifactDef,
+  AutoSummonMode,
   Language,
   LevelDefinition,
   PLAYER_COLORS,
@@ -183,6 +184,11 @@ export class HudController {
   private btnTouchPanLblEl = document.getElementById('btn-touch-pan-lbl')!;
   private beaconDockEl = document.getElementById('beacon-dock')!;
   private btnAutoSummonEl = document.getElementById('btn-auto-summon')!;
+  private btnAutoConfigEl = document.getElementById('btn-auto-config')!;
+  private autoPopoverEl = document.getElementById('auto-popover')!;
+  private autoPopModesEl = document.getElementById('auto-pop-modes')!;
+  private autoPopHintEl = document.getElementById('auto-pop-hint')!;
+  private autoPopAntsEl = document.getElementById('auto-pop-ants')!;
   private autoFabLabelEl = document.getElementById('auto-fab-label')!;
   private autoFabStatusEl = document.getElementById('auto-fab-status')!;
   private beaconFabLabelEl = document.getElementById('beacon-fab-label')!;
@@ -206,7 +212,11 @@ export class HudController {
   private tutorialHintEl = document.getElementById('tutorial-hint')!;
   private tutorialHintIconEl = document.getElementById('tutorial-hint-icon')!;
   private tutorialHintTextEl = document.getElementById('tutorial-hint-text')!;
+  private sugarCinemaOverlayEl = document.getElementById('sugar-cinema-overlay')!;
+  private sugarCinemaBannerEl = document.getElementById('sugar-cinema-banner')!;
+  private sugarCinemaSubEl = document.getElementById('sugar-cinema-sub')!;
   private sugarFoundOverlayEl = document.getElementById('sugar-found-overlay')!;
+  private sugarRecordBadgeEl = document.getElementById('sugar-record-badge')!;
   private sugarFoundSubEl = document.getElementById('sugar-found-sub')!;
   private sugarFoundStatsEl = document.getElementById('sugar-found-stats')!;
   private sugarFoundCtaEl = document.getElementById('sugar-found-cta') as HTMLButtonElement;
@@ -259,6 +269,7 @@ export class HudController {
 
   private mode: 'menu' | 'classic' | 'mp' = 'menu';
   private skillTreeOpen = false;
+  private autoPopoverOpen = false;
   private lastRenderedSp = -1;
   private selectedNodeId: string = 'worker_root';
   private lastBoughtNodeId: string | null = null;
@@ -374,6 +385,10 @@ export class HudController {
     setTitle('sugar-chip', t('tipSugar'));
     setTitle('rush-chip', t('tipRush'));
     setTitle('btn-auto-summon', t('tipAuto'));
+    setTitle('btn-auto-config', t('tipAutoConfig'));
+    setText('auto-pop-title', t('autoPopoverTitle'));
+    setText('auto-pop-mode-label', t('autoModeLabel'));
+    setText('auto-pop-ants-label', t('autoAntsLabel'));
     this.autoFabLabelEl.textContent = t('autoFabLabel');
     setTitle('btn-beacon', t('tipBeacon'));
     this.beaconFabLabelEl.textContent = t('beaconLabel');
@@ -385,13 +400,19 @@ export class HudController {
     setTitle('btn-zoom-out', t('tipZoomOut'));
     setText('btn-upgrades-label', t('skills'));
 
-    // Sugar Found Overlay & Epic 100% Clear Banner
+    // Sugar Cinema Banner, Sugar Found Overlay & Epic 100% Clear Banner
+    this.sugarCinemaBannerEl.textContent = t('sugarCinemaBanner');
+    this.sugarRecordBadgeEl.textContent = t('sugarNewRecord');
     setText('sugar-found-badge', t('sugarBadge'));
     setText('sugar-found-title', t('sugarTitle'));
     setText('epic-clear-badge', t('epicBadge'));
     setText('epic-clear-sub', t('epicSub'));
     setText('epic-btn-admire', t('epicAdmire'));
     setText('epic-btn-save-png', t('epicSavePng'));
+
+    if (this.autoPopoverOpen) {
+      this.renderAutoPopover();
+    }
 
     // Skill Tree inspector static text
     setText('st-general-title', `✦ ${t('stGeneralTitle')}`);
@@ -441,7 +462,7 @@ export class HudController {
   private bindUiSounds() {
     let lastHovered: Element | null = null;
     const selector =
-      '.mbtn, .mbtn-mini, .menu-lang-btn, .beacon-fab, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
+      '.mbtn, .mbtn-mini, .menu-lang-btn, .beacon-fab, .auto-config-pill, .auto-mode-chip, .auto-ant-chip, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
     document.addEventListener('pointerover', (e) => {
       if ((e as PointerEvent).pointerType === 'touch') return;
       const btn = (e.target as HTMLElement | null)?.closest(selector);
@@ -760,9 +781,30 @@ export class HudController {
       const next = !this.engine.skillTree.state.settings.autoSummon;
       this.engine.skillTree.updateSettings({ autoSummon: next });
       this.sync();
+      if (this.autoPopoverOpen) this.renderAutoPopover();
       this.showToast(next ? t('setAutoSummonOn') : t('setAutoSummonOff'));
     });
-    this.btnBeaconEl.addEventListener('click', () => this.engine.toggleBeaconMode());
+    this.btnAutoConfigEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleAutoPopover();
+    });
+    document.getElementById('auto-pop-close')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeAutoPopover();
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.autoPopoverOpen) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('#auto-popover') || target.closest('#btn-auto-config') || target.closest('#btn-auto-summon')) {
+        return;
+      }
+      this.closeAutoPopover();
+    });
+    this.btnBeaconEl.addEventListener('click', () => {
+      this.closeAutoPopover();
+      this.engine.toggleBeaconMode();
+    });
     document.getElementById('btn-settings-hud')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('btn-reset-cam')!.addEventListener('click', () => this.engine.resetCamera());
     document.getElementById('btn-upgrades')!.addEventListener('click', () => this.openSkillTree());
@@ -882,6 +924,8 @@ export class HudController {
       if (e.key === 'Escape') {
         if (!this.modalBackdropEl.classList.contains('hidden')) {
           this.closeModal();
+        } else if (this.autoPopoverOpen) {
+          this.closeAutoPopover();
         } else if (this.skillTreeOpen) {
           this.closeSkillTree();
         } else if (this.mode === 'classic' && this.engine.beaconMode) {
@@ -943,7 +987,9 @@ export class HudController {
       this.engine.saveRunProgress();
     }
     this.mode = 'menu';
+    this.closeAutoPopover();
     this.closeSkillTree();
+    this.hideSugarCinematic();
     this.engine.paused = true;
     this.mp.stop();
 
@@ -970,6 +1016,8 @@ export class HudController {
   enterClassicGame() {
     this.mode = 'classic';
     this.closeModal();
+    this.closeAutoPopover();
+    this.hideSugarCinematic();
     this.mp.stop();
     this.menuBg.stop();
 
@@ -1016,7 +1064,9 @@ export class HudController {
     this.chatOpen = !isMobileDevice();
     this.mpBtnChatToggleEl.classList.remove('ping-active');
     this.closeModal();
+    this.closeAutoPopover();
     this.closeSkillTree();
+    this.hideSugarCinematic();
     this.engine.paused = true;
     this.menuBg.stop();
 
@@ -2766,15 +2816,20 @@ export class HudController {
     this.statAchCountEl.textContent = `${skillTree.state.achievements.length}/${ACHIEVEMENTS.length}`;
     this.statSpEl.textContent = String(skillTree.state.skillPoints);
 
-    const artPct =
-      stats.totalArt > 0 ? Math.min(100, Math.round((stats.revealedArt / stats.totalArt) * 100)) : 0;
-    const digPct =
-      stats.totalBreakable > 0
-        ? Math.min(100, Math.round((stats.dugBreakable / stats.totalBreakable) * 100))
+    const artPct = stats.mapCleared
+      ? 100
+      : stats.totalArt > 0
+        ? Math.min(99, Math.floor((stats.revealedArt / stats.totalArt) * 100))
         : 0;
+    const rawDigFrac = stats.totalBreakable > 0 ? (stats.dugBreakable / stats.totalBreakable) * 100 : 0;
+    const digLabel = stats.mapCleared
+      ? '100%'
+      : rawDigFrac >= 99
+        ? `${Math.min(99.9, Math.floor(rawDigFrac * 10) / 10).toFixed(1)}%`
+        : `${Math.floor(rawDigFrac)}%`;
 
     this.statArtEl.textContent = `${artPct}%`;
-    this.statDigEl.textContent = `${digPct}%`;
+    this.statDigEl.textContent = digLabel;
 
     if (stats.sugarFound) {
       this.sugarChipEl.classList.remove('sugar-searching');
@@ -2791,8 +2846,11 @@ export class HudController {
     if (rushSec > 0) this.statRushEl.textContent = `${rushSec}${t('secShort')}`;
 
     const autoOn = skillTree.state.settings.autoSummon;
+    const autoMode = skillTree.state.settings.autoSummonMode || 'smart';
+    const modeIcon = autoMode === 'beacon' ? '📍' : autoMode === 'nest' ? '🏠' : '🎯';
     this.btnAutoSummonEl.classList.toggle('auto-on', autoOn);
-    this.autoFabStatusEl.textContent = autoOn ? t('setOn') : t('setOff');
+    this.btnAutoConfigEl.classList.toggle('active', this.autoPopoverOpen);
+    this.autoFabStatusEl.textContent = autoOn ? `${modeIcon} ${t('setOn')}` : t('setOff');
     this.syncTouchPanButton();
 
     // Left-side Pheromone Beacon button (30s active duration -> 2m cooldown!)
@@ -2870,10 +2928,86 @@ export class HudController {
   }
 
   /* =========================================================
+     ON-SCREEN SMART AUTO-SUMMON POPOVER
+     ========================================================= */
+  private toggleAutoPopover() {
+    this.autoPopoverOpen = !this.autoPopoverOpen;
+    this.autoPopoverEl.classList.toggle('hidden', !this.autoPopoverOpen);
+    this.btnAutoConfigEl.classList.toggle('active', this.autoPopoverOpen);
+    if (this.autoPopoverOpen) {
+      this.renderAutoPopover();
+    }
+  }
+
+  private closeAutoPopover() {
+    if (!this.autoPopoverOpen) return;
+    this.autoPopoverOpen = false;
+    this.autoPopoverEl.classList.add('hidden');
+    this.btnAutoConfigEl.classList.remove('active');
+  }
+
+  private renderAutoPopover() {
+    const { skillTree } = this.engine;
+    const s = skillTree.state.settings;
+    const curMode: AutoSummonMode = s.autoSummonMode || 'smart';
+
+    const modes: { id: AutoSummonMode; label: string; hint: string }[] = [
+      { id: 'smart', label: t('autoModeSmart'), hint: t('autoModeSmartHint') },
+      { id: 'beacon', label: t('autoModeBeacon'), hint: t('autoModeBeaconHint') },
+      { id: 'nest', label: t('autoModeNest'), hint: t('autoModeNestHint') }
+    ];
+
+    this.autoPopModesEl.innerHTML = '';
+    for (const m of modes) {
+      const btn = document.createElement('button');
+      btn.className = `auto-mode-chip${curMode === m.id ? ' active' : ''}`;
+      btn.dataset.mode = m.id;
+      btn.textContent = m.label;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        skillTree.updateSettings({ autoSummonMode: m.id, autoSummon: true });
+        this.renderAutoPopover();
+        this.sync();
+      });
+      this.autoPopModesEl.appendChild(btn);
+    }
+
+    const activeHint = modes.find((m) => m.id === curMode)?.hint || '';
+    this.autoPopHintEl.textContent = activeHint;
+
+    this.autoPopAntsEl.innerHTML = '';
+    for (const id of PLAYABLE_ANTS) {
+      const cfg = ANT_TYPES[id];
+      const unlocked = skillTree.isAntUnlocked(id);
+      const enabled = Boolean(s.autoSummonTypes[id]);
+      const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
+      const chip = document.createElement('button');
+      chip.className = `auto-ant-chip${enabled ? ' enabled' : ''}${unlocked ? '' : ' ant-locked'}`;
+      chip.dataset.ant = id;
+      chip.style.setProperty('--ant-color', cfg.color);
+      chip.title = loc(cfg.name, cfg.nameEn);
+      chip.innerHTML = `
+        <span class="auto-ant-ico">${renderSkillSvg(iconType)}</span>
+        <span class="auto-ant-name">${escapeHtml(loc(cfg.shortName, cfg.shortNameEn))}</span>
+        <span class="auto-ant-state">${enabled ? '✓' : '—'}</span>
+      `;
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const nextTypes = { ...skillTree.state.settings.autoSummonTypes, [id]: !enabled };
+        skillTree.updateSettings({ autoSummonTypes: nextTypes });
+        this.renderAutoPopover();
+        this.sync();
+      });
+      this.autoPopAntsEl.appendChild(chip);
+    }
+  }
+
+  /* =========================================================
      SHARED VISUAL SKILL TREE (WORKS IN BOTH CLASSIC & CO-OP!)
      ========================================================= */
   openSkillTree() {
     this.closeModal();
+    this.closeAutoPopover();
     this.skillTreeOpen = true;
     if (this.mode === 'classic') this.engine.paused = true;
     this.lastBoughtNodeId = null;
@@ -2946,32 +3080,31 @@ export class HudController {
 
     const clearSelectedHighlight = () => {
       this.stNodesEl.querySelectorAll('.st-node.selected').forEach((n) => n.classList.remove('selected'));
-      this.stGeneralNodesEl.querySelectorAll('.st-side-node.selected').forEach((n) => n.classList.remove('selected'));
+      this.stGeneralNodesEl.querySelectorAll('.st-node.selected').forEach((n) => n.classList.remove('selected'));
     };
 
-    // Render standalone General Ant Upgrades side panel!
-    for (const node of sideNodes) {
+    // Render General Colony Upgrades as matching glowing skill-tree cells (ячейки)!
+    this.stGeneralNodesEl.classList.toggle('st-entering', animateEnter);
+    sideNodes.forEach((node, idx) => {
       const rank = adapter.getRank(node.id);
       const isMaxed = rank >= node.maxRank;
       const canBuy = adapter.canBuy(node);
-      const cost = adapter.getCost(node);
+      const colors = BRANCH_COLORS[node.branch];
       let stateClass = 'state-locked';
       if (isMaxed) stateClass = 'state-maxed';
       else if (canBuy) stateClass = 'state-available';
       else if (rank > 0) stateClass = 'state-owned';
 
       const btn = document.createElement('button');
-      btn.className = `st-side-node ${stateClass}${this.selectedNodeId === node.id ? ' selected' : ''}${this.lastBoughtNodeId === node.id ? ' just-bought' : ''}`;
+      btn.className = `st-node st-general-node shape-${node.shape} ${stateClass}${this.selectedNodeId === node.id ? ' selected' : ''}${this.lastBoughtNodeId === node.id ? ' just-bought' : ''}`;
+      btn.style.setProperty('--node-color', colors.main);
+      btn.style.setProperty('--node-glow', colors.glow);
+      btn.style.setProperty('--node-bg', colors.bg);
+      btn.style.setProperty('--enter-delay', `${Math.min(200, idx * 28)}ms`);
       btn.dataset.nodeId = node.id;
-      const title = loc(node.title, node.titleEn);
-      const subText = isMaxed ? `✓ ${rank}/${node.maxRank}` : `${rank}/${node.maxRank} • ♦${cost}`;
-      btn.innerHTML = `
-        <span class="st-side-ico">${renderSkillSvg(node.icon)}</span>
-        <span class="st-side-meta">
-          <span class="st-side-name">${escapeHtml(title)}</span>
-          <span class="st-side-sub">${subText}</span>
-        </span>
-      `;
+      btn.title = loc(node.title, node.titleEn);
+      btn.innerHTML = `${renderSkillSvg(node.icon)}${node.maxRank > 1 ? `<span class="st-node-rank">${rank}/${node.maxRank}</span>` : ''}`;
+
       btn.addEventListener('pointerenter', (e) => {
         if (e.pointerType === 'mouse') {
           this.selectedNodeId = node.id;
@@ -2994,7 +3127,7 @@ export class HudController {
         }
       });
       this.stGeneralNodesEl.appendChild(btn);
-    }
+    });
 
     for (const node of visibleNodes) {
       const x1 = ORIGIN_X + node.gx * NODE_STEP;
@@ -3101,6 +3234,7 @@ export class HudController {
      MODALS: LEVELS / SUGAR + MUTATIONS / MUTATIONS / SETTINGS
      ========================================================= */
   private openModal(title: string) {
+    this.closeAutoPopover();
     this.modalTitleEl.textContent = title;
     this.modalBackdropEl.classList.remove('hidden');
   }
@@ -3185,10 +3319,27 @@ export class HudController {
     }
   }
 
-  /** Epic "Found a Diamond!" celebration showcase before transitioning to Mutation choice! */
-  openSugarFoundModal(level: LevelDefinition) {
+  /** Triggers sleek cinema letterbox bars & golden discovery banner right as Sugar is struck! */
+  startSugarCinematic(level: LevelDefinition) {
+    if (this.mode !== 'classic') return;
+    this.closeAutoPopover();
+    this.sugarCinemaBannerEl.textContent = t('sugarCinemaBanner');
+    this.sugarCinemaSubEl.textContent = loc(level.name, level.nameEn);
+    this.sugarCinemaOverlayEl.classList.remove('hidden', 'cinema-fade');
+  }
+
+  private hideSugarCinematic() {
+    this.sugarCinemaOverlayEl.classList.add('hidden');
+    this.sugarCinemaOverlayEl.classList.remove('cinema-fade');
+  }
+
+  /** Epic Cinematic "Found a Diamond!" celebration showcase before transitioning to Mutation choice! */
+  openSugarFoundModal(level: LevelDefinition, isNewRecord = false) {
     if (this.mode !== 'classic') return;
     this.pendingSugarLevel = level;
+    this.sugarCinemaOverlayEl.classList.add('cinema-fade');
+    window.setTimeout(() => this.hideSugarCinematic(), 380);
+
     const { world, skillTree } = this.engine;
     const stats = world.stats;
     const digPct =
@@ -3198,16 +3349,26 @@ export class HudController {
     const artPct =
       stats.totalArt > 0 ? Math.min(100, Math.round((stats.revealedArt / stats.totalArt) * 100)) : 0;
 
-    this.sugarFoundSubEl.textContent = `${t('sugarSub', { name: loc(level.name, level.nameEn) })} • ⏱ ${formatRecordTime(this.engine.runElapsedSec)}`;
+    this.sugarRecordBadgeEl.textContent = t('sugarNewRecord');
+    this.sugarRecordBadgeEl.classList.toggle('hidden', !isNewRecord);
+    this.sugarFoundSubEl.textContent = t('sugarSub', { name: loc(level.name, level.nameEn) });
     this.sugarFoundStatsEl.innerHTML = `
-      <div class="sugar-stat-pill"><strong>${digPct}%</strong><small>${t('statDug')}</small></div>
-      <div class="sugar-stat-pill"><strong>${artPct}%</strong><small>${t('statArt')}</small></div>
-      <div class="sugar-stat-pill"><strong>${stats.crystalsCollected}</strong><small>${t('statCrystals')}</small></div>
+      <div class="sugar-stat-pill" style="--st-idx:0"><strong>${digPct}%</strong><small>${t('statDug')}</small></div>
+      <div class="sugar-stat-pill" style="--st-idx:1"><strong>${artPct}%</strong><small>${t('statArt')}</small></div>
+      <div class="sugar-stat-pill" style="--st-idx:2"><strong>${stats.crystalsCollected}</strong><small>${t('statCrystals')}</small></div>
+      <div class="sugar-stat-pill" style="--st-idx:3"><strong>${formatRecordTime(this.engine.runElapsedSec)}</strong><small>${t('statTime')}</small></div>
     `;
 
     const hasChoices = pickMutationChoices(skillTree.state.mutations, 3).length > 0;
     this.sugarFoundCtaEl.textContent = hasChoices ? t('chooseMutationBtn') : t('continueBtn');
+    // Gentle 850ms settle protection so an accidental click right as the card blooms never skips the celebration!
+    this.sugarFoundCtaEl.disabled = true;
+    this.sugarFoundCtaEl.classList.add('cta-settling');
     this.sugarFoundOverlayEl.classList.remove('hidden');
+    window.setTimeout(() => {
+      this.sugarFoundCtaEl.disabled = false;
+      this.sugarFoundCtaEl.classList.remove('cta-settling');
+    }, 850);
   }
 
   private openSugarMutationModal(level: LevelDefinition) {
@@ -3457,15 +3618,67 @@ export class HudController {
     trackGroup.appendChild(grid);
     this.modalBodyEl.appendChild(trackGroup);
 
-    // 4. Gameplay Auto-Summon Toggle
+    // 4. Smart Auto-Summon Controls (Toggle + Strategy + Per-Ant Filters)
     addToggle(t('setAutoSummon'), t('setAutoSummonDesc'), s.autoSummon, () => {
       skillTree.updateSettings({ autoSummon: !s.autoSummon });
       this.renderSettingsContent();
+      if (this.autoPopoverOpen) this.renderAutoPopover();
       this.sync();
       this.showToast(
         skillTree.state.settings.autoSummon ? t('setAutoSummonOn') : t('setAutoSummonOff')
       );
     });
+
+    const autoGroup = document.createElement('div');
+    autoGroup.className = 'settings-group';
+    const curMode: AutoSummonMode = s.autoSummonMode || 'smart';
+    autoGroup.innerHTML = `<div class="settings-label">${t('autoModeLabel')} • ${t('autoAntsLabel')}</div>`;
+
+    const modesRow = document.createElement('div');
+    modesRow.className = 'auto-pop-modes';
+    for (const m of [
+      { id: 'smart' as AutoSummonMode, label: t('autoModeSmart') },
+      { id: 'beacon' as AutoSummonMode, label: t('autoModeBeacon') },
+      { id: 'nest' as AutoSummonMode, label: t('autoModeNest') }
+    ]) {
+      const mBtn = document.createElement('button');
+      mBtn.className = `auto-mode-chip${curMode === m.id ? ' active' : ''}`;
+      mBtn.textContent = m.label;
+      mBtn.addEventListener('click', () => {
+        skillTree.updateSettings({ autoSummonMode: m.id });
+        this.renderSettingsContent();
+        if (this.autoPopoverOpen) this.renderAutoPopover();
+        this.sync();
+      });
+      modesRow.appendChild(mBtn);
+    }
+    autoGroup.appendChild(modesRow);
+
+    const antsRow = document.createElement('div');
+    antsRow.className = 'auto-pop-ants';
+    for (const id of PLAYABLE_ANTS) {
+      const cfg = ANT_TYPES[id];
+      const enabled = Boolean(s.autoSummonTypes[id]);
+      const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
+      const chip = document.createElement('button');
+      chip.className = `auto-ant-chip${enabled ? ' enabled' : ''}`;
+      chip.style.setProperty('--ant-color', cfg.color);
+      chip.innerHTML = `
+        <span class="auto-ant-ico">${renderSkillSvg(iconType)}</span>
+        <span class="auto-ant-name">${escapeHtml(loc(cfg.shortName, cfg.shortNameEn))}</span>
+        <span class="auto-ant-state">${enabled ? '✓' : '—'}</span>
+      `;
+      chip.addEventListener('click', () => {
+        const nextTypes = { ...skillTree.state.settings.autoSummonTypes, [id]: !enabled };
+        skillTree.updateSettings({ autoSummonTypes: nextTypes });
+        this.renderSettingsContent();
+        if (this.autoPopoverOpen) this.renderAutoPopover();
+        this.sync();
+      });
+      antsRow.appendChild(chip);
+    }
+    autoGroup.appendChild(antsRow);
+    this.modalBodyEl.appendChild(autoGroup);
 
     // 5. Reset Progress
     const resetRow = document.createElement('div');

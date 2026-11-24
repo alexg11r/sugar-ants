@@ -6,7 +6,7 @@ import { loc, t } from '../core/i18n';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, WorldRenderer } from '../core/renderer';
-import { Ant, ArtifactDef, LevelDefinition, PheromoneBeacon, PlayableAntId } from '../core/types';
+import { Ant, ArtifactDef, AutoSummonMode, CellType, LevelDefinition, PheromoneBeacon, PlayableAntId } from '../core/types';
 import { World, WorldSnapshot } from '../core/world';
 import { getArtifactForLevel } from './artifacts';
 import { SkillTreeManager } from './skillTree';
@@ -30,7 +30,8 @@ interface ActiveRunSnapshot {
 
 export interface EngineCallbacks {
   onHudSync: () => void;
-  onSugarFound: (level: LevelDefinition) => void;
+  onSugarCinematicStart?: (level: LevelDefinition) => void;
+  onSugarFound: (level: LevelDefinition, isNewRecord: boolean) => void;
   onArtifactFound: (artifact: ArtifactDef) => void;
   onMapCleared: (level: LevelDefinition) => void;
   onToast: (message: string) => void;
@@ -77,9 +78,11 @@ export class GameEngine {
   private hudSyncAccum = 0;
   private autoSaveAccum = 0;
   private autoSummonAccum = 0;
+  private autoSummonCursor = 0;
   private lastLaunchWorld: { x: number; y: number } | null = null;
   private fireworkAccum = 0;
   private sugarBurstTime = -1;
+  private cameraShake = 0;
   private sugarBurstTimers: number[] = [];
   private cameraEaseTarget: { x: number; y: number; zoom: number } | null = null;
   private interacted = false;
@@ -438,6 +441,7 @@ export class GameEngine {
     this.particles.particles = [];
     this.clearSugarBurstTimers();
     this.sugarBurstTime = -1;
+    this.cameraShake = 0;
     this.cameraEaseTarget = null;
     this.beacon = null;
     this.beaconMode = false;
@@ -574,58 +578,344 @@ export class GameEngine {
     return zoomFactor * bestProx;
   }
 
-  /** Dramatic "Found a Diamond!" in-world Sugar celebration: slow-mo + camera swoop + multi-wave diamond fireworks! */
-  private triggerEpicSugarCelebration() {
+  /** Dramatic Cinematic Sugar Discovery: shake + bullet-time slow-mo + letterbox bars + camera swoop + 4-wave prism fireworks! */
+  private triggerEpicSugarCelebration(isNewRecord: boolean) {
     this.clearSugarBurstTimers();
     this.sugarBurstTime = 0;
+    this.cameraShake = 8.5;
+
+    const foundLevel = this.world.level;
+    this.callbacks.onSugarCinematicStart?.(foundLevel);
 
     const { sugarX, sugarY } = this.world;
     const fitZoom = Math.min((this.viewW * 0.88) / this.world.width, (this.viewH * 0.8) / this.world.height);
-    const targetZoom = Math.max(11.0, Math.min(16.5, fitZoom * 4.4));
+    const targetZoom = Math.max(13.5, Math.min(18.5, fitZoom * 4.8));
     this.cameraEaseTarget = { x: sugarX, y: sugarY, zoom: targetZoom };
 
-    // Wave 1: Pure diamond-gold explosion immediately
-    this.particles.spawn(sugarX, sugarY, 255, 252, 224, 34, 48, 2.2, 2.5);
-    this.particles.spawn(sugarX, sugarY, 175, 246, 255, 22, 38, 2.0, 2.2);
-    this.particles.spawn(sugarX, sugarY, 255, 224, 102, 26, 30, 2.4, 2.6);
+    // Wave 1 (0ms): Pure white-diamond & gold impact detonation
+    this.particles.spawn(sugarX, sugarY, 255, 255, 238, 40, 56, 2.4, 2.7);
+    this.particles.spawn(sugarX, sugarY, 165, 248, 255, 26, 44, 2.2, 2.3);
+    this.particles.spawn(sugarX, sugarY, 255, 224, 102, 30, 34, 2.6, 2.8);
 
-    // Wave 2: Secondary diamond glitter burst at +280ms
+    // Wave 2 (+380ms): Secondary diamond-cyan concentric burst
     this.sugarBurstTimers.push(
       window.setTimeout(() => {
         if (this.paused) return;
-        this.particles.spawn(sugarX, sugarY, 255, 240, 155, 28, 52, 2.1, 2.3);
-        this.particles.spawn(sugarX, sugarY, 130, 238, 255, 20, 44, 1.9, 2.0);
-      }, 280)
+        this.particles.spawn(sugarX, sugarY, 255, 242, 160, 30, 58, 2.4, 2.4);
+        this.particles.spawn(sugarX, sugarY, 120, 238, 255, 24, 48, 2.2, 2.1);
+      }, 380)
     );
 
-    // Wave 3: Shimmering crown halo at +620ms
+    // Wave 3 (+950ms): 8-point golden crown halo encircling the crystal
     this.sugarBurstTimers.push(
       window.setTimeout(() => {
         if (this.paused) return;
-        for (let k = 0; k < 6; k++) {
-          const ang = (k / 6) * Math.PI * 2;
+        for (let k = 0; k < 8; k++) {
+          const ang = (k / 8) * Math.PI * 2;
           this.particles.spawn(
-            sugarX + Math.cos(ang) * 7,
-            sugarY + Math.sin(ang) * 7,
+            sugarX + Math.cos(ang) * 7.5,
+            sugarY + Math.sin(ang) * 7.5,
             255,
             245,
             180,
             7,
-            24,
-            1.6,
-            1.9
+            28,
+            1.9,
+            2.0
           );
         }
-      }, 620)
+      }, 950)
     );
 
-    // Open the grand Diamond-Sugar celebration overlay after the camera swoops in & bursts play out!
-    const foundLevel = this.world.level;
+    // Wave 4 (+1650ms): Ascending prismatic diamond fountain right as the fanfare chord swells!
     this.sugarBurstTimers.push(
       window.setTimeout(() => {
-        this.callbacks.onSugarFound(foundLevel);
-      }, 920)
+        if (this.paused) return;
+        this.particles.spawn(sugarX, sugarY - 2, 230, 165, 255, 26, 48, 2.2, 2.3);
+        this.particles.spawn(sugarX, sugarY - 2, 255, 252, 224, 26, 44, 2.3, 2.5);
+        this.particles.spawn(sugarX, sugarY - 2, 115, 248, 255, 20, 40, 2.1, 2.1);
+      }, 1650)
     );
+
+    // Wave 5 (+2450ms): Final radiant golden star-ring shimmer while player savors the uncovered crystal!
+    this.sugarBurstTimers.push(
+      window.setTimeout(() => {
+        if (this.paused) return;
+        this.particles.spawn(sugarX, sugarY, 255, 236, 130, 28, 36, 2.2, 2.4);
+        this.particles.spawn(sugarX, sugarY, 185, 250, 255, 18, 32, 2.0, 2.0);
+      }, 2450)
+    );
+
+    // Give the player a full 3.6 seconds to enjoy the unobstructed cinematic zoom, god-rays & fanfare before opening the reward card!
+    this.sugarBurstTimers.push(
+      window.setTimeout(() => {
+        this.callbacks.onSugarFound(foundLevel, isNewRecord);
+      }, 3600)
+    );
+  }
+
+  /**
+   * Smart Auto-Summon AI: picks optimal watertight spawn coordinate & aim vector per ant specialty!
+   * - 'nest': spawns near Nest facing nearest interior rock
+   * - 'beacon': focuses on active Pheromone Beacon (or last launch point)
+   * - 'smart': hunts revealed Crystals/Artifacts/Finds first, aims Warriors at thick Clay/Stone/Obsidian
+   *   away from HiddenArt walls, sends Scouts into dark fog, spreads Queens across tunnel hubs,
+   *   and launches Bloodhound from the dug tunnel closest to Sugar!
+   */
+  pickSmartAutoSpawn(antType: PlayableAntId, mode: AutoSummonMode): { x: number; y: number; angle: number } {
+    const w = this.world;
+    const width = w.width;
+    const height = w.height;
+    const cells = w.cells;
+    const interior = w.interiorMask;
+    const revealed = w.revealedMask;
+    const nestFallback = w.findNearestEmpty(w.nestX, w.nestY, 16) || { x: w.nestX, y: w.nestY };
+
+    const angleTowardInteriorRock = (sx: number, sy: number): number => {
+      let bestAng = Math.random() * Math.PI * 2;
+      let bestScore = -1e9;
+      for (let d = 0; d < 8; d++) {
+        const ang = (d / 8) * Math.PI * 2;
+        let score = Math.random() * 0.6;
+        for (let step = 1; step <= 6; step++) {
+          const px = Math.round(sx + Math.cos(ang) * step);
+          const py = Math.round(sy + Math.sin(ang) * step);
+          if (!w.inBounds(px, py)) {
+            score -= 12;
+            break;
+          }
+          const idx = py * width + px;
+          const c = cells[idx] as CellType;
+          if (c === CellType.HiddenArt || interior[idx] !== 1) {
+            score -= 10;
+            break;
+          }
+          if (c !== CellType.Empty) {
+            score += step <= 3 ? 6 : 3;
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestAng = ang;
+        }
+      }
+      return bestAng;
+    };
+
+    // Mode 1: Nest
+    if (mode === 'nest') {
+      return {
+        x: nestFallback.x,
+        y: nestFallback.y,
+        angle: angleTowardInteriorRock(nestFallback.x, nestFallback.y)
+      };
+    }
+
+    // Mode 2: Beacon
+    if (mode === 'beacon') {
+      const anchor = this.beacon || this.lastLaunchWorld || nestFallback;
+      const sp = w.findNearestEmpty(anchor.x, anchor.y, 44) || nestFallback;
+      const dist = Math.hypot(anchor.x - sp.x, anchor.y - sp.y);
+      const ang =
+        dist > 2
+          ? Math.atan2(anchor.y - sp.y, anchor.x - sp.x) + (Math.random() - 0.5) * 0.45
+          : angleTowardInteriorRock(sp.x, sp.y);
+      return { x: sp.x, y: sp.y, angle: ang };
+    }
+
+    // Mode 3: Smart Frontier AI
+    // 3a. Bloodhound (Ищейка): launch from dug interior cell closest to Sugar!
+    if (antType === 'compass') {
+      let bestX = nestFallback.x;
+      let bestY = nestFallback.y;
+      let bestDistSq = Math.pow(bestX - w.sugarX, 2) + Math.pow(bestY - w.sugarY, 2);
+      for (let y = 4; y < height - 4; y += 3) {
+        const row = y * width;
+        for (let x = 4; x < width - 4; x += 3) {
+          const idx = row + x;
+          if (interior[idx] === 1 && cells[idx] === CellType.Empty) {
+            const dx = x - w.sugarX;
+            const dy = y - w.sugarY;
+            const dSq = dx * dx + dy * dy;
+            if (dSq < bestDistSq) {
+              bestDistSq = dSq;
+              bestX = x;
+              bestY = y;
+            }
+          }
+        }
+      }
+      return {
+        x: bestX,
+        y: bestY,
+        angle: Math.atan2(w.sugarY - bestY, w.sugarX - bestX)
+      };
+    }
+
+    // 3b. High-value Treasure Hunter (Artifact > SkillCrystal > ExplosiveSpore / SugarDust / AncientCocoon)
+    if (antType !== 'queen') {
+      let bestVal = 0;
+      let targetX = -1;
+      let targetY = -1;
+      for (let y = 4; y < height - 4; y += 2) {
+        const row = y * width;
+        for (let x = 4; x < width - 4; x += 2) {
+          const idx = row + x;
+          if (interior[idx] !== 1 || revealed[idx] < 95) continue;
+          const c = cells[idx] as CellType;
+          let val = 0;
+          if (c === CellType.Artifact) val = 100;
+          else if (c === CellType.SkillCrystal) val = 80;
+          else if (c === CellType.ExplosiveSpore) val = 65;
+          else if (c === CellType.SugarDust) val = 60;
+          else if (c === CellType.AncientCocoon) val = 55;
+          if (val > 0) {
+            const jittered = val + Math.random() * 14;
+            if (jittered > bestVal) {
+              bestVal = jittered;
+              targetX = x;
+              targetY = y;
+            }
+          }
+        }
+      }
+      if (targetX > 0) {
+        const nearEmpty = w.findNearestEmpty(targetX, targetY, 26);
+        if (nearEmpty && !w.hasArtBetween(nearEmpty.x, nearEmpty.y, targetX, targetY)) {
+          return {
+            x: nearEmpty.x,
+            y: nearEmpty.y,
+            angle: Math.atan2(targetY - nearEmpty.y, targetX - nearEmpty.x)
+          };
+        }
+      }
+    }
+
+    // 3c. Active Pheromone Beacon synergy for Workers/Warriors/Scouts!
+    if (this.beacon && antType !== 'queen') {
+      const sp = w.findNearestEmpty(this.beacon.x, this.beacon.y, 38);
+      if (sp) {
+        const dist = Math.hypot(this.beacon.x - sp.x, this.beacon.y - sp.y);
+        const ang =
+          dist > 2
+            ? Math.atan2(this.beacon.y - sp.y, this.beacon.x - sp.x) + (Math.random() - 0.5) * 0.4
+            : angleTowardInteriorRock(sp.x, sp.y);
+        return { x: sp.x, y: sp.y, angle: ang };
+      }
+    }
+
+    // 3d. Collect live interior digging frontier cells (Empty interior cells adjacent to diggable interior rock!)
+    const frontier: { x: number; y: number }[] = [];
+    for (let y = 4; y < height - 4; y += 3) {
+      const row = y * width;
+      for (let x = 4; x < width - 4; x += 3) {
+        const idx = row + x;
+        if (interior[idx] !== 1 || cells[idx] !== CellType.Empty) continue;
+        // Check if adjacent (within 3px) to diggable interior solid cell
+        const touchesSolid =
+          (interior[idx - 1] === 1 && cells[idx - 1] !== CellType.Empty && cells[idx - 1] !== CellType.HiddenArt) ||
+          (interior[idx + 1] === 1 && cells[idx + 1] !== CellType.Empty && cells[idx + 1] !== CellType.HiddenArt) ||
+          (interior[idx - width] === 1 && cells[idx - width] !== CellType.Empty && cells[idx - width] !== CellType.HiddenArt) ||
+          (interior[idx + width] === 1 && cells[idx + width] !== CellType.Empty && cells[idx + width] !== CellType.HiddenArt) ||
+          (x + 3 < width && interior[idx + 3] === 1 && cells[idx + 3] !== CellType.Empty && cells[idx + 3] !== CellType.HiddenArt) ||
+          (x - 3 >= 0 && interior[idx - 3] === 1 && cells[idx - 3] !== CellType.Empty && cells[idx - 3] !== CellType.HiddenArt) ||
+          (y + 3 < height && interior[idx + width * 3] === 1 && cells[idx + width * 3] !== CellType.Empty && cells[idx + width * 3] !== CellType.HiddenArt) ||
+          (y - 3 >= 0 && interior[idx - width * 3] === 1 && cells[idx - width * 3] !== CellType.Empty && cells[idx - width * 3] !== CellType.HiddenArt);
+        if (touchesSolid) {
+          frontier.push({ x, y });
+        }
+      }
+    }
+
+    if (frontier.length === 0) {
+      return {
+        x: nestFallback.x,
+        y: nestFallback.y,
+        angle: angleTowardInteriorRock(nestFallback.x, nestFallback.y)
+      };
+    }
+
+    // Reservoir sample up to 42 frontier candidates for O(1) snappy scoring!
+    const sampleCount = Math.min(42, frontier.length);
+    const activeQueens = antType === 'queen' ? this.ants.ants.filter((a) => a.type === 'queen') : [];
+
+    let bestChoice = { x: frontier[0].x, y: frontier[0].y, angle: 0 };
+    let bestScore = -1e9;
+
+    for (let s = 0; s < sampleCount; s++) {
+      const cand = frontier[Math.floor(Math.random() * frontier.length)];
+
+      if (antType === 'queen') {
+        // Spread Queens across distant active frontier hubs so royal auras & brood blanket the map!
+        let minQueenDist = 999;
+        for (let q = 0; q < activeQueens.length; q++) {
+          const d = Math.hypot(cand.x - activeQueens[q].x, cand.y - activeQueens[q].y);
+          if (d < minQueenDist) minQueenDist = d;
+        }
+        const nestDist = Math.hypot(cand.x - w.nestX, cand.y - w.nestY);
+        const score = (activeQueens.length > 0 ? minQueenDist * 1.6 : nestDist * 0.45) + Math.random() * 14;
+        if (score > bestScore) {
+          bestScore = score;
+          bestChoice = { x: cand.x, y: cand.y, angle: angleTowardInteriorRock(cand.x, cand.y) };
+        }
+        continue;
+      }
+
+      // Score 8 outward directions at this frontier point according to ant specialty
+      for (let d = 0; d < 8; d++) {
+        const ang = (d / 8) * Math.PI * 2;
+        let dirScore = Math.random() * 2.5;
+        let blockedEarly = false;
+        let sawSolid = false;
+
+        for (let step = 1; step <= 8; step++) {
+          const px = Math.round(cand.x + Math.cos(ang) * step);
+          const py = Math.round(cand.y + Math.sin(ang) * step);
+          if (!w.inBounds(px, py)) {
+            if (step <= 4) blockedEarly = true;
+            dirScore -= 14;
+            break;
+          }
+          const idx = py * width + px;
+          const c = cells[idx] as CellType;
+          if (c === CellType.HiddenArt || interior[idx] !== 1) {
+            if (step <= 4) blockedEarly = true;
+            dirScore -= 16;
+            break;
+          }
+          if (c !== CellType.Empty) {
+            sawSolid = true;
+            if (antType === 'warrior') {
+              // Warriors love smashing dense Obsidian/Stone/Clay faces!
+              if (c === CellType.Obsidian) dirScore += 6.5;
+              else if (c === CellType.Stone) dirScore += 5.0;
+              else if (c === CellType.Clay) dirScore += 3.6;
+              else dirScore += 2.0;
+            } else if (antType === 'scout') {
+              // Scouts love dark unexplored fog-of-war edges!
+              const darkness = 1 - revealed[idx] / 255;
+              dirScore += 2.2 + darkness * 7.0;
+            } else {
+              // Workers prefer rich SoftSoil/Clay frontier pushing outward from nest!
+              dirScore += c === CellType.SoftSoil ? 3.5 : c === CellType.Clay ? 2.8 : 1.6;
+            }
+          } else if (antType === 'scout' && step <= 3) {
+            dirScore += 1.2; // Scouts enjoy clear launch runway before ricocheting!
+          }
+        }
+
+        if (!sawSolid || blockedEarly) continue;
+        if (antType === 'worker' || antType === 'scout') {
+          dirScore += Math.hypot(cand.x - w.nestX, cand.y - w.nestY) * 0.04;
+        }
+        if (dirScore > bestScore) {
+          bestScore = dirScore;
+          bestChoice = { x: cand.x, y: cand.y, angle: ang + (Math.random() - 0.5) * 0.16 };
+        }
+      }
+    }
+
+    return bestChoice;
   }
 
   private update(dt: number) {
@@ -633,17 +923,21 @@ export class GameEngine {
     this.runElapsedSec += dt;
     this.skillTree.recordPlayTime(dt);
 
-    // Dramatic brief slow-motion hit-stop right when discovering Sugar!
+    // Dramatic bullet-time slow-motion & decaying camera impact rumble on Sugar discovery!
+    if (this.cameraShake > 0) {
+      this.cameraShake = Math.max(0, this.cameraShake - dt * 13.5);
+    }
+
     let simDt = dt;
     if (this.sugarBurstTime >= 0) {
       this.sugarBurstTime += dt;
-      if (this.sugarBurstTime < 0.85) {
-        simDt = dt * 0.25;
-      } else if (this.sugarBurstTime < 1.35) {
-        const ramp = (this.sugarBurstTime - 0.85) / 0.5;
-        simDt = dt * (0.25 + ramp * 0.75);
+      if (this.sugarBurstTime < 1.25) {
+        simDt = dt * 0.12;
+      } else if (this.sugarBurstTime < 2.45) {
+        const ramp = (this.sugarBurstTime - 1.25) / 1.2;
+        simDt = dt * (0.12 + ramp * 0.88);
       }
-      if (this.sugarBurstTime >= 2.8) {
+      if (this.sugarBurstTime >= 5.2) {
         this.sugarBurstTime = -1;
       }
     }
@@ -688,33 +982,45 @@ export class GameEngine {
     const rushMult = this.sugarRushTimer > 0 ? 1.6 : 1;
     const events = this.ants.update(simDt, this.world, this.particles, stats, this.beacon, rushMult);
 
-    // Optional Auto-Summon (toggled in Settings): calmly refills empty ant slots without spam sounds!
-    if (this.skillTree.state.settings.autoSummon && !this.world.stats.mapCleared) {
+    // Smart Auto-Summon: respects per-ant toggles + Smart/Beacon/Nest strategy & hunts crystals/hard rock!
+    const settings = this.skillTree.state.settings;
+    if (settings.autoSummon && !this.world.stats.mapCleared) {
       this.autoSummonAccum += dt;
-      if (this.autoSummonAccum >= 0.65) {
+      if (this.autoSummonAccum >= 0.55) {
         this.autoSummonAccum = 0;
-        const order: PlayableAntId[] = [];
-        if (this.selectedAnt !== 'compass') order.push(this.selectedAnt);
-        for (const t of ['worker', 'warrior', 'scout', 'queen'] as PlayableAntId[]) {
-          if (!order.includes(t)) order.push(t);
+        const enabledTypes = settings.autoSummonTypes;
+        // Priority: Queens first (aura + brood), then rotating balanced pool (Worker / Warrior / Scout), then optional Bloodhound!
+        const rotPool: PlayableAntId[] = ['worker', 'warrior', 'scout'];
+        const rotated: PlayableAntId[] = [];
+        for (let k = 0; k < rotPool.length; k++) {
+          rotated.push(rotPool[(this.autoSummonCursor + k) % rotPool.length]);
         }
+        const order: PlayableAntId[] = ['queen', ...rotated, 'compass'];
+
         for (const antType of order) {
+          if (!enabledTypes[antType]) continue;
           if (!this.skillTree.isAntUnlocked(antType)) continue;
-          if (this.ants.countPlayerByType(antType) >= this.ants.getMaxActive(antType, stats)) continue;
-          const anchor = this.beacon || this.lastLaunchWorld || { x: this.world.nestX, y: this.world.nestY };
-          const spawn = this.world.findNearestEmpty(anchor.x, anchor.y, 28) || {
-            x: this.world.nestX,
-            y: this.world.nestY
-          };
-          const ang = this.beacon
-            ? Math.atan2(this.beacon.y - spawn.y, this.beacon.x - spawn.x) + (Math.random() - 0.5) * 0.7
-            : Math.random() * Math.PI * 2;
-          const r = this.ants.spawnAnt(antType, spawn.x, spawn.y, ang, stats);
+          if (antType === 'compass') {
+            if (this.world.stats.sugarFound || this.ants.compassCooldown > 0) continue;
+          } else if (this.ants.countPlayerByType(antType) >= this.ants.getMaxActive(antType, stats)) {
+            continue;
+          }
+
+          const plan = this.pickSmartAutoSpawn(antType, settings.autoSummonMode || 'smart');
+          const r = this.ants.spawnAnt(antType, plan.x, plan.y, plan.angle, stats);
           if (r.ok) {
             this.hasActiveRun = true;
+            if (antType !== 'queen' && antType !== 'compass') {
+              this.autoSummonCursor = (this.autoSummonCursor + 1) % rotPool.length;
+            }
             const rgb = ANT_TYPES[antType].rgb;
-            this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 3, 12, 0.45, 1.2);
+            this.particles.spawn(plan.x, plan.y, rgb[0], rgb[1], rgb[2], 3, 12, 0.45, 1.2);
             this.skillTree.recordAntSpawn(antType);
+            if (antType === 'compass') {
+              this.audio.playCompassLaunch();
+              this.skillTree.unlockAchievement('use_compass');
+              this.callbacks.onToast(t('toastBloodhoundGo'));
+            }
           }
           break;
         }
@@ -777,7 +1083,7 @@ export class GameEngine {
     if (events.cocoonHatches.length > 0) {
       this.skillTree.recordCareer({ cocoonsHatched: events.cocoonHatches.length });
       for (const c of events.cocoonHatches) {
-        this.ants.spawnFreeAlliesAt(c.x, c.y, stats, this.particles);
+        this.ants.spawnFreeAlliesAt(c.x, c.y, this.world, stats, this.particles);
       }
       this.audio.playCocoonHatch();
       this.callbacks.onToast(t('toastCocoonHatch'));
@@ -793,11 +1099,11 @@ export class GameEngine {
       }
     }
     if (events.sugarHit) {
-      this.skillTree.recordSugarWin(this.world.level.id, this.runElapsedSec);
+      const { isNewRecord } = this.skillTree.recordSugarWin(this.world.level.id, this.runElapsedSec);
       this.audio.playSugarFound();
       this.saveRunProgress();
       this.callbacks.onHudSync();
-      this.triggerEpicSugarCelebration();
+      this.triggerEpicSugarCelebration(isNewRecord);
     }
 
     // Epic 100% map-cleared finale: sweep stray pixels, zoom out to showcase shimmering art & fireworks!
@@ -851,9 +1157,17 @@ export class GameEngine {
       this.hudSyncAccum = 0;
       const ws = this.world.stats;
       const digPct =
-        ws.totalBreakable > 0 ? Math.min(100, Math.round((ws.dugBreakable / ws.totalBreakable) * 100)) : 0;
+        ws.mapCleared
+          ? 100
+          : ws.totalBreakable > 0
+            ? Math.min(99, Math.floor((ws.dugBreakable / ws.totalBreakable) * 100))
+            : 0;
       const artPct =
-        ws.totalArt > 0 ? Math.min(100, Math.round((ws.revealedArt / ws.totalArt) * 100)) : 0;
+        ws.mapCleared
+          ? 100
+          : ws.totalArt > 0
+            ? Math.min(99, Math.floor((ws.revealedArt / ws.totalArt) * 100))
+            : 0;
       this.skillTree.recordLevelProgress(this.world.level.id, digPct, artPct);
       this.callbacks.onHudSync();
     }
@@ -868,14 +1182,22 @@ export class GameEngine {
 
   private render() {
     const sugarBurst =
-      this.sugarBurstTime >= 0 && this.sugarBurstTime < 2.8
-        ? { x: this.world.sugarX, y: this.world.sugarY, progress: this.sugarBurstTime / 2.8 }
+      this.sugarBurstTime >= 0 && this.sugarBurstTime < 5.2
+        ? { x: this.world.sugarX, y: this.world.sugarY, progress: this.sugarBurstTime / 5.2 }
         : null;
+    const renderCam: Camera =
+      this.cameraShake > 0.08
+        ? {
+            x: this.camera.x + ((Math.random() - 0.5) * 2 * this.cameraShake) / Math.max(1, this.camera.zoom),
+            y: this.camera.y + ((Math.random() - 0.5) * 2 * this.cameraShake) / Math.max(1, this.camera.zoom),
+            zoom: this.camera.zoom
+          }
+        : this.camera;
     this.renderer.render(
       this.ctx,
       this.viewW,
       this.viewH,
-      this.camera,
+      renderCam,
       this.world,
       this.ants.ants,
       this.particles,

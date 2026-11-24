@@ -307,6 +307,7 @@ export class WorldRenderer {
     const maxHp = world.maxHp;
     const isEdge = world.isEdge;
     const revealed = world.revealedMask;
+    const interior = world.interiorMask;
     const poison = world.poisonMask;
     const noise = world.noise;
     const artExposed = world.artExposed;
@@ -333,7 +334,24 @@ export class WorldRenderer {
         const cell = cells[idx] as CellType;
         glow32[idx] = 0;
 
+        // Exterior void or sealed art interior silhouettes NEVER display stray terrain crumbs or edges!
+        if (
+          cell !== CellType.HiddenArt &&
+          cell !== CellType.Sugar &&
+          cell !== CellType.Artifact &&
+          interior[idx] === 0
+        ) {
+          data32[idx] = bgPacked;
+          continue;
+        }
+
         if (cell === CellType.Empty) {
+          data32[idx] = emptyPacked;
+          continue;
+        }
+
+        // Belt-and-suspenders guarantee: on 100% map clear, ONLY HiddenArt, Sugar & uncollected Artifact render!
+        if (cleared && cell !== CellType.HiddenArt && cell !== CellType.Sugar && cell !== CellType.Artifact) {
           data32[idx] = emptyPacked;
           continue;
         }
@@ -735,67 +753,133 @@ export class WorldRenderer {
     ctx.arc(nestScreenX, nestScreenY, Math.max(10, camera.zoom * 4), 0, Math.PI * 2);
     ctx.stroke();
 
-    // Epic Diamond-Sugar Discovery Shockwaves + Rotating Light Beams right on the canvas!
+    // Epic Cinematic Diamond-Sugar Discovery Sequence: Impact Flash + Cathedral God-Rays + 4 Prismatic Shockwaves + Levitating Shards!
     if (sugarBurst && sugarBurst.progress >= 0 && sugarBurst.progress < 1) {
       const p = sugarBurst.progress;
       const sx = drawX + (sugarBurst.x + 0.5) * camera.zoom;
       const sy = drawY + (sugarBurst.y + 0.5) * camera.zoom;
-      const fade = Math.pow(1 - p, 1.35);
+      const fade = Math.pow(1 - p, 1.25);
 
-      // 12 rotating golden-diamond sunbeams radiating out from the Sugar cube
+      // 1. Brief dramatic golden-white full-screen impact flash veil (p = 0..0.24)
+      if (p < 0.24) {
+        const flashAlpha = Math.pow(1 - p / 0.24, 1.6) * 0.42;
+        const flashGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, Math.max(viewW, viewH) * 0.82);
+        flashGrad.addColorStop(0, `rgba(255, 255, 240, ${Math.min(0.65, flashAlpha * 1.4)})`);
+        flashGrad.addColorStop(0.35, `rgba(255, 232, 130, ${flashAlpha})`);
+        flashGrad.addColorStop(1, 'rgba(255, 210, 90, 0)');
+        ctx.fillStyle = flashGrad;
+        ctx.fillRect(0, 0, viewW, viewH);
+      }
+
+      // 2. 16 rotating golden & diamond-cyan cathedral god-rays radiating from the Sugar crystal
       ctx.save();
       ctx.translate(sx, sy);
-      ctx.rotate(time * 0.9);
-      const beamLen = Math.max(90, camera.zoom * (16 + p * 34));
-      for (let r = 0; r < 12; r++) {
-        const ang = (r / 12) * Math.PI * 2;
-        const spread = r % 2 === 0 ? 0.11 : 0.06;
-        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, beamLen);
-        if (r % 2 === 0) {
-          grad.addColorStop(0, `rgba(255, 252, 224, ${0.55 * fade})`);
-          grad.addColorStop(0.45, `rgba(255, 224, 102, ${0.28 * fade})`);
+      ctx.rotate(time * 0.62);
+      const beamLen = Math.max(140, Math.min(Math.max(viewW, viewH) * 0.85, camera.zoom * (22 + p * 46)));
+      for (let r = 0; r < 16; r++) {
+        const ang = (r / 16) * Math.PI * 2;
+        const isMajor = r % 2 === 0;
+        const spread = isMajor ? 0.095 : 0.048;
+        const pulse = 0.82 + 0.18 * Math.sin(time * 6 + r * 1.3);
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, beamLen * (isMajor ? 1 : 0.78));
+        if (isMajor) {
+          grad.addColorStop(0, `rgba(255, 254, 232, ${0.65 * fade * pulse})`);
+          grad.addColorStop(0.42, `rgba(255, 224, 102, ${0.32 * fade * pulse})`);
           grad.addColorStop(1, 'rgba(255, 224, 102, 0)');
         } else {
-          grad.addColorStop(0, `rgba(210, 250, 255, ${0.42 * fade})`);
-          grad.addColorStop(0.5, `rgba(110, 232, 255, ${0.18 * fade})`);
-          grad.addColorStop(1, 'rgba(110, 232, 255, 0)');
+          grad.addColorStop(0, `rgba(215, 252, 255, ${0.48 * fade * pulse})`);
+          grad.addColorStop(0.45, `rgba(110, 234, 255, ${0.22 * fade * pulse})`);
+          grad.addColorStop(1, 'rgba(110, 234, 255, 0)');
         }
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.arc(0, 0, beamLen, ang - spread, ang + spread);
+        ctx.arc(0, 0, beamLen * (isMajor ? 1 : 0.78), ang - spread, ang + spread);
         ctx.closePath();
         ctx.fill();
       }
       ctx.restore();
 
-      // 3 staggered expanding diamond-gold shockwave rings
-      for (let wIdx = 0; wIdx < 3; wIdx++) {
-        const wp = Math.max(0, Math.min(1, (p - wIdx * 0.12) / 0.72));
+      // 3. 4 staggered chromatic shockwave rings (white flash -> gold -> ice cyan -> prism violet!)
+      const ringColors: [number, number, number][] = [
+        [255, 255, 240],
+        [255, 228, 112],
+        [145, 245, 255],
+        [226, 155, 255]
+      ];
+      for (let wIdx = 0; wIdx < 4; wIdx++) {
+        const wp = Math.max(0, Math.min(1, (p - wIdx * 0.095) / 0.68));
         if (wp <= 0 || wp >= 1) continue;
-        const eased = 1 - Math.pow(1 - wp, 2.4);
-        const rad = Math.max(12, camera.zoom * (2.5 + eased * (26 + wIdx * 10)));
-        const alpha = (1 - wp) * (wIdx === 0 ? 0.95 : 0.65);
-        ctx.strokeStyle =
-          wIdx === 1
-            ? `rgba(175, 246, 255, ${alpha})`
-            : `rgba(255, 236, 130, ${alpha})`;
-        ctx.lineWidth = Math.max(1.5, (1 - wp) * 4.5);
+        const eased = 1 - Math.pow(1 - wp, 2.5);
+        const rad = Math.max(14, camera.zoom * (2.5 + eased * (26 + wIdx * 11)));
+        const alpha = (1 - wp) * (wIdx === 0 ? 0.96 : 0.72);
+        const [rr, rg, rb] = ringColors[wIdx];
+        ctx.strokeStyle = `rgba(${rr}, ${rg}, ${rb}, ${alpha})`;
+        ctx.lineWidth = Math.max(1.6, (1 - wp) * (wIdx === 0 ? 5.5 : 4.0));
         ctx.beginPath();
         ctx.arc(sx, sy, rad, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // Radiant diamond core glow flash
-      const coreR = Math.max(18, camera.zoom * (5.5 + Math.sin(p * Math.PI) * 5));
+      // 4. Levitating diamond crystal shards rising majestically from the Sugar cube!
+      const shardCount = 12;
+      for (let k = 0; k < shardCount; k++) {
+        const seed = k * 2.39996;
+        const rise = ((p * 2.4 + (k % 5) * 0.17) % 1);
+        const driftX = Math.cos(seed + time * 1.4) * camera.zoom * (1.8 + rise * 4.6);
+        const driftY = -rise * camera.zoom * 14.5 + Math.sin(seed) * camera.zoom * 1.8;
+        const shAlpha = Math.sin(rise * Math.PI) * fade * 0.95;
+        if (shAlpha <= 0.02) continue;
+        const sz = Math.max(2.6, camera.zoom * (0.48 + (k % 3) * 0.16));
+        const px = sx + driftX;
+        const py = sy + driftY;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(time * 2.4 + seed);
+        ctx.fillStyle = k % 3 === 0 ? `rgba(175, 248, 255, ${shAlpha})` : `rgba(255, 242, 168, ${shAlpha})`;
+        ctx.beginPath();
+        ctx.moveTo(0, -sz * 1.35);
+        ctx.lineTo(sz * 0.75, 0);
+        ctx.lineTo(0, sz * 1.35);
+        ctx.lineTo(-sz * 0.75, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // 5. Cut-diamond diffraction starburst cross (+ and × spikes) + radiant core!
+      const coreR = Math.max(22, camera.zoom * (6.2 + Math.sin(p * Math.PI) * 5.8));
       const coreGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, coreR);
-      coreGrad.addColorStop(0, `rgba(255, 255, 255, ${0.85 * fade})`);
-      coreGrad.addColorStop(0.45, `rgba(255, 234, 138, ${0.42 * fade})`);
+      coreGrad.addColorStop(0, `rgba(255, 255, 255, ${0.95 * fade})`);
+      coreGrad.addColorStop(0.38, `rgba(255, 238, 148, ${0.52 * fade})`);
       coreGrad.addColorStop(1, 'rgba(255, 234, 138, 0)');
       ctx.fillStyle = coreGrad;
       ctx.beginPath();
       ctx.arc(sx, sy, coreR, 0, Math.PI * 2);
       ctx.fill();
+
+      const spikeLen = Math.max(36, camera.zoom * (9 + Math.sin(p * Math.PI) * 9));
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(Math.sin(time * 2.2) * 0.12);
+      for (let sp = 0; sp < 4; sp++) {
+        ctx.rotate(Math.PI * 0.25);
+        const len = sp % 2 === 0 ? spikeLen : spikeLen * 0.62;
+        const wHalf = Math.max(1.8, camera.zoom * (sp % 2 === 0 ? 0.34 : 0.22));
+        const spGrad = ctx.createLinearGradient(-len, 0, len, 0);
+        spGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        spGrad.addColorStop(0.5, `rgba(255, 254, 235, ${0.92 * fade})`);
+        spGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = spGrad;
+        ctx.beginPath();
+        ctx.moveTo(-len, 0);
+        ctx.lineTo(0, -wHalf);
+        ctx.lineTo(len, 0);
+        ctx.lineTo(0, wHalf);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
     } else if (world.stats.sugarFound) {
       // Ongoing subtle jewel shimmer halo on the discovered Sugar cube
       const sx = drawX + (world.sugarX + 0.5) * camera.zoom;

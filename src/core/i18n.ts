@@ -88,8 +88,27 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   tipDig: { ru: 'Прогрызено породы', en: 'Terrain excavated' },
   tipSugar: { ru: 'Статус поиска сахара', en: 'Sugar hunt status' },
   tipRush: { ru: 'Сахарная лихорадка: скорость ×1.6!', en: 'Sugar Rush: ×1.6 colony speed!' },
-  tipAuto: { ru: 'Авто-призыв муравьёв: нажми, чтобы вкл/выкл', en: 'Auto-summon ants: click to toggle on/off' },
+  tipAuto: { ru: 'Умный авто-призыв: нажми, чтобы вкл/выкл', en: 'Smart Auto-Summon: click to toggle on/off' },
+  tipAutoConfig: { ru: 'Настроить умный авто-призыв (режим и муравьи)', en: 'Configure Smart Auto-Summon (mode & ants)' },
   autoFabLabel: { ru: 'Авто', en: 'Auto' },
+  autoPopoverTitle: { ru: '🤖 Умный авто-призыв', en: '🤖 Smart Auto-Summon' },
+  autoModeLabel: { ru: 'Стратегия', en: 'Strategy' },
+  autoModeSmart: { ru: '🎯 Умный', en: '🎯 Smart' },
+  autoModeBeacon: { ru: '📍 Метка', en: '📍 Beacon' },
+  autoModeNest: { ru: '🏠 Гнездо', en: '🏠 Nest' },
+  autoModeSmartHint: {
+    ru: 'Ищет кристаллы и находки, Воинов шлёт в твёрдую породу, Разведчиков — в туман, Маток — в разные крылья.',
+    en: 'Hunts crystals & finds, aims Warriors at hard rock, Scouts into dark fog, and spreads Queens across tunnels.'
+  },
+  autoModeBeaconHint: {
+    ru: 'Выпускает муравьёв прямо у края тоннеля рядом с активной феромонной меткой.',
+    en: 'Deploys ants right at the tunnel frontier closest to your active Pheromone Beacon.'
+  },
+  autoModeNestHint: {
+    ru: 'Спокойно выпускает муравьёв из центрального гнезда в сторону ближайшей породы.',
+    en: 'Calmly deploys ants from the central Nest toward nearby rock.'
+  },
+  autoAntsLabel: { ru: 'Кого призывать', en: 'Ants to summon' },
   tipBeacon: {
     ru: 'Феромонная метка (B): 30 сек, кулдаун 2 мин — притягивает Рабочих и выводок',
     en: 'Pheromone Beacon (B): 30s active, 2m cooldown — draws Workers & Brood'
@@ -132,6 +151,8 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   hintPanDesktop: { ru: 'ПКМ или WASD / стрелки — двигать камеру', en: 'Right-Click or WASD / Arrows to pan' },
 
   // Sugar Found Celebration & Epic Clear
+  sugarCinemaBanner: { ru: '✦ КРИСТАЛЛ САХАРА ОБНАРУЖЕН ✦', en: '✦ SUGAR CRYSTAL UNCOVERED ✦' },
+  sugarNewRecord: { ru: '🏆 НОВЫЙ РЕКОРД!', en: '🏆 NEW RECORD!' },
   sugarBadge: { ru: '✦ ГЛАВНАЯ НАХОДКА КАРТЫ ✦', en: '✦ GRAND MAP DISCOVERY ✦' },
   sugarTitle: { ru: 'САХАР НАЙДЕН!', en: 'SUGAR FOUND!' },
   sugarSub: { ru: 'Карта «{name}» покорена!', en: 'Map "{name}" conquered!' },
@@ -150,7 +171,7 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
 
   // Skill Tree Inspector & Side General Upgrades
   stTitle: { ru: 'Дерево навыков', en: 'Skill Tree' },
-  stGeneralTitle: { ru: 'Общие для всех', en: 'All-Ant Upgrades' },
+  stGeneralTitle: { ru: 'Общие', en: 'General' },
   stSelectNode: { ru: 'Выберите узел', en: 'Select a node' },
   stDefaultDesc: {
     ru: 'Наведите на любой узел, чтобы увидеть описание. Нажмите на доступный узел, чтобы изучить его.',
@@ -267,13 +288,13 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   setMusicDesc: { ru: 'Эмбиент, трип-хоп и IDM-синтез', en: 'Ambient, trip-hop & IDM synth' },
   setSfxToggle: { ru: 'Звуковые эффекты', en: 'Sound Effects' },
   setSfxDesc: { ru: 'Муравьи вблизи, находки, кристаллы и интерфейс', en: 'Close-up ants, discoveries, crystals & UI' },
-  setAutoSummon: { ru: '🤖 Авто-призыв муравьёв', en: '🤖 Auto-Summon Ants' },
+  setAutoSummon: { ru: '🤖 Умный авто-призыв', en: '🤖 Smart Auto-Summon' },
   setAutoSummonDesc: {
-    ru: 'Автоматически выпускать Рабочих, Воинов, Разведчиков и Маток, пока есть свободные слоты',
-    en: 'Automatically deploy Workers, Warriors, Scouts & Queens whenever slots are open'
+    ru: 'Автоматически выпускать выбранных муравьёв по стратегии (умный фронт, метка или гнездо)',
+    en: 'Automatically deploy selected ants using your strategy (Smart frontier, Beacon, or Nest)'
   },
-  setAutoSummonOn: { ru: '🤖 Авто-призыв муравьёв включён', en: '🤖 Auto-summon enabled' },
-  setAutoSummonOff: { ru: '🤖 Авто-призыв выключен', en: '🤖 Auto-summon disabled' },
+  setAutoSummonOn: { ru: '🤖 Умный авто-призыв включён', en: '🤖 Smart Auto-Summon enabled' },
+  setAutoSummonOff: { ru: '🤖 Авто-призыв выключен', en: '🤖 Auto-Summon disabled' },
   setResetTitle: { ru: 'Сброс прогресса', en: 'Reset Progress' },
   setResetDesc: { ru: 'Очистить уровни, рекорды, мутации, находки и ачивки', en: 'Clear maps, records, mutations, finds & achievements' },
   setResetBtn: { ru: 'Сбросить', en: 'Reset' },

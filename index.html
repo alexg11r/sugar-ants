@@ -129,6 +129,18 @@
         <div id="tutorial-hint-text" class="tutorial-hint-text"></div>
       </div>
 
+      <!-- Cinematic Sugar Discovery Letterbox & Banner (plays during dramatic zoom-in!) -->
+      <div id="sugar-cinema-overlay" class="sugar-cinema-overlay hidden" aria-hidden="true">
+        <div class="cinema-bar top"></div>
+        <div class="cinema-bar bottom"></div>
+        <div class="cinema-banner-wrap">
+          <div class="cinema-banner-line"></div>
+          <div id="sugar-cinema-banner" class="cinema-banner-text">✦ КРИСТАЛЛ САХАРА ОБНАРУЖЕН ✦</div>
+          <div id="sugar-cinema-sub" class="cinema-banner-sub">Призма Света</div>
+          <div class="cinema-banner-line"></div>
+        </div>
+      </div>
+
       <!-- Epic "Found a Diamond!" Sugar Discovery Celebration Overlay -->
       <div id="sugar-found-overlay" class="sugar-found-overlay hidden">
         <div class="sugar-diamond-rays" aria-hidden="true"></div>
@@ -138,7 +150,11 @@
           <span></span><span></span><span></span><span></span>
         </div>
         <div class="sugar-found-card">
-          <div id="sugar-found-badge" class="sugar-found-badge">✦ ГЛАВНАЯ НАХОДКА КАРТЫ ✦</div>
+          <div class="sugar-card-sheen" aria-hidden="true"></div>
+          <div class="sugar-badge-row">
+            <div id="sugar-found-badge" class="sugar-found-badge">✦ ГЛАВНАЯ НАХОДКА КАРТЫ ✦</div>
+            <div id="sugar-record-badge" class="sugar-record-badge hidden">🏆 НОВЫЙ РЕКОРД!</div>
+          </div>
           <div class="sugar-jewel-wrap" aria-hidden="true">
             <div class="sugar-jewel-ring r1"></div>
             <div class="sugar-jewel-ring r2"></div>
@@ -184,13 +200,30 @@
       <!-- Toast notifications -->
       <div id="toast-container" class="toast-container"></div>
 
-      <!-- Left-Side Quick Action Dock (Auto-Summon Toggle + Pheromone Beacon 30s / 2m CD!) -->
+      <!-- Left-Side Quick Action Dock (Smart Auto-Summon + Config Popover + Pheromone Beacon 30s / 2m CD!) -->
       <div id="beacon-dock" class="beacon-left-dock hidden">
-        <button id="btn-auto-summon" class="beacon-fab auto-fab" title="Авто-призыв муравьёв: нажми, чтобы вкл/выкл">
-          <span class="beacon-fab-icon">🤖</span>
-          <span id="auto-fab-label" class="beacon-fab-label">Авто</span>
-          <span id="auto-fab-status" class="beacon-fab-status">Выкл</span>
-        </button>
+        <div class="auto-fab-wrap">
+          <button id="btn-auto-summon" class="beacon-fab auto-fab" title="Умный авто-призыв: нажми, чтобы вкл/выкл">
+            <span class="beacon-fab-icon">🤖</span>
+            <span id="auto-fab-label" class="beacon-fab-label">Авто</span>
+            <span id="auto-fab-status" class="beacon-fab-status">Выкл</span>
+          </button>
+          <button id="btn-auto-config" class="auto-config-pill" title="Настроить умный авто-призыв">⚙</button>
+
+          <!-- Compact Floating Smart Auto-Summon Config Popover -->
+          <div id="auto-popover" class="auto-popover hidden" role="dialog" aria-label="Smart Auto-Summon">
+            <div class="auto-pop-header">
+              <span id="auto-pop-title" class="auto-pop-title">🤖 Умный авто-призыв</span>
+              <button id="auto-pop-close" class="auto-pop-close" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="auto-pop-mode-label" class="auto-pop-label">Стратегия</div>
+            <div id="auto-pop-modes" class="auto-pop-modes"></div>
+            <div id="auto-pop-hint" class="auto-pop-hint"></div>
+            <div id="auto-pop-ants-label" class="auto-pop-label">Кого призывать</div>
+            <div id="auto-pop-ants" class="auto-pop-ants"></div>
+          </div>
+        </div>
+
         <button id="btn-beacon" class="beacon-fab" title="Феромонная метка (B): 30 сек, кулдаун 2 мин">
           <span class="beacon-fab-key">B</span>
           <span class="beacon-fab-icon">📍</span>
@@ -334,7 +367,7 @@
 
         <div class="st-layout">
           <aside class="st-general-panel">
-            <div id="st-general-title" class="st-general-title">✦ Общие для всех</div>
+            <div id="st-general-title" class="st-general-title">✦ Общие</div>
             <div id="st-general-nodes" class="st-general-nodes"></div>
           </aside>
 

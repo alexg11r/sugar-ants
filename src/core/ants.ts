@@ -65,9 +65,9 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#35d6ff',
     rgb: [53, 214, 255],
     hotkey: '3',
-    baseSpeed: 50,
+    baseSpeed: 27,
     baseDamage: 1,
-    baseBiteInterval: 0.08,
+    baseBiteInterval: 0.1,
     baseLifespan: 75,
     baseMaxActive: 4,
     baseRadius: 1.0,
@@ -84,10 +84,10 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#e04bff',
     rgb: [224, 75, 255],
     hotkey: '4',
-    baseSpeed: 5.2,
+    baseSpeed: 2.6,
     baseDamage: 1,
-    baseBiteInterval: 0.65,
-    baseLifespan: 130,
+    baseBiteInterval: 0.85,
+    baseLifespan: 135,
     baseMaxActive: 1,
     baseRadius: 1.3,
     scale: 1.55
@@ -252,6 +252,7 @@ export class AntManager {
   private spawnBrood(
     x: number,
     y: number,
+    world: World,
     stats: ColonyStats,
     particles: ParticleSystem,
     events: AntUpdateEvents
@@ -271,11 +272,19 @@ export class AntManager {
       events.anomalyPoints.push({ x, y });
     }
 
+    const candX = x + Math.cos(angle) * 2.2;
+    const candY = y + Math.sin(angle) * 2.2;
+    const safePos = world.canAntStep(x, y, candX, candY)
+      ? { x: candX, y: candY }
+      : world.isInsidePlayable(x, y)
+        ? { x, y }
+        : world.findNearestEmpty(x, y, 16) || { x: world.nestX, y: world.nestY };
+
     this.ants.push({
       id: this.nextId++,
       type: spawnedType,
-      x: x + Math.cos(angle) * 2.2,
-      y: y + Math.sin(angle) * 2.2,
+      x: safePos.x,
+      y: safePos.y,
       angle,
       fixedAngle: angle,
       age: 0,
@@ -296,20 +305,28 @@ export class AntManager {
     this.compassCooldown = 0;
   }
 
-  /** Releases 3 free allied bonus ants from an Ancient Cocoon (marked fromQueen so they NEVER block player slots!) */
-  spawnFreeAlliesAt(x: number, y: number, stats: ColonyStats, particles: ParticleSystem) {
+  /** Releases 3 free allied bonus ants from an Ancient Cocoon (strictly inside playable cavity!) */
+  spawnFreeAlliesAt(x: number, y: number, world: World, stats: ColonyStats, particles: ParticleSystem) {
     const trio: PlayableAntId[] = ['worker', 'scout', 'warrior'];
+    const baseSafe = world.isInsidePlayable(x, y)
+      ? { x, y }
+      : world.findNearestEmpty(x, y, 20) || { x: world.nestX, y: world.nestY };
+
     for (let i = 0; i < trio.length; i++) {
       const type = trio[i];
       const cfg = ANT_TYPES[type];
       const angle = (i / trio.length) * Math.PI * 2 + Math.random() * 0.6;
       const lifeMult =
         stats.globalLifeMult * (type === 'worker' ? stats.worker.lifeMult : type === 'scout' ? stats.scout.lifeMult : 1);
+      const candX = baseSafe.x + Math.cos(angle) * 2.0;
+      const candY = baseSafe.y + Math.sin(angle) * 2.0;
+      const spawnPos = world.canAntStep(baseSafe.x, baseSafe.y, candX, candY) ? { x: candX, y: candY } : baseSafe;
+
       this.ants.push({
         id: this.nextId++,
         type,
-        x: x + Math.cos(angle) * 2.0,
-        y: y + Math.sin(angle) * 2.0,
+        x: spawnPos.x,
+        y: spawnPos.y,
         angle,
         fixedAngle: angle,
         age: 0,
@@ -323,8 +340,8 @@ export class AntManager {
         fromQueen: true
       });
     }
-    particles.spawn(x, y, 200, 120, 255, 18, 30, 1.3, 1.9);
-    particles.spawn(x, y, 105, 255, 175, 14, 24, 1.1, 1.6);
+    particles.spawn(baseSafe.x, baseSafe.y, 200, 120, 255, 18, 30, 1.3, 1.9);
+    particles.spawn(baseSafe.x, baseSafe.y, 105, 255, 175, 14, 24, 1.1, 1.6);
   }
 
   restoreState(savedAnts: Ant[], compassCooldown: number) {
@@ -417,6 +434,16 @@ export class AntManager {
         }
         this.ants.splice(i, 1);
         continue;
+      }
+
+      // Watertight containment safeguard: pull any stray/legacy-saved ant strictly inside interiorMask!
+      if (
+        !world.isInsidePlayable(ant.x, ant.y) ||
+        world.getCell(Math.round(ant.x), Math.round(ant.y)) === CellType.HiddenArt
+      ) {
+        const safe = world.findNearestEmpty(ant.x, ant.y, 36) || { x: world.nestX, y: world.nestY };
+        ant.x = safe.x;
+        ant.y = safe.y;
       }
 
       // Check if inside any Queen's tiny buff aura!
@@ -572,13 +599,26 @@ export class AntManager {
     if (!world.inBounds(ix, iy)) return;
 
     const ahead = world.getCell(ix, iy);
-    if (ahead === CellType.Empty) {
-      ant.x += Math.cos(ant.angle) * speed * dt;
-      ant.y += Math.sin(ant.angle) * speed * dt;
-      ant.legPhase += dt * speed * 1.4;
-    } else if (ahead === CellType.HiddenArt) {
-      const res = world.dig(ix, iy, cfg.baseRadius, 1);
-      this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+    const blockedWall = ahead === CellType.HiddenArt || !world.isInsidePlayable(ix, iy);
+    if (ahead === CellType.Empty && !blockedWall) {
+      const nx = ant.x + Math.cos(ant.angle) * speed * dt;
+      const ny = ant.y + Math.sin(ant.angle) * speed * dt;
+      if (world.canAntStep(ant.x, ant.y, nx, ny)) {
+        ant.x = nx;
+        ant.y = ny;
+        ant.legPhase += dt * speed * 1.4;
+      } else {
+        const slideDir = ant.wallSlideDir || (Math.random() < 0.5 ? 1 : -1);
+        ant.wallSlideDir = slideDir;
+        ant.angle += slideDir * 0.85;
+        ant.fixedAngle = ant.angle;
+        ant.turnTimer = 0.6;
+      }
+    } else if (blockedWall) {
+      if (ahead === CellType.HiddenArt) {
+        const res = world.dig(ix, iy, cfg.baseRadius, 1, ant.x, ant.y);
+        this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+      }
       const slideDir = ant.wallSlideDir || (Math.random() < 0.5 ? 1 : -1);
       ant.wallSlideDir = slideDir;
       ant.angle += slideDir * 0.85;
@@ -590,20 +630,20 @@ export class AntManager {
         ant.biteTimer = biteInterval;
         ant.biteFlash = 1;
         const dmg = this.computeDamage(cfg.baseDamage + auraDmg, ahead, stats);
-        const res = world.dig(probeX, probeY, cfg.baseRadius, dmg);
+        const res = world.dig(probeX, probeY, cfg.baseRadius, dmg, ant.x, ant.y);
         this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events);
       }
     }
   }
 
-  /** Helper: tests whether moving along `angle` hits HiddenArt or map boundary within `dist` px */
+  /** Helper: tests whether moving along `angle` hits HiddenArt or leaves interiorMask within `dist` px */
   private hitsArtAlong(world: World, x: number, y: number, angle: number, dist: number): boolean {
-    const steps = Math.max(1, Math.ceil(dist / 1.5));
+    const steps = Math.max(1, Math.ceil(dist / 1.2));
     for (let s = 1; s <= steps; s++) {
       const d = (dist * s) / steps;
       const px = Math.round(x + Math.cos(angle) * d);
       const py = Math.round(y + Math.sin(angle) * d);
-      if (!world.inBounds(px, py) || world.getCell(px, py) === CellType.HiddenArt) {
+      if (!world.inBounds(px, py) || world.getCell(px, py) === CellType.HiddenArt || !world.isInsidePlayable(px, py)) {
         return true;
       }
     }
@@ -699,13 +739,19 @@ export class AntManager {
     }
 
     const ahead = world.getCell(ix, iy);
-    if (ahead === CellType.Empty) {
-      ant.x += Math.cos(ant.angle) * speed * dt;
-      ant.y += Math.sin(ant.angle) * speed * dt;
+    const nx = ant.x + Math.cos(ant.angle) * speed * dt;
+    const ny = ant.y + Math.sin(ant.angle) * speed * dt;
+    const hitBarrier = ahead === CellType.HiddenArt || !world.isInsidePlayable(ix, iy);
+
+    if (ahead === CellType.Empty && !hitBarrier && world.canAntStep(ant.x, ant.y, nx, ny)) {
+      ant.x = nx;
+      ant.y = ny;
       ant.legPhase += dt * speed * 1.45;
-    } else if (ahead === CellType.HiddenArt) {
-      const res = world.dig(ix, iy, digRadius, 1);
-      this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+    } else if (hitBarrier || ahead === CellType.Empty) {
+      if (ahead === CellType.HiddenArt) {
+        const res = world.dig(ix, iy, digRadius, 1, ant.x, ant.y);
+        this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+      }
 
       // Smart wall-following obstacle avoidance: keep sliding consistently along the curve without getting stuck!
       const alreadySliding = (ant.wallSlideTimer || 0) > 0.25;
@@ -736,12 +782,12 @@ export class AntManager {
         ant.biteTimer = biteInterval;
         ant.biteFlash = 1;
         const dmg = this.computeDamage(rawDmg, ahead, stats);
-        const res = world.dig(probeX, probeY, digRadius, dmg);
+        const res = world.dig(probeX, probeY, digRadius, dmg, ant.x, ant.y);
         this.applyDigEvents(res, probeX, probeY, isEvolved ? [125, 255, 170] : cfg.rgb, world, particles, events);
 
         // Worker Evolution Capstone (10 SP): 25% chance Emerald Seismic Micro-Pulse on nearby blocks!
         if (isEvolved && Math.random() < 0.25) {
-          const pulseRes = world.dig(probeX, probeY, 3.2, 2);
+          const pulseRes = world.dig(probeX, probeY, 3.2, 2, ant.x, ant.y);
           this.applyDigEvents(pulseRes, probeX, probeY, [255, 232, 120], world, particles, events);
           particles.spawn(probeX, probeY, 95, 255, 175, 5, 22, 0.55, 1.6);
         }
@@ -765,7 +811,8 @@ export class AntManager {
     const rawDmg = cfg.baseDamage + stats.scout.dmgBonus + auraDmg;
 
     const totalDist = speed * dt;
-    const steps = Math.max(1, Math.ceil(totalDist / 0.85));
+    // Fine 0.5px micro-stepping guarantees high-speed Scouts NEVER tunnel across 1px HiddenArt walls!
+    const steps = Math.max(1, Math.ceil(totalDist / 0.5));
     const stepDist = totalDist / steps;
 
     for (let s = 0; s < steps; s++) {
@@ -781,29 +828,29 @@ export class AntManager {
         break;
       }
 
-      const cell = world.getCell(ix, iy);
-      if (cell === CellType.Empty) {
+      if (world.canAntStep(ant.x, ant.y, nx, ny)) {
         ant.x = nx;
         ant.y = ny;
       } else {
-        if (ant.biteTimer <= 0) {
+        const cell = world.getCell(ix, iy);
+        if (ant.biteTimer <= 0 && cell !== CellType.Empty && (cell === CellType.HiddenArt || world.isInsidePlayable(ix, iy))) {
           ant.biteTimer = cfg.baseBiteInterval;
           ant.biteFlash = 1;
           const dmg = this.computeDamage(rawDmg, cell, stats);
-          const res = world.dig(ix, iy, cfg.baseRadius, dmg);
+          const res = world.dig(ix, iy, cfg.baseRadius, dmg, ant.x, ant.y);
           this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
 
           // Scout Skill: "Ядовитый рикошет" — applies lingering acid corrosion on ricochet!
           if (stats.scout.poisonRank > 0 && cell !== CellType.HiddenArt && cell !== CellType.Sugar) {
             const dps = [0, 1.3, 2.3, 3.5][Math.min(3, stats.scout.poisonRank)];
             const pRad = 1.6 + stats.scout.poisonRank * 0.45;
-            world.applyPoison(ix, iy, pRad, dps, 4.5);
+            world.applyPoison(ix, iy, pRad, dps, 4.5, ant.x, ant.y);
             particles.spawn(ix, iy, 125, 255, 95, 4, 18, 0.65, 1.4);
           }
         }
 
-        const solidX = world.getCell(Math.round(nx), Math.round(ant.y)) !== CellType.Empty;
-        const solidY = world.getCell(Math.round(ant.x), Math.round(ny)) !== CellType.Empty;
+        const solidX = !world.canAntStep(ant.x, ant.y, nx, ant.y);
+        const solidY = !world.canAntStep(ant.x, ant.y, ant.x, ny);
         if (solidX && !solidY) {
           ant.angle = Math.PI - ant.angle;
         } else if (solidY && !solidX) {
@@ -853,13 +900,19 @@ export class AntManager {
     }
 
     const ahead = world.getCell(ix, iy);
-    if (ahead === CellType.Empty) {
-      ant.x += Math.cos(ant.angle) * speed * dt;
-      ant.y += Math.sin(ant.angle) * speed * dt;
+    const nx = ant.x + Math.cos(ant.angle) * speed * dt;
+    const ny = ant.y + Math.sin(ant.angle) * speed * dt;
+    const hitBarrier = ahead === CellType.HiddenArt || !world.isInsidePlayable(ix, iy);
+
+    if (ahead === CellType.Empty && !hitBarrier && world.canAntStep(ant.x, ant.y, nx, ny)) {
+      ant.x = nx;
+      ant.y = ny;
       ant.legPhase += dt * speed * 1.45;
-    } else if (ahead === CellType.HiddenArt) {
-      const res = world.dig(ix, iy, radius, 1);
-      this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+    } else if (hitBarrier || ahead === CellType.Empty) {
+      if (ahead === CellType.HiddenArt) {
+        const res = world.dig(ix, iy, radius, 1, ant.x, ant.y);
+        this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+      }
       ant.fixedAngle += (Math.random() < 0.5 ? 1 : -1) * (Math.PI * 0.35);
       ant.angle = ant.fixedAngle;
     } else {
@@ -868,7 +921,7 @@ export class AntManager {
         ant.biteTimer = biteInterval;
         ant.biteFlash = 1;
         const dmg = this.computeDamage(rawDmg, ahead, stats);
-        const res = world.dig(probeX, probeY, radius, dmg);
+        const res = world.dig(probeX, probeY, radius, dmg, ant.x, ant.y);
         this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events);
       }
     }
@@ -887,9 +940,9 @@ export class AntManager {
 
     ant.spawnTimer -= dt * stats.queen.spawnRateMult * rushMult;
     if (ant.spawnTimer <= 0) {
-      ant.spawnTimer = 2.6;
-      this.spawnBrood(ant.x, ant.y, stats, particles, events);
-      this.spawnBrood(ant.x, ant.y, stats, particles, events);
+      ant.spawnTimer = 3.2;
+      this.spawnBrood(ant.x, ant.y, world, stats, particles, events);
+      this.spawnBrood(ant.x, ant.y, world, stats, particles, events);
       particles.spawn(ant.x, ant.y, 235, 120, 255, 5, 16, 0.7, 1.5);
     }
 
@@ -903,22 +956,28 @@ export class AntManager {
     const ix = Math.round(probeX);
     const iy = Math.round(probeY);
 
-    if (!world.inBounds(ix, iy) || world.getCell(ix, iy) === CellType.HiddenArt) {
+    if (!world.inBounds(ix, iy) || world.getCell(ix, iy) === CellType.HiddenArt || !world.isInsidePlayable(ix, iy)) {
       ant.angle += Math.PI * 0.65;
       return;
     }
 
     const ahead = world.getCell(ix, iy);
+    const nx = ant.x + Math.cos(ant.angle) * cfg.baseSpeed * stats.globalSpeedMult * rushMult * dt;
+    const ny = ant.y + Math.sin(ant.angle) * cfg.baseSpeed * stats.globalSpeedMult * rushMult * dt;
     if (ahead === CellType.Empty) {
-      ant.x += Math.cos(ant.angle) * cfg.baseSpeed * stats.globalSpeedMult * rushMult * dt;
-      ant.y += Math.sin(ant.angle) * cfg.baseSpeed * stats.globalSpeedMult * rushMult * dt;
-      ant.legPhase += dt * cfg.baseSpeed * 1.5;
+      if (world.canAntStep(ant.x, ant.y, nx, ny)) {
+        ant.x = nx;
+        ant.y = ny;
+        ant.legPhase += dt * cfg.baseSpeed * 1.5;
+      } else {
+        ant.angle += Math.PI * 0.65;
+      }
     } else {
       if (ant.biteTimer <= 0) {
         ant.biteTimer = cfg.baseBiteInterval / (stats.globalSpeedMult * rushMult);
         ant.biteFlash = 1;
         const dmg = this.computeDamage(cfg.baseDamage, ahead, stats);
-        const res = world.dig(probeX, probeY, cfg.baseRadius, dmg);
+        const res = world.dig(probeX, probeY, cfg.baseRadius, dmg, ant.x, ant.y);
         this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events);
       }
       if (Math.random() < 0.04) {

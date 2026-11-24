@@ -182,6 +182,8 @@ export type SoundtrackId =
   | 'deep_nest'
   | 'starlight';
 
+export type AutoSummonMode = 'smart' | 'beacon' | 'nest';
+
 export interface GameSettings {
   language: Language;
   soundtrack: SoundtrackId;
@@ -193,6 +195,8 @@ export interface GameSettings {
   /** Legacy unified volume field kept optional for seamless save migration */
   volume?: number;
   autoSummon: boolean;
+  autoSummonMode: AutoSummonMode;
+  autoSummonTypes: Record<PlayableAntId, boolean>;
 }
 
 export interface ArtifactDef {

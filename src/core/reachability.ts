@@ -154,6 +154,84 @@ export function computeReachableMask(
 }
 
 /**
+ * Exact 4-connected interior flood-fill from seeds through ALL cells except indestructible HiddenArt!
+ * Unlike computeReachableMask (which keeps a 1px margin away from art walls for safe item spawning),
+ * interiorMask includes EVERY diggable pixel right up to the 1px face of HiddenArt lines & dots,
+ * while strictly sealing off everything outside the outer medallion or inside closed art loops!
+ */
+export function computeInteriorMask(
+  cells: Uint8Array,
+  width: number,
+  height: number,
+  seeds: { x: number; y: number }[]
+): Uint8Array {
+  const size = width * height;
+  const interior = new Uint8Array(size);
+  const queue = new Int32Array(size);
+  let head = 0;
+  let tail = 0;
+
+  for (const s of seeds) {
+    const cx = Math.max(1, Math.min(width - 2, Math.round(s.x)));
+    const cy = Math.max(1, Math.min(height - 2, Math.round(s.y)));
+    let seeded = false;
+    for (let r = 0; r <= 12 && !seeded; r++) {
+      for (let dy = -r; dy <= r && !seeded; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const x = cx + dx;
+          const y = cy + dy;
+          if (x < 1 || x >= width - 1 || y < 1 || y >= height - 1) continue;
+          const idx = y * width + x;
+          if (cells[idx] !== CellType.HiddenArt && interior[idx] === 0) {
+            interior[idx] = 1;
+            queue[tail++] = idx;
+            seeded = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  while (head < tail) {
+    const idx = queue[head++];
+    const x = idx % width;
+    const y = (idx - x) / width;
+
+    if (x > 1) {
+      const n = idx - 1;
+      if (interior[n] === 0 && cells[n] !== CellType.HiddenArt) {
+        interior[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+    if (x < width - 2) {
+      const n = idx + 1;
+      if (interior[n] === 0 && cells[n] !== CellType.HiddenArt) {
+        interior[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+    if (y > 1) {
+      const n = idx - width;
+      if (interior[n] === 0 && cells[n] !== CellType.HiddenArt) {
+        interior[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+    if (y < height - 2) {
+      const n = idx + width;
+      if (interior[n] === 0 && cells[n] !== CellType.HiddenArt) {
+        interior[n] = 1;
+        queue[tail++] = n;
+      }
+    }
+  }
+
+  return interior;
+}
+
+/**
  * Checks whether an entire (2*margin+1)x(2*margin+1) square around (cx, cy)
  * lies strictly inside the reachable region and contains only diggable terrain (no Empty / HiddenArt).
  */

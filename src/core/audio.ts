@@ -1109,40 +1109,45 @@ export class MeditativeAudio {
     this.playToneInternal(scale[idx + 2], 0.55, 0.1, 'sine', 0.08);
   }
 
-  /** Grand "Found a Diamond!" Sugar discovery fanfare: seismic bloom + sparkling crystal cascade + triumphant chord! */
+  /** Grand Cinematic "Found a Diamond!" Sugar discovery fanfare: crystal glint + seismic drop + harp sweep + grand chord swell! */
   playSugarFound() {
     this.ensureStarted();
     if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
     const t = this.ctx.currentTime;
 
-    // 1. Deep golden bass boom & warm triumph swell
+    // 1. Deep cinematic seismic bass drop (impact moment!)
     const sub = this.ctx.createOscillator();
     const subG = this.ctx.createGain();
     sub.type = 'sine';
-    sub.frequency.setValueAtTime(146.83, t);
-    sub.frequency.exponentialRampToValueAtTime(65.41, t + 0.35);
+    sub.frequency.setValueAtTime(165, t);
+    sub.frequency.exponentialRampToValueAtTime(48, t + 0.42);
     subG.gain.setValueAtTime(0.0001, t);
-    subG.gain.exponentialRampToValueAtTime(0.28, t + 0.015);
-    subG.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    subG.gain.exponentialRampToValueAtTime(0.32, t + 0.014);
+    subG.gain.exponentialRampToValueAtTime(0.0001, t + 1.85);
     sub.connect(subG);
     subG.connect(this.sfxBus);
     sub.start(t);
-    sub.stop(t + 1.55);
+    sub.stop(t + 1.9);
 
-    // 2. Radiant major-9th diamond arpeggio cascade
-    const diamondNotes = [261.63, 329.63, 392.0, 493.88, 587.33, 783.99, 987.77, 1174.66, 1567.98];
+    // 2. Crisp cut-diamond glass-chime transient right on impact
+    this.playToneInternal(2093.0, 0.55, 0.075, 'sine', 0.0);
+    this.playToneInternal(2637.02, 0.48, 0.055, 'triangle', 0.025);
+    this.playToneInternal(3135.96, 0.65, 0.042, 'sine', 0.055);
+
+    // 3. Ascending celestial harp / diamond shimmer cascade during camera swoop (0.08s .. 0.85s)
+    const diamondNotes = [261.63, 329.63, 392.0, 493.88, 587.33, 783.99, 987.77, 1174.66, 1567.98, 2093.0];
     diamondNotes.forEach((f, i) => {
-      const delay = i * 0.068;
-      this.playToneInternal(f, 1.9 - i * 0.06, i < 4 ? 0.11 : 0.09, 'sine', delay);
+      const delay = 0.08 + i * 0.072;
+      this.playToneInternal(f, 2.0 - i * 0.05, i < 4 ? 0.105 : 0.085, 'sine', delay);
       if (i >= 3) {
-        // Crystalline harmonic glint one octave higher
-        this.playToneInternal(f * 2, 0.65, 0.032, 'triangle', delay + 0.03);
+        this.playToneInternal(f * 2, 0.72, 0.03, 'triangle', delay + 0.03);
       }
     });
 
-    // 3. Delayed triumphant brass/bell resolve chord at +0.62s
-    [523.25, 659.25, 783.99, 1046.5, 1318.51].forEach((f, idx) => {
-      this.playToneInternal(f, 2.3, 0.075, idx === 0 ? 'triangle' : 'sine', 0.62 + idx * 0.025);
+    // 4. Grand warm orchestral triumph swell peaking as cinema banner & card bloom (+0.85s)
+    const grandChord = [261.63, 392.0, 523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98];
+    grandChord.forEach((f, idx) => {
+      this.playToneInternal(f, 2.8, idx < 2 ? 0.08 : 0.068, idx < 2 ? 'triangle' : 'sine', 0.85 + idx * 0.032);
     });
   }
 

@@ -18,7 +18,8 @@ let hud: HudController;
 
 const engine = new GameEngine(canvas, skillTree, audio, {
   onHudSync: () => hud?.sync(),
-  onSugarFound: (level) => hud?.openSugarFoundModal(level),
+  onSugarCinematicStart: (level) => hud?.startSugarCinematic(level),
+  onSugarFound: (level, isNewRecord) => hud?.openSugarFoundModal(level, isNewRecord),
   onArtifactFound: (artifact) => hud?.openArtifactFoundModal(artifact),
   onMapCleared: (level) => hud?.showClassicEpicClearBanner(level),
   onToast: (msg) => hud?.showToast(msg),
