@@ -62,6 +62,7 @@ export function drawDetailedAnt(
   const femurLen = (type === 'scout' ? 1.35 : 1.08) * s;
   const tibiaLen = (type === 'scout' ? 1.4 : 1.05) * s;
 
+  ctx.beginPath();
   for (let i = 0; i < 3; i++) {
     // Tripod gait: left-front + right-mid + left-back move together
     const tripod = i === 1 ? Math.PI : 0;
@@ -76,11 +77,9 @@ export function drawDetailedAnt(
     const taL = faL - tibiaBends[i];
     const fxL = kxL + Math.cos(taL) * tibiaLen;
     const fyL = kyL + Math.sin(taL) * tibiaLen;
-    ctx.beginPath();
     ctx.moveTo(ax, -0.32 * s);
     ctx.lineTo(kxL, kyL);
     ctx.lineTo(fxL, fyL);
-    ctx.stroke();
 
     // Right leg
     const faR = femurAngles[i] - swingR;
@@ -89,12 +88,11 @@ export function drawDetailedAnt(
     const taR = faR + tibiaBends[i];
     const fxR = kxR + Math.cos(taR) * tibiaLen;
     const fyR = kyR + Math.sin(taR) * tibiaLen;
-    ctx.beginPath();
     ctx.moveTo(ax, 0.32 * s);
     ctx.lineTo(kxR, kyR);
     ctx.lineTo(fxR, fyR);
-    ctx.stroke();
   }
+  ctx.stroke();
 
   // 2. Segmented Gaster (abdomen) with chitin highlight
   const abdRx = (type === 'queen' ? 2.05 : type === 'scout' ? 1.2 : 1.48) * s;
@@ -106,20 +104,22 @@ export function drawDetailedAnt(
   ctx.ellipse(abdX, 0, abdRx, abdRy, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Subtle chitin segments on abdomen (enhanced by skin!)
-  ctx.strokeStyle =
-    skin === 'cyber'
-      ? '#70ffff'
-      : skin === 'royal'
-        ? '#ffd966'
-        : `rgba(${r}, ${g}, ${b}, 0.55)`;
-  ctx.lineWidth = Math.max(0.8, s * (skin === 'classic' ? 0.22 : 0.28));
-  for (const frac of [-0.32, 0.05, 0.38]) {
-    const bx = abdX + frac * abdRx;
-    const halfH = Math.sqrt(Math.max(0.05, 1 - frac * frac)) * abdRy * 0.88;
+  // Subtle chitin segments on abdomen (batched into 1 stroke!)
+  if (s >= 2.2 || skin !== 'classic') {
+    ctx.strokeStyle =
+      skin === 'cyber'
+        ? '#70ffff'
+        : skin === 'royal'
+          ? '#ffd966'
+          : `rgba(${r}, ${g}, ${b}, 0.55)`;
+    ctx.lineWidth = Math.max(0.8, s * (skin === 'classic' ? 0.22 : 0.28));
     ctx.beginPath();
-    ctx.moveTo(bx, -halfH);
-    ctx.lineTo(bx, halfH);
+    for (const frac of [-0.32, 0.05, 0.38]) {
+      const bx = abdX + frac * abdRx;
+      const halfH = Math.sqrt(Math.max(0.05, 1 - frac * frac)) * abdRy * 0.88;
+      ctx.moveTo(bx, -halfH);
+      ctx.lineTo(bx, halfH);
+    }
     ctx.stroke();
   }
 
@@ -261,6 +261,7 @@ export class WorldRenderer {
 
   private width = 0;
   private height = 0;
+  private mobile = isMobileDevice();
   private lastWorldRef: World | null = null;
   private lastVisualVersion = -1;
   private lastRebuildMs = 0;
@@ -282,6 +283,7 @@ export class WorldRenderer {
   }
 
   resizeWorld(width: number, height: number) {
+    this.mobile = isMobileDevice();
     this.width = width;
     this.height = height;
     this.offscreen.width = width;
@@ -634,14 +636,16 @@ export class WorldRenderer {
     this.offCtx.putImageData(this.imgData, 0, 0);
     this.glowCtx.putImageData(this.glowImgData, 0, 0);
 
-    // Dual-scale hardware bilinear downsample bloom for ALL platforms (silky 60 FPS, zero ctx.filter GPU stalls!)
+    // Fast hardware bilinear downsample bloom (single pass on mobile, dual-scale on desktop — zero ctx.filter stalls!)
     this.bloomCtx.clearRect(0, 0, this.bloomW, this.bloomH);
     this.bloomCtx.imageSmoothingEnabled = true;
     this.bloomCtx.drawImage(this.glowCanvas, 0, 0, this.bloomW, this.bloomH);
 
-    this.bloomWideCtx.clearRect(0, 0, this.bloomWideW, this.bloomWideH);
-    this.bloomWideCtx.imageSmoothingEnabled = true;
-    this.bloomWideCtx.drawImage(this.bloomCanvas, 0, 0, this.bloomWideW, this.bloomWideH);
+    if (!this.mobile) {
+      this.bloomWideCtx.clearRect(0, 0, this.bloomWideW, this.bloomWideH);
+      this.bloomWideCtx.imageSmoothingEnabled = true;
+      this.bloomWideCtx.drawImage(this.bloomCanvas, 0, 0, this.bloomWideW, this.bloomWideH);
+    }
   }
 
   render(
@@ -666,14 +670,14 @@ export class WorldRenderer {
     const w = world.width;
     const h = world.height;
     const pal = world.level.palette;
-    const mobile = isMobileDevice();
+    const mobile = this.mobile;
     const now = performance.now();
 
     const worldChanged = this.lastWorldRef !== world;
     const dirty = world.visualVersion !== this.lastVisualVersion;
     const elapsedSinceRebuild = now - this.lastRebuildMs;
-    const animInterval = mobile ? (world.stats.mapCleared ? 60 : 95) : (world.stats.mapCleared ? 34 : 55);
-    const dirtyInterval = mobile ? 26 : 14;
+    const animInterval = mobile ? (world.stats.mapCleared ? 95 : 160) : (world.stats.mapCleared ? 34 : 55);
+    const dirtyInterval = mobile ? 48 : 14;
     const forceBurstRebuild = dirty && sugarBurst !== null && sugarBurst.progress < 0.08;
 
     if (
@@ -714,26 +718,32 @@ export class WorldRenderer {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(this.offscreen, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
 
-      // Multi-scale GPU-native bilinear bloom pass (ZERO ctx.filter blur shader stalls or Chromium black-buffer glitches!)
+      // Hardware bilinear bloom pass (single-pass on mobile cuts fullscreen overdraw in half!)
       ctx.globalCompositeOperation = 'lighter';
       ctx.imageSmoothingEnabled = true;
-
-      const bwSx = (srcX / w) * this.bloomWideW;
-      const bwSy = (srcY / h) * this.bloomWideH;
-      const bwSw = (srcW / w) * this.bloomWideW;
-      const bwSh = (srcH / h) * this.bloomWideH;
-      ctx.globalAlpha = world.stats.mapCleared ? 0.62 : 0.42;
-      ctx.drawImage(this.bloomWideCanvas, bwSx, bwSy, bwSw, bwSh, dstX, dstY, dstW, dstH);
 
       const bSx = (srcX / w) * this.bloomW;
       const bSy = (srcY / h) * this.bloomH;
       const bSw = (srcW / w) * this.bloomW;
       const bSh = (srcH / h) * this.bloomH;
-      ctx.globalAlpha = world.stats.mapCleared ? 0.56 : 0.38;
-      ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
 
-      ctx.globalAlpha = world.stats.mapCleared ? 0.34 : 0.22;
-      ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
+      if (mobile) {
+        ctx.globalAlpha = world.stats.mapCleared ? 0.72 : 0.48;
+        ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
+      } else {
+        const bwSx = (srcX / w) * this.bloomWideW;
+        const bwSy = (srcY / h) * this.bloomWideH;
+        const bwSw = (srcW / w) * this.bloomWideW;
+        const bwSh = (srcH / h) * this.bloomWideH;
+        ctx.globalAlpha = world.stats.mapCleared ? 0.62 : 0.42;
+        ctx.drawImage(this.bloomWideCanvas, bwSx, bwSy, bwSw, bwSh, dstX, dstY, dstW, dstH);
+
+        ctx.globalAlpha = world.stats.mapCleared ? 0.56 : 0.38;
+        ctx.drawImage(this.bloomCanvas, bSx, bSy, bSw, bSh, dstX, dstY, dstW, dstH);
+
+        ctx.globalAlpha = world.stats.mapCleared ? 0.34 : 0.22;
+        ctx.drawImage(this.glowCanvas, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH);
+      }
       ctx.globalAlpha = 1;
     }
 
@@ -1024,17 +1034,23 @@ export class WorldRenderer {
       ctx.setLineDash([]);
     }
 
-    // Floating particles
+    // Floating particles (fast crisp pixel squares on mobile, soft circles on desktop)
     for (let i = 0; i < particles.particles.length; i++) {
       const pt = particles.particles[i];
       const alpha = Math.max(0, Math.min(1, pt.life / pt.maxLife));
       const sx = drawX + pt.x * camera.zoom;
       const sy = drawY + pt.y * camera.zoom;
+      if (sx < -12 || sx > viewW + 12 || sy < -12 || sy > viewH + 12) continue;
       const rad = Math.max(1.4, pt.size * camera.zoom * 0.4);
       ctx.fillStyle = `rgba(${pt.r}, ${pt.g}, ${pt.b}, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(sx, sy, rad, 0, Math.PI * 2);
-      ctx.fill();
+      if (mobile) {
+        const d = rad * 2;
+        ctx.fillRect(sx - rad, sy - rad, d, d);
+      } else {
+        ctx.beginPath();
+        ctx.arc(sx, sy, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     ctx.globalCompositeOperation = 'source-over';

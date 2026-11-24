@@ -183,6 +183,8 @@ export type SoundtrackId =
   | 'starlight';
 
 export type AutoSummonMode = 'smart' | 'beacon' | 'nest';
+export type DisplayMode = 'fullscreen' | 'windowed';
+export type ResolutionId = 'auto' | '1280x720' | '1366x768' | '1600x900' | '1920x1080' | '2560x1440';
 
 export interface GameSettings {
   language: Language;
@@ -197,6 +199,8 @@ export interface GameSettings {
   autoSummon: boolean;
   autoSummonMode: AutoSummonMode;
   autoSummonTypes: Record<PlayableAntId, boolean>;
+  displayMode: DisplayMode;
+  resolution: ResolutionId;
 }
 
 export interface ArtifactDef {

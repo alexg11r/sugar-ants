@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -13,22 +14,31 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyDescription("Sugar Ants — Meditative Pixel-Art Ant Colony Game")]
 [assembly: AssemblyCompany("GrAx Studio")]
 [assembly: AssemblyProduct("Sugar Ants")]
-[assembly: AssemblyVersion("1.3.1.0")]
-[assembly: AssemblyFileVersion("1.3.1.0")]
+[assembly: AssemblyVersion("1.3.2.0")]
+[assembly: AssemblyFileVersion("1.3.2.0")]
 
 namespace SugarAntsDesktop
 {
+    internal sealed class DisplayPrefs
+    {
+        public bool Fullscreen = true;
+        public int Width = 1280;
+        public int Height = 720;
+        public bool Auto = true;
+    }
+
     public class GameWindow : Form
     {
         private const string VirtualHost = "sugarants.app";
         private readonly string _webRoot;
         private readonly bool _selfTest;
         private readonly string _logPath;
+        private readonly string _prefsPath;
+        private readonly DisplayPrefs _prefs;
         private WebView2 _webView;
-        private bool _isFullscreen = false;
-        private FormBorderStyle _prevBorderStyle;
-        private FormWindowState _prevWindowState;
-        private Rectangle _prevBounds;
+        private bool _isFullscreen = true;
+        private int _windowedWidth = 1280;
+        private int _windowedHeight = 720;
 
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -39,17 +49,70 @@ namespace SugarAntsDesktop
             try { File.AppendAllText(_logPath, DateTime.Now.ToString("HH:mm:ss.fff ") + msg + Environment.NewLine); } catch { }
         }
 
+        private static string GetPrefsFilePath()
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "GrAxStudio",
+                "SugarAnts"
+            );
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, "display.json");
+        }
+
+        private static DisplayPrefs LoadPrefs(string path, bool ignoreDisk)
+        {
+            var prefs = new DisplayPrefs();
+            if (ignoreDisk || string.IsNullOrEmpty(path) || !File.Exists(path)) return prefs;
+            try
+            {
+                string json = File.ReadAllText(path);
+                var mFs = Regex.Match(json, "\"fullscreen\"\\s*:\\s*(true|false)", RegexOptions.IgnoreCase);
+                if (mFs.Success) prefs.Fullscreen = string.Equals(mFs.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
+
+                var mAuto = Regex.Match(json, "\"auto\"\\s*:\\s*(true|false)", RegexOptions.IgnoreCase);
+                if (mAuto.Success) prefs.Auto = string.Equals(mAuto.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
+
+                var mW = Regex.Match(json, "\"width\"\\s*:\\s*(\\d+)");
+                var mH = Regex.Match(json, "\"height\"\\s*:\\s*(\\d+)");
+                int w, h;
+                if (mW.Success && int.TryParse(mW.Groups[1].Value, out w) && w >= 800 && w <= 7680) prefs.Width = w;
+                if (mH.Success && int.TryParse(mH.Groups[1].Value, out h) && h >= 540 && h <= 4320) prefs.Height = h;
+            }
+            catch { }
+            return prefs;
+        }
+
+        private void SavePrefs()
+        {
+            if (_selfTest || string.IsNullOrEmpty(_prefsPath)) return;
+            try
+            {
+                string json = string.Format(
+                    "{{\"fullscreen\":{0},\"width\":{1},\"height\":{2},\"auto\":{3}}}",
+                    _prefs.Fullscreen ? "true" : "false",
+                    _prefs.Width,
+                    _prefs.Height,
+                    _prefs.Auto ? "true" : "false"
+                );
+                File.WriteAllText(_prefsPath, json);
+            }
+            catch { }
+        }
+
         public GameWindow(string webRoot, bool selfTest, string logPath)
         {
             _webRoot = webRoot;
             _selfTest = selfTest;
             _logPath = logPath;
-            Log("GameWindow ctor");
+            _prefsPath = GetPrefsFilePath();
+            _prefs = LoadPrefs(_prefsPath, selfTest);
+            _windowedWidth = Math.Max(800, _prefs.Width);
+            _windowedHeight = Math.Max(540, _prefs.Height);
+            Log("GameWindow ctor (defaultFullscreen=" + _prefs.Fullscreen + ")");
 
             Text = "Sugar Ants";
             BackColor = Color.FromArgb(5, 15, 10);
-            StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(1280, 800);
             MinimumSize = new Size(800, 540);
             KeyPreview = true;
 
@@ -72,12 +135,32 @@ namespace SugarAntsDesktop
             };
             Controls.Add(_webView);
 
+            // Apply saved (or default Borderless Fullscreen!) display mode immediately before showing the window!
+            ApplyDisplayMode(_prefs.Fullscreen, _prefs.Width, _prefs.Height, _prefs.Auto, false);
+
             Load += async (s, e) => await InitWebViewAsync();
         }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            ApplyDarkTitlebar();
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (_isFullscreen)
+            {
+                Screen scr = GetCurrentScreen();
+                FormBorderStyle = FormBorderStyle.None;
+                WindowState = FormWindowState.Normal;
+                Bounds = scr.Bounds;
+            }
+        }
+
+        private void ApplyDarkTitlebar()
+        {
             try
             {
                 int dark = 1;
@@ -91,31 +174,111 @@ namespace SugarAntsDesktop
         {
             if (keyData == Keys.F11 || keyData == (Keys.Alt | Keys.Enter))
             {
-                ToggleFullscreen();
+                ApplyDisplayMode(!_isFullscreen, _windowedWidth, _windowedHeight, _prefs.Auto, true);
                 return true;
             }
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private void ToggleFullscreen()
+        private Screen GetCurrentScreen()
         {
-            if (!_isFullscreen)
+            try
             {
-                _prevBorderStyle = FormBorderStyle;
-                _prevWindowState = WindowState;
-                _prevBounds = Bounds;
-                FormBorderStyle = FormBorderStyle.None;
+                return IsHandleCreated ? Screen.FromControl(this) : Screen.PrimaryScreen;
+            }
+            catch
+            {
+                return Screen.PrimaryScreen;
+            }
+        }
+
+        private void ApplyDisplayMode(bool fullscreen, int reqWidth, int reqHeight, bool autoRes, bool notifyWebView)
+        {
+            Screen scr = GetCurrentScreen();
+            if (!autoRes && reqWidth >= 800 && reqHeight >= 540)
+            {
+                _windowedWidth = reqWidth;
+                _windowedHeight = reqHeight;
+            }
+            else if (autoRes && !fullscreen)
+            {
+                // Auto in windowed mode: crisp 85% of screen working area
+                _windowedWidth = Math.Max(800, Math.Min(1600, (int)(scr.WorkingArea.Width * 0.85)));
+                _windowedHeight = Math.Max(540, Math.Min(900, (int)(scr.WorkingArea.Height * 0.85)));
+            }
+
+            SuspendLayout();
+            if (fullscreen)
+            {
+                StartPosition = FormStartPosition.Manual;
                 WindowState = FormWindowState.Normal;
-                Bounds = Screen.FromControl(this).Bounds;
+                FormBorderStyle = FormBorderStyle.None;
+                Bounds = scr.Bounds;
                 _isFullscreen = true;
             }
             else
             {
-                FormBorderStyle = _prevBorderStyle;
-                Bounds = _prevBounds;
-                WindowState = _prevWindowState;
+                StartPosition = FormStartPosition.Manual;
+                WindowState = FormWindowState.Normal;
+                FormBorderStyle = FormBorderStyle.Sizable;
+                int maxClientW = Math.Max(800, scr.WorkingArea.Width - 24);
+                int maxClientH = Math.Max(540, scr.WorkingArea.Height - 48);
+                int targetW = Math.Min(_windowedWidth, maxClientW);
+                int targetH = Math.Min(_windowedHeight, maxClientH);
+                ClientSize = new Size(targetW, targetH);
+                int left = scr.WorkingArea.Left + Math.Max(0, (scr.WorkingArea.Width - Width) / 2);
+                int top = scr.WorkingArea.Top + Math.Max(0, (scr.WorkingArea.Height - Height) / 2);
+                Location = new Point(left, top);
                 _isFullscreen = false;
+                if (IsHandleCreated) ApplyDarkTitlebar();
             }
+            ResumeLayout(true);
+
+            _prefs.Fullscreen = _isFullscreen;
+            _prefs.Width = _windowedWidth;
+            _prefs.Height = _windowedHeight;
+            _prefs.Auto = autoRes;
+            SavePrefs();
+
+            if (notifyWebView && _webView != null && _webView.CoreWebView2 != null)
+            {
+                try
+                {
+                    string stateMsg = string.Format(
+                        "{{\"type\":\"displayState\",\"fullscreen\":{0},\"width\":{1},\"height\":{2}}}",
+                        _isFullscreen ? "true" : "false",
+                        ClientSize.Width,
+                        ClientSize.Height
+                    );
+                    _webView.CoreWebView2.PostWebMessageAsString(stateMsg);
+                }
+                catch { }
+            }
+        }
+
+        private void HandleWebMessage(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return;
+            if (json.IndexOf("\"setDisplay\"", StringComparison.OrdinalIgnoreCase) < 0) return;
+
+            bool nextFs = _isFullscreen;
+            var mFs = Regex.Match(json, "\"fullscreen\"\\s*:\\s*(true|false)", RegexOptions.IgnoreCase);
+            if (mFs.Success) nextFs = string.Equals(mFs.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
+
+            bool autoRes = false;
+            var mAuto = Regex.Match(json, "\"auto\"\\s*:\\s*(true|false)", RegexOptions.IgnoreCase);
+            if (mAuto.Success) autoRes = string.Equals(mAuto.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
+
+            int reqW = _windowedWidth;
+            int reqH = _windowedHeight;
+            var mW = Regex.Match(json, "\"width\"\\s*:\\s*(\\d+)");
+            var mH = Regex.Match(json, "\"height\"\\s*:\\s*(\\d+)");
+            int parsed;
+            if (mW.Success && int.TryParse(mW.Groups[1].Value, out parsed) && parsed > 0) reqW = parsed;
+            if (mH.Success && int.TryParse(mH.Groups[1].Value, out parsed) && parsed > 0) reqH = parsed;
+
+            Log("setDisplay: fs=" + nextFs + " w=" + reqW + " h=" + reqH + " auto=" + autoRes);
+            ApplyDisplayMode(nextFs, reqW, reqH, autoRes, true);
         }
 
         private async Task InitWebViewAsync()
@@ -143,6 +306,29 @@ namespace SugarAntsDesktop
                 core.Settings.IsStatusBarEnabled = false;
                 core.Settings.IsZoomControlEnabled = false;
                 core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+                core.Settings.IsWebMessageEnabled = true;
+
+                // Expose desktop bridge metadata before game scripts execute
+                Screen scr = GetCurrentScreen();
+                string initScript = string.Format(
+                    "window.__sugarDesktop = {{ isDesktop: true, fullscreen: {0}, width: {1}, height: {2}, screenWidth: {3}, screenHeight: {4} }};",
+                    _isFullscreen ? "true" : "false",
+                    ClientSize.Width,
+                    ClientSize.Height,
+                    scr.Bounds.Width,
+                    scr.Bounds.Height
+                );
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(initScript);
+
+                core.WebMessageReceived += (sender, args) =>
+                {
+                    try
+                    {
+                        string msg = args.TryGetWebMessageAsString();
+                        BeginInvoke((Action)(() => HandleWebMessage(msg)));
+                    }
+                    catch { }
+                };
 
                 // Map local 'web' directory to clean HTTPS virtual host — ZERO localhost port, ZERO browser popup!
                 core.SetVirtualHostNameToFolderMapping(
@@ -193,11 +379,29 @@ namespace SugarAntsDesktop
                             return;
                         }
                         await Task.Delay(700);
+                        bool startedFullscreen = _isFullscreen && FormBorderStyle == FormBorderStyle.None;
                         string check = await core.ExecuteScriptAsync(
-                            "(function(){return JSON.stringify({title:document.title,hasCanvas:!!document.getElementById('game-canvas'),hasMenu:!!document.getElementById('main-menu'),hasSpTimer:!!document.getElementById('stat-sp-timer')});})()"
+                            "(function(){return JSON.stringify({title:document.title,hasCanvas:!!document.getElementById('game-canvas'),hasMenu:!!document.getElementById('main-menu'),hasSpTimer:!!document.getElementById('stat-sp-timer'),desktop:window.__sugarDesktop||null});})()"
                         );
-                        Log("WEBVIEW2_SELF_TEST=" + check);
-                        if (check != null && check.Contains("Sugar Ants") && check.Contains("true"))
+                        Log("WEBVIEW2_SELF_TEST=" + check + " startedFullscreen=" + startedFullscreen);
+
+                        // Test live Fullscreen -> Windowed (1280x720) -> Fullscreen switch via JS WebMessage!
+                        await core.ExecuteScriptAsync(
+                            "window.chrome.webview.postMessage(JSON.stringify({type:'setDisplay',fullscreen:false,width:1280,height:720,auto:false}));"
+                        );
+                        await Task.Delay(350);
+                        bool switchedWindowed = !_isFullscreen && FormBorderStyle == FormBorderStyle.Sizable;
+                        Log("WINDOWED_SWITCH=" + switchedWindowed + " clientSize=" + ClientSize.Width + "x" + ClientSize.Height);
+
+                        await core.ExecuteScriptAsync(
+                            "window.chrome.webview.postMessage(JSON.stringify({type:'setDisplay',fullscreen:true,width:0,height:0,auto:true}));"
+                        );
+                        await Task.Delay(350);
+                        bool switchedBackFullscreen = _isFullscreen && FormBorderStyle == FormBorderStyle.None;
+                        Log("FULLSCREEN_SWITCH_BACK=" + switchedBackFullscreen);
+
+                        if (startedFullscreen && switchedWindowed && switchedBackFullscreen &&
+                            check != null && check.Contains("Sugar Ants") && check.Contains("isDesktop"))
                         {
                             Environment.ExitCode = 0;
                         }

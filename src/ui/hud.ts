@@ -2,6 +2,13 @@ import { ANT_TYPES, PLAYABLE_ANTS } from '../core/ants';
 import { SOUNDTRACKS } from '../core/audio';
 import { hideExternalLinks, TELEGRAM_URL } from '../core/buildConfig';
 import { isMobileDevice } from '../core/device';
+import {
+  RESOLUTION_PRESETS,
+  applyDisplaySettings,
+  getCurrentDisplayMode,
+  isDesktopApp,
+  subscribeDisplayChanges
+} from '../core/display';
 import { downloadArtworkPng, renderArtworkToCanvas } from '../core/gallery';
 import { notifyYandexGameplayStart, notifyYandexGameplayStop } from '../core/yandexSdk';
 import {
@@ -18,10 +25,12 @@ import {
   AntSkinId,
   ArtifactDef,
   AutoSummonMode,
+  DisplayMode,
   Language,
   LevelDefinition,
   PLAYER_COLORS,
   PlayableAntId,
+  ResolutionId,
   SkillIcon,
   SkillNodeDef
 } from '../core/types';
@@ -311,6 +320,11 @@ export class HudController {
     fallbackTimer: number;
   } | null = null;
 
+  private antBarButtons = new Map<
+    PlayableAntId,
+    { btn: HTMLButtonElement; nameEl: HTMLElement; countEl: HTMLElement }
+  >();
+
   constructor(engine: GameEngine, mp: MultiplayerEngine, menuBg: MenuBackground) {
     this.engine = engine;
     this.mp = mp;
@@ -328,11 +342,30 @@ export class HudController {
     };
     this.engine.skillTree.onAchievementUnlocked = (ach) => this.handleAchievementUnlocked(ach);
 
+    // Keep Settings display mode synced with native Sugar Ants.exe F11 / Alt+Enter or browser Esc
+    if (isDesktopApp()) {
+      const liveMode = getCurrentDisplayMode(this.engine.skillTree.state.settings.displayMode);
+      if (liveMode !== this.engine.skillTree.state.settings.displayMode) {
+        this.engine.skillTree.updateSettings({ displayMode: liveMode });
+      }
+    }
+    subscribeDisplayChanges((mode) => {
+      this.engine.skillTree.updateSettings({ displayMode: mode });
+      this.engine.resize();
+      if (
+        !this.modalBackdropEl.classList.contains('hidden') &&
+        this.modalTitleEl.textContent === t('settingsTitle')
+      ) {
+        this.renderSettingsContent();
+      }
+    });
+
     this.bindButtons();
     this.bindUiSounds();
     this.applyExternalLinksPolicy();
     this.applyLanguage();
-    this.showMainMenu();
+    // Defer MenuBackground animation until Language Picker / Splash finishes so ZERO canvases render underneath them!
+    this.showMainMenu(false);
 
     let hasChosenLang = false;
     try {
@@ -540,11 +573,16 @@ export class HudController {
   /** Studio Splash Screen (GrAx STUDIO) smoothly dissolving into the stylish Main Menu */
   private playStartupSplash() {
     const el = this.splashOverlayEl;
-    if (!el) return;
+    if (!el) {
+      if (this.mode === 'menu') this.menuBg.start();
+      return;
+    }
+    this.menuBg.stop();
     let finished = false;
     const finish = () => {
       if (finished) return;
       finished = true;
+      if (this.mode === 'menu') this.menuBg.start();
       el.classList.add('fade-out');
       setTimeout(() => el.classList.add('hidden'), 460);
     };
@@ -686,22 +724,18 @@ export class HudController {
 
       el.dataset.beat = String(b.step);
       el.classList.remove('beat-impact');
-      void el.offsetWidth;
-      el.classList.add('beat-impact');
+      for (const w of waves) w.style.animation = 'none';
+      this.introStageEl.style.animation = 'none';
 
-      // Retrigger shockwave burst rings
-      for (const w of waves) {
-        w.style.animation = 'none';
-        void w.offsetWidth;
-        w.style.animation = '';
-      }
-
-      // Retrigger stage slam animation
       this.introVisualEl.innerHTML = b.svg;
       this.introKickerEl.textContent = b.kicker;
       this.introSmallEl.textContent = b.small;
-      this.introStageEl.style.animation = 'none';
+
+      // ONE batched layout flush instead of 5 separate synchronous reflows per beat!
       void this.introStageEl.offsetWidth;
+
+      el.classList.add('beat-impact');
+      for (const w of waves) w.style.animation = '';
       this.introStageEl.style.animation = '';
 
       // Update progress segments
@@ -1037,7 +1071,7 @@ export class HudController {
     this.lobbyPlayers = [];
   }
 
-  showMainMenu() {
+  showMainMenu(startBg = true) {
     // Save active mid-map Classic progress right before leaving to the Main Menu!
     if (this.mode === 'classic') {
       this.engine.saveRunProgress();
@@ -1067,7 +1101,11 @@ export class HudController {
 
     this.mainMenuEl.classList.remove('hidden');
     this.syncMenuSummary();
-    this.menuBg.start();
+    if (startBg) {
+      this.menuBg.start();
+    } else {
+      this.menuBg.stop();
+    }
   }
 
   enterClassicGame() {
@@ -2940,7 +2978,9 @@ export class HudController {
     this.upgradeBadgeEl.classList.toggle('hidden', !skillTree.hasAffordableNode());
 
     this.renderAntBar();
-    this.syncMenuSummary();
+    if (this.mode === 'menu') {
+      this.syncMenuSummary();
+    }
 
     if (this.skillTreeOpen && this.mode === 'classic' && this.lastRenderedSp !== skillTree.state.skillPoints) {
       this.renderSkillTree(false);
@@ -2950,9 +2990,38 @@ export class HudController {
   private renderAntBar() {
     const { skillTree, selectedAnt, ants } = this.engine;
     const colStats = skillTree.getColonyStats();
-    this.antBarEl.innerHTML = '';
+
+    // Build the 5 ant dock buttons ONCE and update text/classes in place (eliminates 5x/sec SVG DOM rebuilds on mobile!)
+    if (this.antBarButtons.size !== PLAYABLE_ANTS.length) {
+      this.antBarEl.innerHTML = '';
+      this.antBarButtons.clear();
+      for (const id of PLAYABLE_ANTS) {
+        const cfg = ANT_TYPES[id];
+        const btn = document.createElement('button');
+        btn.className = 'ant-btn';
+        btn.style.setProperty('--ant-color', cfg.color);
+        const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
+        btn.innerHTML = `
+          <span class="ant-key">${cfg.hotkey}</span>
+          <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg(iconType)}</span>
+          <span class="ant-name"></span>
+          <span class="ant-count"></span>
+        `;
+        btn.addEventListener('click', () => {
+          if (this.engine.skillTree.isAntUnlocked(id)) this.engine.selectAnt(id);
+          else this.openSkillTree();
+        });
+        this.antBarEl.appendChild(btn);
+        this.antBarButtons.set(id, {
+          btn,
+          nameEl: btn.querySelector('.ant-name') as HTMLElement,
+          countEl: btn.querySelector('.ant-count') as HTMLElement
+        });
+      }
+    }
 
     for (const id of PLAYABLE_ANTS) {
+      const entry = this.antBarButtons.get(id)!;
       const cfg = ANT_TYPES[id];
       const unlocked = skillTree.isAntUnlocked(id);
       const activeCount = ants.countPlayerByType(id);
@@ -2975,22 +3044,13 @@ export class HudController {
         }
       }
 
-      const btn = document.createElement('button');
-      btn.className = `ant-btn${selectedAnt === id ? ' active' : ''}${!unlocked || onCooldown ? ' locked' : ''}`;
-      btn.style.setProperty('--ant-color', cfg.color);
-      const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
+      const nextClass = `ant-btn${selectedAnt === id ? ' active' : ''}${!unlocked || onCooldown ? ' locked' : ''}`;
+      if (entry.btn.className !== nextClass) entry.btn.className = nextClass;
+
       const shortNm = loc(cfg.shortName, cfg.shortNameEn);
-      btn.innerHTML = `
-        <span class="ant-key">${cfg.hotkey}</span>
-        <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg(iconType)}</span>
-        <span class="ant-name">${unlocked ? shortNm : '🔒 ' + shortNm}</span>
-        <span class="ant-count">${subText}</span>
-      `;
-      btn.addEventListener('click', () => {
-        if (unlocked) this.engine.selectAnt(id);
-        else this.openSkillTree();
-      });
-      this.antBarEl.appendChild(btn);
+      const nextName = unlocked ? shortNm : `🔒 ${shortNm}`;
+      if (entry.nameEl.textContent !== nextName) entry.nameEl.textContent = nextName;
+      if (entry.countEl.textContent !== subText) entry.countEl.textContent = subText;
     }
   }
 
@@ -3598,6 +3658,58 @@ export class HudController {
     }
     langRow.appendChild(langWrap);
     this.modalBodyEl.appendChild(langRow);
+
+    // 1b. PC / Desktop Display Mode (Fullscreen / Windowed) & Resolution Selector!
+    if (isDesktopApp() || !isMobileDevice()) {
+      const activeMode: DisplayMode = getCurrentDisplayMode(s.displayMode || 'fullscreen');
+      const dispRow = document.createElement('div');
+      dispRow.className = 'card-row';
+      dispRow.innerHTML = `<div class="card-row-info"><div class="card-row-title">${t('setDisplayModeTitle')}</div><div class="card-row-desc">${t('setDisplayModeDesc')}</div></div>`;
+      const dispWrap = document.createElement('div');
+      dispWrap.className = 'lang-seg-wrap';
+      for (const opt of [
+        { id: 'fullscreen' as DisplayMode, label: t('setFullscreen') },
+        { id: 'windowed' as DisplayMode, label: t('setWindowed') }
+      ]) {
+        const btn = document.createElement('button');
+        btn.className = `action-btn${activeMode === opt.id ? ' primary' : ''}`;
+        btn.dataset.displayMode = opt.id;
+        btn.textContent = opt.label;
+        btn.addEventListener('click', () => {
+          skillTree.updateSettings({ displayMode: opt.id });
+          applyDisplaySettings(opt.id, skillTree.state.settings.resolution, true);
+          this.engine.resize();
+          this.renderSettingsContent();
+        });
+        dispWrap.appendChild(btn);
+      }
+      dispRow.appendChild(dispWrap);
+      this.modalBodyEl.appendChild(dispRow);
+
+      const resRow = document.createElement('div');
+      resRow.className = 'card-row';
+      resRow.innerHTML = `<div class="card-row-info"><div class="card-row-title">${t('setResolutionTitle')}</div><div class="card-row-desc">${t('setResolutionDesc')}</div></div>`;
+      const resSel = document.createElement('select');
+      resSel.className = 'settings-select';
+      resSel.id = 'settings-resolution-select';
+      const isEn = getLang() === 'en';
+      for (const preset of RESOLUTION_PRESETS) {
+        const o = document.createElement('option');
+        o.value = preset.id;
+        o.textContent = isEn ? preset.labelEn : preset.labelRu;
+        if ((s.resolution || 'auto') === preset.id) o.selected = true;
+        resSel.appendChild(o);
+      }
+      resSel.addEventListener('change', () => {
+        const nextRes = resSel.value as ResolutionId;
+        const curMode = getCurrentDisplayMode(skillTree.state.settings.displayMode || 'fullscreen');
+        skillTree.updateSettings({ resolution: nextRes });
+        applyDisplaySettings(curMode, nextRes, true);
+        this.engine.resize();
+      });
+      resRow.appendChild(resSel);
+      this.modalBodyEl.appendChild(resRow);
+    }
 
     // 2. Separate Volume Controls: Music Volume & SFX Volume!
     const addSliderRow = (

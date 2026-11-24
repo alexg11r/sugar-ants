@@ -6,9 +6,9 @@ export function isMobileDevice(): boolean {
   return coarse || narrow;
 }
 
-/** Caps devicePixelRatio to 1.5 on mobile (saves ~44% GPU fill-rate on 3x screens) and 2 on desktop */
+/** Caps devicePixelRatio to 1 on mobile (cuts GPU fill-rate by 2.25x-9x while pixel-art stays razor-sharp) and 2 on desktop */
 export function getOptimalDpr(): number {
   if (typeof window === 'undefined') return 1;
   const raw = window.devicePixelRatio || 1;
-  return isMobileDevice() ? Math.min(raw, 1.5) : Math.min(raw, 2);
+  return isMobileDevice() ? 1 : Math.min(raw, 2);
 }

@@ -4,10 +4,12 @@ import {
   AchievementDef,
   AutoSummonMode,
   CareerStats,
+  DisplayMode,
   GameSettings,
   LevelRecord,
   MutationId,
   PlayableAntId,
+  ResolutionId,
   SaveState,
   SkillBranch,
   SkillNodeDef
@@ -557,7 +559,9 @@ function createDefaultSettings(): GameSettings {
     sfxVolume: 0.75,
     autoSummon: false,
     autoSummonMode: 'smart',
-    autoSummonTypes: createDefaultAutoSummonTypes()
+    autoSummonTypes: createDefaultAutoSummonTypes(),
+    displayMode: 'fullscreen',
+    resolution: 'auto'
   };
 }
 
@@ -641,6 +645,13 @@ export class SkillTreeManager {
       const rawMode = parsedSettings.autoSummonMode;
       const autoSummonMode: AutoSummonMode =
         rawMode === 'beacon' || rawMode === 'nest' || rawMode === 'smart' ? rawMode : 'smart';
+      const rawDisplay = parsedSettings.displayMode;
+      const displayMode: DisplayMode = rawDisplay === 'windowed' ? 'windowed' : 'fullscreen';
+      const validRes: ResolutionId[] = ['auto', '1280x720', '1366x768', '1600x900', '1920x1080', '2560x1440'];
+      const resolution: ResolutionId =
+        typeof parsedSettings.resolution === 'string' && validRes.includes(parsedSettings.resolution as ResolutionId)
+          ? (parsedSettings.resolution as ResolutionId)
+          : 'auto';
       const settings: GameSettings = {
         ...createDefaultSettings(),
         ...parsedSettings,
@@ -657,7 +668,9 @@ export class SkillTreeManager {
         autoSummonTypes: {
           ...createDefaultAutoSummonTypes(),
           ...(parsedSettings.autoSummonTypes || {})
-        }
+        },
+        displayMode,
+        resolution
       };
 
       const completedLevels = Array.isArray(parsed.completedLevels) ? parsed.completedLevels : [];

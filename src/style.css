@@ -175,18 +175,21 @@ body,
 
 .splash-vein {
   height: 2px;
-  width: 0%;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
   background: linear-gradient(90deg, transparent, #3ce87a 35%, #ffe680 100%);
-  box-shadow: 0 0 14px rgba(60, 232, 122, 0.85);
+  box-shadow: 0 0 12px rgba(60, 232, 122, 0.8);
   animation: vein-grow 1.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform;
 }
 
 @keyframes vein-grow {
   from {
-    width: 0%;
+    transform: scaleX(0);
   }
   to {
-    width: 100%;
+    transform: scaleX(1);
   }
 }
 
@@ -196,9 +199,10 @@ body,
   top: 50%;
   width: 30px;
   height: 18px;
-  transform: translate(-50%, -50%);
-  filter: drop-shadow(0 0 10px rgba(60, 232, 122, 0.9));
+  transform: translate3d(-15px, -50%, 0);
+  filter: drop-shadow(0 0 8px rgba(60, 232, 122, 0.85));
   animation: ant-scurry 1.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
 }
 
 .splash-crawler svg {
@@ -208,18 +212,18 @@ body,
 
 @keyframes ant-scurry {
   0% {
-    left: 0%;
+    transform: translate3d(-15px, -50%, 0);
     opacity: 0;
   }
   10% {
     opacity: 1;
   }
   92% {
-    left: 100%;
+    transform: translate3d(calc(min(260px, 72vw) - 15px), -50%, 0);
     opacity: 1;
   }
   100% {
-    left: 106%;
+    transform: translate3d(calc(min(260px, 72vw) + 2px), -50%, 0);
     opacity: 0;
   }
 }
@@ -233,21 +237,21 @@ body,
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 26px rgba(60, 232, 122, 0.4));
+  filter: drop-shadow(0 0 22px rgba(60, 232, 122, 0.4));
   opacity: 0;
-  animation: wordmark-bloom 0.85s ease 0.35s forwards;
+  transform: scale(0.92);
+  animation: wordmark-bloom 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.35s forwards;
+  will-change: transform, opacity;
 }
 
 @keyframes wordmark-bloom {
   from {
     opacity: 0;
-    letter-spacing: 22px;
-    filter: blur(6px);
+    transform: scale(0.9);
   }
   to {
     opacity: 1;
-    letter-spacing: 12px;
-    filter: blur(0) drop-shadow(0 0 26px rgba(60, 232, 122, 0.45));
+    transform: scale(1);
   }
 }
 
@@ -3861,19 +3865,87 @@ body,
   }
 }
 
-/* Disable heavy GPU backdrop-filter blur over 60fps canvas on mobile/touch for silky frame rates! */
-@media (pointer: coarse), (max-width: 680px) {
+/* Settings Resolution dropdown (matches emerald dark glass theme) */
+.settings-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgba(11, 30, 20, 0.94);
+  background-image: linear-gradient(45deg, transparent 50%, #7dffb2 50%),
+    linear-gradient(135deg, #7dffb2 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  border: 1px solid var(--border-bright);
+  border-radius: 10px;
+  color: #edf7f1;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 34px 8px 12px;
+  cursor: pointer;
+  min-width: 175px;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.settings-select:hover,
+.settings-select:focus {
+  outline: none;
+  border-color: var(--accent-emerald);
+  background-color: rgba(16, 44, 29, 0.98);
+}
+
+.settings-select option {
+  background: #0a1c13;
+  color: #edf7f1;
+}
+
+/* Mobile / Android GPU performance profile: zero backdrop-filter, zero blur/drop-shadow/mask-image stalls! */
+@media (pointer: coarse), (max-width: 820px) {
+  #app *,
+  #app *::before,
+  #app *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
   .pill-btn,
   .icon-btn,
   .stat-chip,
   .dock-inner,
   .mp-chat-box,
   .mbtn,
+  .mbtn-mini,
+  .menu-lang-btn,
+  .beacon-fab,
+  .auto-config-pill,
+  .auto-popover,
+  .modal-card,
+  .st-general-panel,
+  .st-tooltip,
+  .st-points-box,
   .tutorial-hint,
   .epic-clear-banner {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    background-color: rgba(7, 20, 14, 0.92);
+    background-color: rgba(7, 20, 14, 0.94);
+  }
+  .modal-backdrop,
+  .skill-tree-overlay {
+    background: rgba(3, 10, 7, 0.92);
+  }
+  .splash-wordmark,
+  .splash-crawler,
+  .intro-visual svg,
+  .menu-logo-ant svg {
+    filter: none !important;
+  }
+  .splash-vein {
+    box-shadow: none;
+  }
+  .intro-grid-bg {
+    display: none;
+  }
+  .intro-wave {
+    box-shadow: none;
+  }
+  .game-intro-overlay.beat-impact {
+    animation: none !important;
   }
 }
 

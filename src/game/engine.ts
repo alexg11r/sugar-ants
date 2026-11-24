@@ -2,6 +2,7 @@ import { ANT_TYPES, AntManager } from '../core/ants';
 import { MeditativeAudio } from '../core/audio';
 import { subscribeBackgroundTick } from '../core/bgTicker';
 import { getOptimalDpr } from '../core/device';
+import { getCanvasRenderScale } from '../core/display';
 import { loc, t } from '../core/i18n';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
@@ -76,6 +77,7 @@ export class GameEngine {
   private viewW = 1;
   private viewH = 1;
   private rafId = 0;
+  private needsPausedRender = true;
   private unsubBgTick: (() => void) | null = null;
   private lastWallMs = 0;
   private elapsed = 0;
@@ -329,6 +331,7 @@ export class GameEngine {
   zoomBy(factor: number) {
     this.cameraEaseTarget = null;
     this.camera.zoom = Math.max(1.0, Math.min(28, this.camera.zoom * factor));
+    this.needsPausedRender = true;
     if (this.camera.zoom >= 16) {
       this.skillTree.unlockAchievement('zoom_macro');
     }
@@ -387,8 +390,17 @@ export class GameEngine {
     }
 
     const loop = () => {
-      stepWallClock();
-      this.render();
+      if (!this.paused) {
+        stepWallClock();
+        this.render();
+        this.needsPausedRender = true;
+      } else {
+        this.lastWallMs = Date.now();
+        if (this.needsPausedRender) {
+          this.render();
+          this.needsPausedRender = false;
+        }
+      }
       this.rafId = requestAnimationFrame(loop);
     };
     this.rafId = requestAnimationFrame(loop);
@@ -501,15 +513,23 @@ export class GameEngine {
     this.camera.zoom = Math.max(6.8, Math.min(10.5, fitZoom * 3.2));
     this.camera.x = this.world.nestX;
     this.camera.y = this.world.nestY;
+    this.needsPausedRender = true;
   }
 
-  private resize() {
-    const dpr = getOptimalDpr();
-    this.viewW = window.innerWidth;
-    this.viewH = window.innerHeight;
-    this.canvas.width = Math.floor(this.viewW * dpr);
-    this.canvas.height = Math.floor(this.viewH * dpr);
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  resize() {
+    this.viewW = Math.max(1, window.innerWidth);
+    this.viewH = Math.max(1, window.innerHeight);
+    const baseDpr = getOptimalDpr();
+    const scale = getCanvasRenderScale(
+      this.skillTree.state.settings.resolution,
+      this.viewW,
+      this.viewH,
+      baseDpr
+    );
+    this.canvas.width = Math.max(1, Math.floor(this.viewW * scale));
+    this.canvas.height = Math.max(1, Math.floor(this.viewH * scale));
+    this.ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    this.needsPausedRender = true;
   }
 
   private screenToWorld(sx: number, sy: number): { x: number; y: number } {
