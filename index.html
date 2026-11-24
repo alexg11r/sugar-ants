@@ -18,6 +18,31 @@
       <canvas id="game-canvas"></canvas>
       <canvas id="mp-canvas" class="hidden"></canvas>
 
+      <!-- First-Launch Minimalist Language Selection (Crisp SVG Flags + Русский / English) -->
+      <div id="lang-select-overlay" class="lang-select-overlay hidden" role="dialog" aria-label="Language selection">
+        <div class="lang-pick-grid">
+          <button id="lang-pick-ru" class="lang-pick-card" data-lang="ru" type="button">
+            <svg class="lang-flag-svg" viewBox="0 0 60 40" aria-hidden="true">
+              <rect width="60" height="13.34" y="0" fill="#ffffff" />
+              <rect width="60" height="13.34" y="13.33" fill="#0039a6" />
+              <rect width="60" height="13.34" y="26.66" fill="#d52b1e" />
+            </svg>
+            <span class="lang-pick-name">Русский</span>
+          </button>
+
+          <button id="lang-pick-en" class="lang-pick-card" data-lang="en" type="button">
+            <svg class="lang-flag-svg" viewBox="0 0 60 40" aria-hidden="true">
+              <rect width="60" height="40" fill="#012169" />
+              <path d="M0,0 L60,40 M60,0 L0,40" stroke="#ffffff" stroke-width="8" />
+              <path d="M0,0 L60,40 M60,0 L0,40" stroke="#c8102e" stroke-width="4.4" />
+              <path d="M30,0 V40 M0,20 H60" stroke="#ffffff" stroke-width="12" />
+              <path d="M30,0 V40 M0,20 H60" stroke="#c8102e" stroke-width="7.2" />
+            </svg>
+            <span class="lang-pick-name">English</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Original Sugar Ants Studio Splash (Bioluminescent Ant Trail Reveal!) -->
       <div id="splash-overlay" class="splash-overlay">
         <div class="splash-tunnel-wrap">
@@ -349,13 +374,17 @@
           <div class="menu-bottom-bar">
             <span class="credits-author">v1.3 • made by <strong>GrAx</strong></span>
             <a
-              href="https://t.me/alexstress1"
+              id="menu-tg-link"
+              data-external-link="telegram"
+              href="https://t.me/graxstudio"
               target="_blank"
               rel="noopener noreferrer"
               class="tg-donate-btn"
             >
-              <span>✈</span>
-              <span id="menu-donate-text">Скиньте на сижки пж</span>
+              <svg class="tg-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M21.9 4.6c.3-1.2-.8-2.2-1.9-1.7L2.6 9.8c-1.2.5-1.1 2.2.1 2.6l4.4 1.4 1.7 5.3c.3 1 1.6 1.3 2.4.6l2.6-2.4 4.6 3.4c.9.7 2.2.2 2.4-.9L21.9 4.6zm-4.1 3.7-7.7 6.8-.5 3.1-1.2-3.9 9.4-6z" />
+              </svg>
+              <span id="menu-tg-text">Наш Telegram</span>
             </a>
           </div>
         </div>

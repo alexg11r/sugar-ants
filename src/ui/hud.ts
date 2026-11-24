@@ -1,5 +1,6 @@
 import { ANT_TYPES, PLAYABLE_ANTS } from '../core/ants';
 import { SOUNDTRACKS } from '../core/audio';
+import { hideExternalLinks, TELEGRAM_URL } from '../core/buildConfig';
 import { isMobileDevice } from '../core/device';
 import { downloadArtworkPng, renderArtworkToCanvas } from '../core/gallery';
 import {
@@ -47,6 +48,7 @@ const ORIGIN_X = 270;
 const ORIGIN_Y = 192;
 const NICK_STORAGE_KEY = 'sugar_ants_nick_v1';
 const HINTS_DONE_KEY = 'sugar_ants_hints_done_v1';
+const LANG_CHOSEN_KEY = 'sugar_ants_lang_chosen_v1';
 
 const SKIN_OPTIONS: { id: AntSkinId; name: string; nameEn: string }[] = [
   { id: 'classic', name: 'Классик', nameEn: 'Classic' },
@@ -153,7 +155,8 @@ export class HudController {
   private gameCanvasEl = document.getElementById('game-canvas')!;
   private mpCanvasEl = document.getElementById('mp-canvas')!;
 
-  // Splash & Original Epic 4-Beat Subterranean Intro elements
+  // Splash, Language Picker & Original Epic 4-Beat Subterranean Intro elements
+  private langSelectOverlayEl = document.getElementById('lang-select-overlay')!;
   private splashOverlayEl = document.getElementById('splash-overlay')!;
   private introOverlayEl = document.getElementById('game-intro-overlay')!;
   private introStageEl = document.getElementById('intro-stage')!;
@@ -325,13 +328,63 @@ export class HudController {
 
     this.bindButtons();
     this.bindUiSounds();
+    this.applyExternalLinksPolicy();
     this.applyLanguage();
     this.showMainMenu();
-    this.playStartupSplash();
+
+    let hasChosenLang = false;
+    try {
+      hasChosenLang = localStorage.getItem(LANG_CHOSEN_KEY) === '1';
+    } catch {
+      hasChosenLang = false;
+    }
+
+    if (!hasChosenLang) {
+      this.showFirstLaunchLanguagePicker();
+    } else {
+      this.playStartupSplash();
+    }
+  }
+
+  /** Strips all external links from the DOM when built with `hideExternalLinks = true` (e.g. `npm run build:store`) */
+  private applyExternalLinksPolicy() {
+    if (!hideExternalLinks) return;
+    document.querySelectorAll('[data-external-link]').forEach((el) => el.remove());
+  }
+
+  /** Minimalist first-launch language picker (pure SVG flags + Русский / English) */
+  private showFirstLaunchLanguagePicker() {
+    this.splashOverlayEl.classList.add('hidden');
+    this.langSelectOverlayEl.classList.remove('hidden', 'fade-out');
+
+    const pick = (lang: Language) => {
+      try {
+        localStorage.setItem(LANG_CHOSEN_KEY, '1');
+      } catch {
+        // Ignore storage errors
+      }
+      this.engine.audio.ensureStarted();
+      this.engine.audio.playUiClick();
+      this.setLanguage(lang);
+      this.langSelectOverlayEl.classList.add('fade-out');
+      window.setTimeout(() => {
+        this.langSelectOverlayEl.classList.add('hidden');
+        this.splashOverlayEl.classList.remove('hidden', 'fade-out');
+        this.playStartupSplash();
+      }, 280);
+    };
+
+    document.getElementById('lang-pick-ru')?.addEventListener('click', () => pick('ru'), { once: true });
+    document.getElementById('lang-pick-en')?.addEventListener('click', () => pick('en'), { once: true });
   }
 
   /** Instant live RU / EN switcher across every static DOM label, tooltip, HUD & open screen! */
   private setLanguage(next: Language) {
+    try {
+      localStorage.setItem(LANG_CHOSEN_KEY, '1');
+    } catch {
+      // Ignore storage errors
+    }
     this.engine.skillTree.updateSettings({ language: next });
     this.applyLanguage();
   }
@@ -371,7 +424,7 @@ export class HudController {
     setText('menu-lbl-mutations', t('mutations'));
     setText('menu-lbl-settings', t('settings'));
     setText('menu-lbl-credits', t('credits'));
-    setText('menu-donate-text', t('donate'));
+    setText('menu-tg-text', t('ourTelegram'));
 
     // Classic HUD tooltips & labels
     setTitle('btn-menu', t('tipMainMenu'));
@@ -462,7 +515,7 @@ export class HudController {
   private bindUiSounds() {
     let lastHovered: Element | null = null;
     const selector =
-      '.mbtn, .mbtn-mini, .menu-lang-btn, .beacon-fab, .auto-config-pill, .auto-mode-chip, .auto-ant-chip, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
+      '.mbtn, .mbtn-mini, .menu-lang-btn, .lang-pick-card, .beacon-fab, .auto-config-pill, .auto-mode-chip, .auto-ant-chip, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
     document.addEventListener('pointerover', (e) => {
       if ((e as PointerEvent).pointerType === 'touch') return;
       const btn = (e.target as HTMLElement | null)?.closest(selector);
@@ -2781,6 +2834,17 @@ export class HudController {
 
   openCreditsModal() {
     this.openModal(t('creditsTitle'));
+    const tgBlock = hideExternalLinks
+      ? ''
+      : `<div style="display:flex;justify-content:center;margin-top:12px;">
+          <a data-external-link="telegram" href="${TELEGRAM_URL}" target="_blank" rel="noopener noreferrer" class="tg-donate-btn" style="padding:8px 16px;font-size:13px;">
+            <svg class="tg-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M21.9 4.6c.3-1.2-.8-2.2-1.9-1.7L2.6 9.8c-1.2.5-1.1 2.2.1 2.6l4.4 1.4 1.7 5.3c.3 1 1.6 1.3 2.4.6l2.6-2.4 4.6 3.4c.9.7 2.2.2 2.4-.9L21.9 4.6zm-4.1 3.7-7.7 6.8-.5 3.1-1.2-3.9 9.4-6z" />
+            </svg>
+            <span>${t('creditsTgBtn')}</span>
+          </a>
+        </div>`;
+
     this.modalBodyEl.innerHTML = `
       <div class="credits-roll-box">
         <div class="credits-roll-inner">
@@ -2795,11 +2859,7 @@ export class HudController {
           <div style="font-size:12px;color:var(--text-muted);">${t('creditsThanksPlayers')}</div>
         </div>
       </div>
-      <div style="display:flex;justify-content:center;margin-top:12px;">
-        <a href="https://t.me/alexstress1" target="_blank" rel="noopener noreferrer" class="tg-donate-btn" style="padding:8px 16px;font-size:13px;">
-          <span>✈</span><span>${t('creditsTgBtn')}</span>
-        </a>
-      </div>
+      ${tgBlock}
     `;
   }
 

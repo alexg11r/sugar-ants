@@ -74,7 +74,7 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   mutations: { ru: 'Мутации', en: 'Mutations' },
   settings: { ru: 'Настройки', en: 'Settings' },
   credits: { ru: 'Авторы', en: 'Credits' },
-  donate: { ru: 'Скиньте на сижки пж', en: 'Support the dev' },
+  ourTelegram: { ru: 'Наш Telegram', en: 'Our Telegram' },
   skills: { ru: 'Навыки', en: 'Skills' },
 
   // HUD Tooltips & Labels
@@ -309,8 +309,8 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   creditsAudioVal: { ru: 'Процедурный Web Audio движок<br/>Эмбиент • Трип-хоп • IDM', en: 'Procedural Web Audio Engine<br/>Ambient • Trip-Hop • IDM' },
   creditsThanksLbl: { ru: 'ОСОБАЯ БЛАГОДАРНОСТЬ', en: 'SPECIAL THANKS' },
   creditsThanksName: { ru: '🦐 Креветочке Русе', en: '🦐 Rusya the Shrimp' },
-  creditsThanksPlayers: { ru: 'и всем игрокам онлайн-коопа!', en: 'and all online co-op players!' },
-  creditsTgBtn: { ru: 'Telegram автора • Скиньте на сижки пж', en: 'Creator Telegram • Support the dev' },
+  creditsThanksPlayers: { ru: 'и всем игрокам!', en: 'and all players!' },
+  creditsTgBtn: { ru: 'Наш Telegram', en: 'Our Telegram' },
 
   // Engine & Gameplay Toasts
   toastPrevMapLocked: { ru: 'Сначала пройдите предыдущий уровень!', en: 'Clear the previous map first!' },
