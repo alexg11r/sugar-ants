@@ -8,7 +8,7 @@ import { loc, t } from '../core/i18n';
 import { LEVELS } from '../core/levels';
 import { ParticleSystem } from '../core/particles';
 import { AimPreview, Camera, WorldRenderer } from '../core/renderer';
-import { Ant, ArtifactDef, AutoSummonMode, CellType, LevelDefinition, PheromoneBeacon, PlayableAntId } from '../core/types';
+import { Ant, AntTypeId, ArtifactDef, AutoSummonMode, CellType, LevelDefinition, PheromoneBeacon, PlayableAntId } from '../core/types';
 import { World, WorldSnapshot } from '../core/world';
 import { getArtifactForLevel } from './artifacts';
 import { SkillTreeManager } from './skillTree';
@@ -32,6 +32,8 @@ interface ActiveRunSnapshot {
   crushCooldown?: number;
   runElapsedSec?: number;
   bonusSpTimerSec?: number;
+  runSpawnsByType?: Partial<Record<AntTypeId, number>>;
+  runDamageByType?: Partial<Record<AntTypeId, number>>;
 }
 
 export interface EngineCallbacks {
@@ -74,6 +76,9 @@ export class GameEngine {
   runElapsedSec = 0;
   /** Countdown in seconds until the next periodic +1 Skill Point reward (every 5 minutes on all maps!) */
   bonusSpTimerSec = BONUS_SP_INTERVAL_SEC;
+  /** Per-run ant spawn counts & total block damage dealt per ant type (shown on 100% clear!) */
+  runSpawnsByType: Partial<Record<AntTypeId, number>> = {};
+  runDamageByType: Partial<Record<AntTypeId, number>> = {};
   /** True when an in-progress mid-map run exists (either restored from disk or played in this session) */
   private hasActiveRun = false;
   /** Held keyboard keys for smooth PC WASD / Arrow camera panning */
@@ -140,6 +145,8 @@ export class GameEngine {
       this.crushCooldown = restored.crushCooldown;
       this.runElapsedSec = restored.runElapsedSec;
       this.bonusSpTimerSec = restored.bonusSpTimerSec;
+      this.runSpawnsByType = { ...restored.runSpawnsByType };
+      this.runDamageByType = { ...restored.runDamageByType };
       this.hasActiveRun = true;
       this.syncWorldUpgrades();
       this.renderer = new WorldRenderer(this.world.width, this.world.height);
@@ -170,6 +177,8 @@ export class GameEngine {
     crushCooldown: number;
     runElapsedSec: number;
     bonusSpTimerSec: number;
+    runSpawnsByType: Partial<Record<AntTypeId, number>>;
+    runDamageByType: Partial<Record<AntTypeId, number>>;
   } | null {
     try {
       const raw = localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
@@ -228,7 +237,9 @@ export class GameEngine {
         bonusSpTimerSec:
           typeof snap.bonusSpTimerSec === 'number' && Number.isFinite(snap.bonusSpTimerSec) && snap.bonusSpTimerSec > 0
             ? Math.min(BONUS_SP_INTERVAL_SEC, snap.bonusSpTimerSec)
-            : BONUS_SP_INTERVAL_SEC
+            : BONUS_SP_INTERVAL_SEC,
+        runSpawnsByType: snap.runSpawnsByType && typeof snap.runSpawnsByType === 'object' ? { ...snap.runSpawnsByType } : {},
+        runDamageByType: snap.runDamageByType && typeof snap.runDamageByType === 'object' ? { ...snap.runDamageByType } : {}
       };
     } catch {
       return null;
@@ -254,7 +265,9 @@ export class GameEngine {
         beaconCooldown: this.beaconCooldown,
         crushCooldown: this.crushCooldown,
         runElapsedSec: this.runElapsedSec,
-        bonusSpTimerSec: this.bonusSpTimerSec
+        bonusSpTimerSec: this.bonusSpTimerSec,
+        runSpawnsByType: { ...this.runSpawnsByType },
+        runDamageByType: { ...this.runDamageByType }
       };
       localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, JSON.stringify(payload));
       this.hasActiveRun = true;
@@ -347,6 +360,9 @@ export class GameEngine {
       return { ok: false, count: 0 };
     }
     this.crushCooldown = CRUSH_COOLDOWN_SEC;
+    if (count >= 8) {
+      this.skillTree.unlockAchievement('crush_master');
+    }
     this.cameraShake = Math.max(this.cameraShake, 4.5);
     this.audio.ensureStarted();
     this.audio.playCrushAll();
@@ -363,9 +379,34 @@ export class GameEngine {
     this.world.setRevealRadius(baseVision + stats.visionBonusPx);
   }
 
+  /** Keeps camera neatly bounded near the map artwork (tightly framed on 100% cleared maps so you can't drift far into void!) */
+  clampCamera() {
+    const w = this.world.width;
+    const h = this.world.height;
+    const z = Math.max(1.0, this.camera.zoom);
+    const halfViewW = (this.viewW * 0.5) / z;
+    const halfViewH = (this.viewH * 0.5) / z;
+
+    if (this.world.stats.mapCleared) {
+      // Strict framing on 100% cleared masterpiece: artwork always stays comfortably centered/in-bounds!
+      const marginX = Math.max(14, w * 0.08);
+      const marginY = Math.max(14, h * 0.08);
+      const maxOffX = Math.max(marginX, w * 0.5 - halfViewW + marginX);
+      const maxOffY = Math.max(marginY, h * 0.5 - halfViewH + marginY);
+      this.camera.x = Math.max(w * 0.5 - maxOffX, Math.min(w * 0.5 + maxOffX, this.camera.x));
+      this.camera.y = Math.max(h * 0.5 - maxOffY, Math.min(h * 0.5 + maxOffY, this.camera.y));
+    } else {
+      const padX = Math.max(40, w * 0.14);
+      const padY = Math.max(40, h * 0.14);
+      this.camera.x = Math.max(-padX, Math.min(w + padX, this.camera.x));
+      this.camera.y = Math.max(-padY, Math.min(h + padY, this.camera.y));
+    }
+  }
+
   zoomBy(factor: number) {
     this.cameraEaseTarget = null;
     this.camera.zoom = Math.max(1.0, Math.min(28, this.camera.zoom * factor));
+    this.clampCamera();
     this.needsPausedRender = true;
     if (this.camera.zoom >= 16) {
       this.skillTree.unlockAchievement('zoom_macro');
@@ -521,6 +562,8 @@ export class GameEngine {
     this.sugarRushTimer = 0;
     this.runElapsedSec = 0;
     this.bonusSpTimerSec = BONUS_SP_INTERVAL_SEC;
+    this.runSpawnsByType = {};
+    this.runDamageByType = {};
     this.lastLaunchWorld = null;
     this.fireworkAccum = 0;
     this.autoSaveAccum = 0;
@@ -606,6 +649,10 @@ export class GameEngine {
       const rgb = ANT_TYPES[this.selectedAnt].rgb;
       this.particles.spawn(spawn.x, spawn.y, rgb[0], rgb[1], rgb[2], 5, 16, 0.5, 1.4);
       this.skillTree.recordAntSpawn(this.selectedAnt);
+      this.runSpawnsByType[this.selectedAnt] = (this.runSpawnsByType[this.selectedAnt] || 0) + 1;
+      if (this.selectedAnt === 'phantom') {
+        this.skillTree.unlockAchievement('secret_ant_summon');
+      }
       if (this.selectedAnt === 'compass') {
         this.audio.playCompassLaunch();
         this.skillTree.unlockAchievement('use_compass');
@@ -905,10 +952,11 @@ export class GameEngine {
     }
 
     // 3d. Collect live interior digging frontier cells (Empty interior cells adjacent to diggable interior rock!)
+    const stride = width > 720 ? 4 : 3;
     const frontier: { x: number; y: number }[] = [];
-    for (let y = 4; y < height - 4; y += 3) {
+    for (let y = 4; y < height - 4; y += stride) {
       const row = y * width;
-      for (let x = 4; x < width - 4; x += 3) {
+      for (let x = 4; x < width - 4; x += stride) {
         const idx = row + x;
         if (interior[idx] !== 1 || cells[idx] !== CellType.Empty) continue;
         // Check if adjacent (within 3px) to diggable interior solid cell
@@ -1090,12 +1138,19 @@ export class GameEngine {
         this.cameraEaseTarget = null;
         this.camera.x += (kx / len) * panWorldSpeed;
         this.camera.y += (ky / len) * panWorldSpeed;
+        this.clampCamera();
         this.callbacks.onPanInteract();
       }
     }
 
     const rushMult = this.sugarRushTimer > 0 ? 1.6 : 1;
     const events = this.ants.update(simDt, this.world, this.particles, stats, this.beacon, rushMult);
+    for (const key of Object.keys(events.damageByType) as AntTypeId[]) {
+      const dmg = events.damageByType[key] || 0;
+      if (dmg > 0) {
+        this.runDamageByType[key] = (this.runDamageByType[key] || 0) + dmg;
+      }
+    }
 
     // Smart Auto-Summon: respects per-ant toggles + Smart/Beacon/Nest strategy & hunts crystals/hard rock!
     const settings = this.skillTree.state.settings;
@@ -1104,8 +1159,8 @@ export class GameEngine {
       if (this.autoSummonAccum >= 0.55) {
         this.autoSummonAccum = 0;
         const enabledTypes = settings.autoSummonTypes;
-        // Priority: Queens first (aura + brood), then rotating balanced pool (Worker / Warrior / Scout), then optional Bloodhound!
-        const rotPool: PlayableAntId[] = ['worker', 'warrior', 'scout'];
+        // Priority: Queens first (aura + brood), then rotating balanced pool (Worker / Warrior / Scout / Phase), then optional Bloodhound!
+        const rotPool: PlayableAntId[] = ['worker', 'warrior', 'scout', 'phantom'];
         const rotated: PlayableAntId[] = [];
         for (let k = 0; k < rotPool.length; k++) {
           rotated.push(rotPool[(this.autoSummonCursor + k) % rotPool.length]);
@@ -1131,6 +1186,7 @@ export class GameEngine {
             const rgb = ANT_TYPES[antType].rgb;
             this.particles.spawn(plan.x, plan.y, rgb[0], rgb[1], rgb[2], 3, 12, 0.45, 1.2);
             this.skillTree.recordAntSpawn(antType);
+            this.runSpawnsByType[antType] = (this.runSpawnsByType[antType] || 0) + 1;
             if (antType === 'compass') {
               this.audio.playCompassLaunch();
               this.skillTree.unlockAchievement('use_compass');
@@ -1200,6 +1256,12 @@ export class GameEngine {
         this.audio.playSporeBlast();
       }
     }
+    if (events.phaseBlinks.length > 0) {
+      const phInt = this.computeAntAudioIntensity(events.phaseBlinks);
+      if (phInt > 0.04) {
+        this.audio.playRevealPop(2);
+      }
+    }
     if (events.sugarDustHits.length > 0) {
       this.skillTree.recordCareer({ sugarDustFound: events.sugarDustHits.length });
       this.sugarRushTimer = Math.max(this.sugarRushTimer, 15);
@@ -1226,8 +1288,11 @@ export class GameEngine {
       }
     }
     if (events.sugarHit) {
-      const { isNewRecord } = this.skillTree.recordSugarWin(this.world.level.id, this.runElapsedSec);
+      const { isNewRecord, gainedCurrency } = this.skillTree.recordSugarWin(this.world.level.id, this.runElapsedSec);
       this.audio.playSugarFound();
+      if (gainedCurrency) {
+        this.callbacks.onToast(t('toastCurrencyGain', { n: 1 }));
+      }
       this.callbacks.onHudSync();
       this.triggerEpicSugarCelebration(isNewRecord);
       // Defer RLE snapshot serialization off the Sugar impact frame so camera swoop & god-rays stay locked at 60 FPS!
@@ -1342,9 +1407,33 @@ export class GameEngine {
         worker: this.skillTree.getRank('worker_evo') > 0,
         warrior: this.skillTree.getRank('warrior_evo') > 0,
         scout: this.skillTree.getRank('scout_evo') > 0,
-        queen: this.skillTree.getRank('queen_evo') > 0
-      }
+        queen: this.skillTree.getRank('queen_evo') > 0,
+        phantom: this.skillTree.getRank('phantom_evo') > 0,
+        phantomSparkRadius: 5.4 + this.skillTree.getRank('phantom_sparks_amp') * 1.4
+      },
+      this.skillTree.state.settings.selectedSkin || 'classic'
     );
+  }
+
+  /** Returns per-run deployed ant counts & top-damage ant MVP for the 100% map clear showcase! */
+  getRunClearStats(): {
+    spawns: { type: PlayableAntId; count: number }[];
+    topDamage: { type: AntTypeId; damage: number } | null;
+  } {
+    const order: PlayableAntId[] = ['worker', 'warrior', 'scout', 'queen', 'compass', 'phantom'];
+    const spawns: { type: PlayableAntId; count: number }[] = [];
+    for (const id of order) {
+      const count = this.runSpawnsByType[id] || 0;
+      if (count > 0) spawns.push({ type: id, count });
+    }
+    let topDamage: { type: AntTypeId; damage: number } | null = null;
+    for (const [k, v] of Object.entries(this.runDamageByType)) {
+      const dmg = Math.round(v || 0);
+      if (dmg > 0 && (!topDamage || dmg > topDamage.damage)) {
+        topDamage = { type: k as AntTypeId, damage: dmg };
+      }
+    }
+    return { spawns, topDamage };
   }
 
   private bindEvents() {
@@ -1377,6 +1466,7 @@ export class GameEngine {
         const after = this.screenToWorld(e.clientX, e.clientY);
         this.camera.x += before.x - after.x;
         this.camera.y += before.y - after.y;
+        this.clampCamera();
         if (this.camera.zoom >= 16) {
           this.skillTree.unlockAchievement('zoom_macro');
         }
@@ -1475,6 +1565,7 @@ export class GameEngine {
         if (Math.hypot(dx, dy) > 4) this.callbacks.onPanInteract();
         this.camera.x -= dx / this.camera.zoom;
         this.camera.y -= dy / this.camera.zoom;
+        this.clampCamera();
         this.lastDragX = midX;
         this.lastDragY = midY;
         return;
@@ -1487,6 +1578,7 @@ export class GameEngine {
         if (Math.hypot(dx, dy) > 4) this.callbacks.onPanInteract();
         this.camera.x -= dx / this.camera.zoom;
         this.camera.y -= dy / this.camera.zoom;
+        this.clampCamera();
         this.lastDragX = e.clientX;
         this.lastDragY = e.clientY;
         return;
@@ -1563,6 +1655,7 @@ export class GameEngine {
       if (e.key === '3') this.selectAnt('scout');
       if (e.key === '4') this.selectAnt('queen');
       if (e.key === '5') this.selectAnt('compass');
+      if (e.key === '6') this.selectAnt('phantom');
       if (e.key === '+' || e.key === '=') this.zoomBy(1.18);
       if (e.key === '-' || e.key === '_') this.zoomBy(0.84);
       if (e.key === 'b' || e.key === 'B' || e.key === 'и' || e.key === 'И') {

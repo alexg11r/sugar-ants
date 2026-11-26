@@ -20,7 +20,169 @@ export interface AimPreview {
 /** Default background hex used for menu & initial CSS theme */
 export const UNEXPLORED_BG_HEX = '#0b1d13';
 
-/** Shared detailed articulated ant renderer (supports 3 skins + optional player color tint!) */
+interface SkinTypePalette {
+  body: [number, number, number];
+  gaster: string;
+  accent: string;
+  trim: string;
+  glow: string;
+  eyePrimary: string;
+  eyeSecondary: string;
+}
+
+/** Distinct per-ant-type color palettes for the Alien Swarm skin (every ant class is instantly recognizable!) */
+const ALIEN_SKIN_PALETTES: Record<AntTypeId, SkinTypePalette> = {
+  worker: {
+    body: [42, 224, 118],
+    gaster: '#143d25',
+    accent: '#baff4d',
+    trim: '#42ff88',
+    glow: 'rgba(64, 245, 126, 0.28)',
+    eyePrimary: '#d8ff42',
+    eyeSecondary: '#38ff9c'
+  },
+  warrior: {
+    body: [255, 62, 54],
+    gaster: '#4a0f14',
+    accent: '#ffae38',
+    trim: '#ff425e',
+    glow: 'rgba(255, 58, 48, 0.32)',
+    eyePrimary: '#ffd845',
+    eyeSecondary: '#ff3b5c'
+  },
+  scout: {
+    body: [36, 232, 222],
+    gaster: '#0c3a40',
+    accent: '#8cff4d',
+    trim: '#35f2e6',
+    glow: 'rgba(42, 235, 225, 0.30)',
+    eyePrimary: '#a6ff45',
+    eyeSecondary: '#45f5ff'
+  },
+  queen: {
+    body: [232, 72, 255],
+    gaster: '#430e4f',
+    accent: '#ffe26a',
+    trim: '#ff52d8',
+    glow: 'rgba(232, 72, 255, 0.34)',
+    eyePrimary: '#ffe866',
+    eyeSecondary: '#ff47b8'
+  },
+  compass: {
+    body: [255, 212, 68],
+    gaster: '#4a350a',
+    accent: '#fff5a8',
+    trim: '#ffba38',
+    glow: 'rgba(255, 214, 72, 0.34)',
+    eyePrimary: '#ffffff',
+    eyeSecondary: '#ff9d2e'
+  },
+  phantom: {
+    body: [152, 112, 255],
+    gaster: '#1f124a',
+    accent: '#6ef7ff',
+    trim: '#b882ff',
+    glow: 'rgba(130, 125, 255, 0.34)',
+    eyePrimary: '#6ef7ff',
+    eyeSecondary: '#e08cff'
+  },
+  brood: {
+    body: [255, 122, 206],
+    gaster: '#3e1638',
+    accent: '#ffb8eb',
+    trim: '#ff6bc9',
+    glow: 'rgba(255, 118, 205, 0.25)',
+    eyePrimary: '#ffe878',
+    eyeSecondary: '#ff66c4'
+  },
+  beetle: {
+    body: [255, 92, 36],
+    gaster: '#59160a',
+    accent: '#ffe866',
+    trim: '#ff5e2b',
+    glow: 'rgba(255, 98, 36, 0.36)',
+    eyePrimary: '#fff6a8',
+    eyeSecondary: '#ff451a'
+  }
+};
+
+/** Distinct per-ant-type color palettes for the Cosmic Fleet skin (high-contrast sci-fi hull classes!) */
+const COSMIC_SKIN_PALETTES: Record<AntTypeId, SkinTypePalette> = {
+  worker: {
+    body: [56, 236, 152],
+    gaster: '#0e2d24',
+    accent: '#5effb4',
+    trim: '#2ed98a',
+    glow: 'rgba(56, 236, 152, 0.28)',
+    eyePrimary: '#78ffc4',
+    eyeSecondary: '#d6ffea'
+  },
+  warrior: {
+    body: [255, 96, 56],
+    gaster: '#3a1314',
+    accent: '#ffcf52',
+    trim: '#ff5c38',
+    glow: 'rgba(255, 92, 52, 0.34)',
+    eyePrimary: '#ffdd66',
+    eyeSecondary: '#ff5e3a'
+  },
+  scout: {
+    body: [64, 224, 255],
+    gaster: '#0c233c',
+    accent: '#82f5ff',
+    trim: '#38c8ff',
+    glow: 'rgba(64, 224, 255, 0.32)',
+    eyePrimary: '#9ef8ff',
+    eyeSecondary: '#ffffff'
+  },
+  queen: {
+    body: [228, 102, 255],
+    gaster: '#2a1044',
+    accent: '#ffe478',
+    trim: '#e472ff',
+    glow: 'rgba(228, 102, 255, 0.34)',
+    eyePrimary: '#ffe87c',
+    eyeSecondary: '#f09cff'
+  },
+  compass: {
+    body: [255, 224, 96],
+    gaster: '#382b0c',
+    accent: '#fff7bd',
+    trim: '#ffd04d',
+    glow: 'rgba(255, 224, 96, 0.34)',
+    eyePrimary: '#ffffff',
+    eyeSecondary: '#ffe066'
+  },
+  phantom: {
+    body: [176, 134, 255],
+    gaster: '#16113a',
+    accent: '#78f6ff',
+    trim: '#c490ff',
+    glow: 'rgba(155, 140, 255, 0.34)',
+    eyePrimary: '#80f8ff',
+    eyeSecondary: '#d8a6ff'
+  },
+  brood: {
+    body: [255, 136, 226],
+    gaster: '#311338',
+    accent: '#ffc2f0',
+    trim: '#ff82dc',
+    glow: 'rgba(255, 136, 226, 0.25)',
+    eyePrimary: '#ffd6f5',
+    eyeSecondary: '#ffffff'
+  },
+  beetle: {
+    body: [255, 114, 48],
+    gaster: '#42160c',
+    accent: '#fff080',
+    trim: '#ff7038',
+    glow: 'rgba(255, 114, 48, 0.36)',
+    eyePrimary: '#fff6b8',
+    eyeSecondary: '#ff6629'
+  }
+};
+
+/** Shared detailed articulated ant renderer (supports Classic, Cyber, Royal, Alien & Cosmic skins with unique per-ant palettes + spectral clones!) */
 export function drawDetailedAnt(
   ctx: CanvasRenderingContext2D,
   type: AntTypeId,
@@ -32,28 +194,45 @@ export function drawDetailedAnt(
   zoom: number,
   skin: AntSkinId = 'classic',
   colorOverride?: [number, number, number],
-  evolved = false
+  evolved = false,
+  isClone = false
 ) {
   const cfg = ANT_TYPES[type];
   // Scale smoothly up to 28x close-up zoom while staying crisp and proportional to individual pixel blocks!
   const zoomScale = zoom <= 8 ? zoom * 0.62 : 4.96 + (zoom - 8) * 0.24;
-  const s = Math.max(1.8, zoomScale) * cfg.scale * (evolved ? 1.12 : 1);
-  const [r, g, b] = colorOverride || (evolved && type === 'worker' ? [115, 255, 165] : cfg.rgb);
+  const cloneScale = isClone ? 0.84 : 1;
+  const s = Math.max(1.8, zoomScale) * cfg.scale * (evolved ? 1.12 : 1) * cloneScale;
+
+  const skinPal: SkinTypePalette | null =
+    !colorOverride && skin === 'alien'
+      ? ALIEN_SKIN_PALETTES[type]
+      : !colorOverride && skin === 'cosmic'
+        ? COSMIC_SKIN_PALETTES[type]
+        : null;
+
+  let baseRgb: [number, number, number] =
+    colorOverride || (skinPal ? skinPal.body : evolved && type === 'worker' ? [115, 255, 165] : cfg.rgb);
+  if (isClone && type === 'warrior') {
+    // Distinct spectral molten-cyan/amber skin for Evolved Warrior clones!
+    baseRgb = skin === 'alien' ? [255, 152, 72] : skin === 'cosmic' ? [110, 245, 220] : [130, 224, 255];
+  }
+  const [r, g, b] = baseRgb;
 
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(angle);
+  if (isClone) ctx.globalAlpha = 0.86;
 
   // Distinct fiery armored Exploding Beetle silhouette (Queen Evolution 5% spawn!)
   if (type === 'beetle') {
     const pulse = 0.72 + 0.28 * Math.sin(legPhase * 1.4);
-    ctx.fillStyle = `rgba(255, 110, 40, ${0.32 * pulse})`;
+    ctx.fillStyle = skinPal ? skinPal.glow : `rgba(255, 110, 40, ${0.32 * pulse})`;
     ctx.beginPath();
     ctx.arc(0, 0, s * 3.1, 0, Math.PI * 2);
     ctx.fill();
 
     // 6 stubby legs
-    ctx.strokeStyle = 'rgba(255, 155, 90, 0.9)';
+    ctx.strokeStyle = skinPal ? skinPal.trim : 'rgba(255, 155, 90, 0.9)';
     ctx.lineWidth = Math.max(1.0, s * 0.28);
     ctx.beginPath();
     for (let i = -1; i <= 1; i++) {
@@ -66,20 +245,20 @@ export function drawDetailedAnt(
     }
     ctx.stroke();
 
-    // Round crimson-amber explosive carapace
-    ctx.fillStyle = '#c8261a';
+    // Round explosive carapace
+    ctx.fillStyle = skinPal ? skinPal.gaster : '#c8261a';
     ctx.beginPath();
     ctx.ellipse(-0.15 * s, 0, 1.65 * s, 1.28 * s, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Glowing molten magma fissure down the shell
-    ctx.strokeStyle = `rgba(255, 232, 110, ${pulse})`;
+    // Glowing molten fissure down the shell
+    ctx.strokeStyle = skinPal ? skinPal.accent : `rgba(255, 232, 110, ${pulse})`;
     ctx.lineWidth = Math.max(1.2, s * 0.34);
     ctx.beginPath();
     ctx.moveTo(-1.5 * s, 0);
     ctx.lineTo(0.85 * s, 0);
     ctx.stroke();
-    // Glowing head & antennae
-    ctx.fillStyle = '#ff9848';
+    // Glowing head & core
+    ctx.fillStyle = skinPal ? skinPal.trim : '#ff9848';
     ctx.beginPath();
     ctx.arc(1.35 * s, 0, 0.65 * s, 0, Math.PI * 2);
     ctx.fill();
@@ -91,14 +270,65 @@ export function drawDetailedAnt(
     return;
   }
 
-  // Soft colored underglow (golden-prismatic halo for Evolved ants!)
-  ctx.fillStyle = evolved ? 'rgba(255, 228, 110, 0.32)' : `rgba(${r}, ${g}, ${b}, 0.2)`;
-  ctx.beginPath();
-  ctx.arc(0, 0, s * (evolved ? 3.8 : 3.2), 0, Math.PI * 2);
-  ctx.fill();
+  // Soft colored underglow (unique per-ant-class aura in every skin!)
+  if (isClone && type === 'warrior') {
+    ctx.fillStyle = skin === 'alien' ? 'rgba(255, 152, 72, 0.28)' : 'rgba(110, 232, 255, 0.28)';
+    ctx.beginPath();
+    ctx.arc(0, 0, s * 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 178, 92, 0.65)';
+    ctx.lineWidth = Math.max(0.9, s * 0.22);
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(0, 0, s * 2.75, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else if (type === 'phantom') {
+    const pulse = 0.72 + 0.28 * Math.sin(legPhase * 1.1);
+    ctx.fillStyle = skinPal ? skinPal.glow : `rgba(110, 245, 255, ${0.26 * pulse})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, s * (evolved ? 4.2 : 3.7), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = skinPal ? skinPal.accent : `rgba(195, 125, 255, ${0.75 * pulse})`;
+    ctx.lineWidth = Math.max(1.0, s * 0.22);
+    ctx.beginPath();
+    ctx.arc(0, 0, s * 2.9, legPhase * 0.25, legPhase * 0.25 + Math.PI * 1.25);
+    ctx.stroke();
+    if (evolved) {
+      ctx.strokeStyle = `rgba(110, 250, 255, ${0.82 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 3.35, -legPhase * 0.32, -legPhase * 0.32 + Math.PI * 0.9);
+      ctx.stroke();
+    }
+  } else if (skin === 'cosmic' && skinPal) {
+    ctx.fillStyle = skinPal.glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, s * (evolved ? 4.0 : 3.5), 0, Math.PI * 2);
+    ctx.fill();
+    // Per-class plasma thruster flame behind cosmic starship-ant
+    ctx.fillStyle = skinPal.accent;
+    ctx.globalAlpha = 0.72;
+    ctx.beginPath();
+    ctx.moveTo(-2.7 * s, -0.45 * s);
+    ctx.lineTo((-3.9 - 0.55 * Math.sin(legPhase * 1.6)) * s, 0);
+    ctx.lineTo(-2.7 * s, 0.45 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = isClone ? 0.86 : 1;
+  } else if (skin === 'alien' && skinPal) {
+    ctx.fillStyle = skinPal.glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, s * (evolved ? 4.0 : 3.5), 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.fillStyle = evolved ? 'rgba(255, 228, 110, 0.32)' : `rgba(${r}, ${g}, ${b}, 0.2)`;
+    ctx.beginPath();
+    ctx.arc(0, 0, s * (evolved ? 3.8 : 3.2), 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // 1. Six 2-jointed (bent) articulated legs with realistic tripod gait!
-  ctx.strokeStyle = `rgba(${Math.round(r * 0.85)}, ${Math.round(g * 0.85)}, ${Math.round(b * 0.85)}, 0.9)`;
+  ctx.strokeStyle = `rgba(${Math.round(r * 0.85)}, ${Math.round(g * 0.85)}, ${Math.round(b * 0.85)}, 0.92)`;
   ctx.lineWidth = Math.max(1.0, s * 0.28);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -142,23 +372,59 @@ export function drawDetailedAnt(
   ctx.stroke();
 
   // 2. Segmented Gaster (abdomen) with chitin highlight
-  const abdRx = (type === 'queen' ? 2.05 : type === 'scout' ? 1.2 : 1.48) * s;
-  const abdRy = (type === 'queen' ? 1.38 : type === 'scout' ? 0.68 : 0.96) * s;
-  const abdX = (type === 'queen' ? -2.05 : -1.75) * s;
+  const abdRx = (type === 'queen' ? 2.05 : type === 'scout' ? 1.2 : skin === 'alien' ? 1.72 : 1.48) * s;
+  const abdRy = (type === 'queen' ? 1.38 : type === 'scout' ? 0.68 : skin === 'alien' ? 0.86 : 0.96) * s;
+  const abdX = (type === 'queen' ? -2.05 : skin === 'alien' ? -1.92 : -1.75) * s;
 
-  ctx.fillStyle = `rgb(${Math.round(r * 0.58)}, ${Math.round(g * 0.58)}, ${Math.round(b * 0.58)})`;
+  ctx.fillStyle = skinPal
+    ? skinPal.gaster
+    : `rgb(${Math.round(r * 0.58)}, ${Math.round(g * 0.58)}, ${Math.round(b * 0.58)})`;
   ctx.beginPath();
   ctx.ellipse(abdX, 0, abdRx, abdRy, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  // Creepy xenomorph dorsal spines & tail stinger on Alien skin (per-class accent colors!)
+  if (skin === 'alien') {
+    ctx.strokeStyle = skinPal ? skinPal.trim : '#ff3b6b';
+    ctx.lineWidth = Math.max(0.9, s * 0.24);
+    ctx.beginPath();
+    for (const frac of [-0.45, -0.05, 0.35]) {
+      const bx = abdX + frac * abdRx;
+      ctx.moveTo(bx, -abdRy * 0.72);
+      ctx.lineTo(bx - 0.52 * s, -abdRy * 1.42);
+      ctx.moveTo(bx, abdRy * 0.72);
+      ctx.lineTo(bx - 0.52 * s, abdRy * 1.42);
+    }
+    // Tail barb
+    ctx.moveTo(abdX - abdRx, 0);
+    ctx.lineTo(abdX - abdRx - 0.85 * s, 0);
+    ctx.stroke();
+  }
+
+  // Sleek swept energy-fins & glowing starlight rings on Cosmic skin (per-class hull colors!)
+  if (skin === 'cosmic') {
+    ctx.strokeStyle = skinPal ? skinPal.accent : '#7cf5ff';
+    ctx.lineWidth = Math.max(1.0, s * 0.22);
+    ctx.beginPath();
+    ctx.moveTo(abdX + 0.4 * abdRx, -abdRy * 0.85);
+    ctx.lineTo(abdX - 0.9 * abdRx, -abdRy * 1.55);
+    ctx.lineTo(abdX - 0.5 * abdRx, -abdRy * 0.6);
+    ctx.moveTo(abdX + 0.4 * abdRx, abdRy * 0.85);
+    ctx.lineTo(abdX - 0.9 * abdRx, abdRy * 1.55);
+    ctx.lineTo(abdX - 0.5 * abdRx, abdRy * 0.6);
+    ctx.stroke();
+  }
+
   // Subtle chitin segments on abdomen (batched into 1 stroke!)
   if (s >= 2.2 || skin !== 'classic') {
     ctx.strokeStyle =
-      skin === 'cyber'
-        ? '#70ffff'
-        : skin === 'royal'
-          ? '#ffd966'
-          : `rgba(${r}, ${g}, ${b}, 0.55)`;
+      skinPal
+        ? skinPal.accent
+        : skin === 'cyber'
+          ? '#70ffff'
+          : skin === 'royal'
+            ? '#ffd966'
+            : `rgba(${r}, ${g}, ${b}, 0.55)`;
     ctx.lineWidth = Math.max(0.8, s * (skin === 'classic' ? 0.22 : 0.28));
     ctx.beginPath();
     for (const frac of [-0.32, 0.05, 0.38]) {
@@ -171,9 +437,14 @@ export function drawDetailedAnt(
   }
 
   // Skin-specific armor outline on abdomen
-  if (skin === 'cyber' || skin === 'royal') {
-    ctx.strokeStyle = skin === 'cyber' ? 'rgba(112, 255, 255, 0.75)' : 'rgba(255, 217, 102, 0.85)';
-    ctx.lineWidth = Math.max(0.9, s * 0.2);
+  if (skin === 'cyber' || skin === 'royal' || skin === 'cosmic') {
+    ctx.strokeStyle =
+      skin === 'cosmic' && skinPal
+        ? skinPal.trim
+        : skin === 'cyber'
+          ? 'rgba(112, 255, 255, 0.75)'
+          : 'rgba(255, 217, 102, 0.85)';
+    ctx.lineWidth = Math.max(0.9, s * 0.22);
     ctx.beginPath();
     ctx.ellipse(abdX, 0, abdRx * 1.04, abdRy * 1.04, 0, 0, Math.PI * 2);
     ctx.stroke();
@@ -223,13 +494,45 @@ export function drawDetailedAnt(
   ctx.ellipse(headX, 0, headRx, headRy, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Compound eyes (glowing visor on Cyber skin!)
-  ctx.fillStyle = skin === 'cyber' ? '#00ffff' : skin === 'royal' ? '#ffe066' : '#07100c';
-  const eyeR = Math.max(0.7, (skin === 'cyber' ? 0.28 : 0.22) * s);
-  ctx.beginPath();
-  ctx.arc(headX + 0.25 * headRx, -0.52 * headRy, eyeR, 0, Math.PI * 2);
-  ctx.arc(headX + 0.25 * headRx, 0.52 * headRy, eyeR, 0, Math.PI * 2);
-  ctx.fill();
+  // Compound eyes (4 glowing per-class eyes on Alien skin, per-class glowing visor on Cosmic!)
+  if (skin === 'alien') {
+    const eyeR = Math.max(0.75, 0.25 * s);
+    ctx.fillStyle = skinPal ? skinPal.eyePrimary : '#ff2a5f';
+    ctx.beginPath();
+    ctx.arc(headX + 0.28 * headRx, -0.52 * headRy, eyeR, 0, Math.PI * 2);
+    ctx.arc(headX + 0.28 * headRx, 0.52 * headRy, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = skinPal ? skinPal.eyeSecondary : '#c8ff3d';
+    ctx.beginPath();
+    ctx.arc(headX - 0.16 * headRx, -0.34 * headRy, eyeR * 0.72, 0, Math.PI * 2);
+    ctx.arc(headX - 0.16 * headRx, 0.34 * headRy, eyeR * 0.72, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (skin === 'cosmic') {
+    ctx.strokeStyle = skinPal ? skinPal.eyePrimary : '#70ffff';
+    ctx.lineWidth = Math.max(1.1, 0.34 * s);
+    ctx.beginPath();
+    ctx.arc(headX + 0.12 * headRx, 0, headRy * 0.72, -0.95, 0.95);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = skin === 'cyber' ? '#00ffff' : skin === 'royal' ? '#ffe066' : '#07100c';
+    const eyeR = Math.max(0.7, (skin === 'cyber' ? 0.28 : 0.22) * s);
+    ctx.beginPath();
+    ctx.arc(headX + 0.25 * headRx, -0.52 * headRy, eyeR, 0, Math.PI * 2);
+    ctx.arc(headX + 0.25 * headRx, 0.52 * headRy, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Phase Ant quantum core diamond on thorax
+  if (type === 'phantom') {
+    ctx.fillStyle = '#d9b3ff';
+    ctx.beginPath();
+    ctx.moveTo(0.8 * s, 0);
+    ctx.lineTo(0.18 * s, -0.45 * s);
+    ctx.lineTo(-0.35 * s, 0);
+    ctx.lineTo(0.18 * s, 0.45 * s);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   // Royal skin tiny crown crest on thorax
   if (skin === 'royal' && type !== 'queen') {
@@ -243,10 +546,17 @@ export function drawDetailedAnt(
     ctx.fill();
   }
 
-  // 6. Curved Mandibles (animated snap when biting! Golden-glowing on Evolved Workers!)
+  // 6. Curved Mandibles (animated snap when biting! Per-class accent fangs/plasma blades!)
   const openAmt = biteFlash > 0 ? 0.1 : 0.42;
-  const mandLen = (type === 'warrior' ? 1.55 : evolved ? 1.15 : 0.82) * s;
-  ctx.strokeStyle = type === 'warrior' || evolved ? '#ffd859' : '#e8fff2';
+  const mandLen = (type === 'warrior' ? 1.55 : skin === 'alien' ? 1.38 : evolved ? 1.15 : 0.82) * s;
+  ctx.strokeStyle =
+    skinPal
+      ? skinPal.accent
+      : isClone
+        ? '#ffd890'
+        : type === 'warrior' || evolved
+          ? '#ffd859'
+          : '#e8fff2';
   ctx.lineWidth = Math.max(1.1, (type === 'warrior' ? 0.44 : evolved ? 0.34 : 0.26) * s);
 
   const mBaseX = headX + headRx * 0.72;
@@ -312,6 +622,11 @@ export class WorldRenderer {
   private lastWorldRef: World | null = null;
   private lastVisualVersion = -1;
   private lastRebuildMs = 0;
+  private lastPulseMs = 0;
+
+  // Pre-baked GPU-friendly dark atmospheric fractal backdrops per map (0 per-frame CPU cost on 100% cleared maps!)
+  private darkBackdropCache = new Map<string, HTMLCanvasElement>();
+  private cosmicStars: HTMLCanvasElement;
 
   constructor(width: number, height: number) {
     this.offscreen = document.createElement('canvas');
@@ -326,7 +641,180 @@ export class WorldRenderer {
     this.imgData32 = new Uint32Array(this.imgData.data.buffer);
     this.glowImgData = this.glowCtx.createImageData(1, 1);
     this.glowData32 = new Uint32Array(this.glowImgData.data.buffer);
+    this.cosmicStars = this.buildStarfieldTile(256);
     this.resizeWorld(width, height);
+  }
+
+  /** Pre-renders a seamless tileable DARK atmospheric fractal backdrop tailored to each map's mood! */
+  private getDarkBackdropTile(levelId: string): HTMLCanvasElement {
+    const cached = this.darkBackdropCache.get(levelId);
+    if (cached) return cached;
+
+    const themes: Record<
+      string,
+      { base: [number, number, number]; mid: [number, number, number]; vein: [number, number, number]; mode: number }
+    > = {
+      prism: { base: [2, 6, 5], mid: [7, 22, 16], vein: [22, 68, 48], mode: 0 },
+      galaxy: { base: [2, 3, 9], mid: [8, 13, 30], vein: [24, 48, 86], mode: 1 },
+      'ant-crown': { base: [7, 4, 2], mid: [22, 13, 6], vein: [68, 42, 18], mode: 2 },
+      'moon-temple': { base: [5, 3, 10], mid: [17, 10, 30], vein: [56, 26, 82], mode: 3 },
+      'tree-of-life': { base: [2, 7, 7], mid: [8, 22, 20], vein: [22, 66, 56], mode: 4 },
+      'crystal-hydra': { base: [2, 5, 10], mid: [7, 18, 32], vein: [24, 62, 92], mode: 5 },
+      'ember-phoenix': { base: [9, 3, 2], mid: [28, 9, 7], vein: [84, 28, 16], mode: 6 },
+      'void-leviathan': { base: [3, 2, 8], mid: [13, 7, 26], vein: [52, 20, 78], mode: 7 }
+    };
+    const th = themes[levelId] || themes.prism;
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    const g = c.getContext('2d')!;
+    const img = g.createImageData(size, size);
+    const d = img.data;
+    const tau = Math.PI * 2;
+    const m = th.mode;
+
+    for (let y = 0; y < size; y++) {
+      const ny = (y / size) * tau;
+      for (let x = 0; x < size; x++) {
+        const nx = (x / size) * tau;
+        let f1 = 0;
+        let f2 = 0;
+        let filament = 0;
+        if (m === 0 || m === 4) {
+          // Deep organic subterranean smoke & moss filaments
+          const wx = nx + Math.sin(ny * 2 + Math.cos(nx)) * 0.9;
+          const wy = ny + Math.cos(nx * 2 - Math.sin(ny)) * 0.9;
+          f1 = Math.sin(wx * 2 + wy) * 0.5 + 0.5;
+          f2 = Math.cos(wx * 3 - wy * 2) * 0.5 + 0.5;
+          filament = Math.pow(Math.max(0, 1 - Math.abs(f1 - f2) * 2.8), 3.4);
+        } else if (m === 1 || m === 7) {
+          // Dark cosmic void swirl & obsidian rift veins
+          const wx = nx + Math.sin(ny * 3 + Math.sin(nx * 2)) * 0.7;
+          const wy = ny + Math.cos(nx * 3 + Math.cos(ny * 2)) * 0.7;
+          f1 = Math.sin(wx + wy * 2) * 0.5 + 0.5;
+          f2 = Math.sin(wx * 2 - wy * 3 + Math.cos(wx)) * 0.5 + 0.5;
+          filament = Math.pow(Math.max(0, 1 - Math.abs(f1 - 0.5) * 3.2), 3.6);
+        } else if (m === 2 || m === 6) {
+          // Dark ember / volcanic obsidian magma cracks
+          const wx = nx + Math.cos(ny * 2 - nx) * 0.8;
+          const wy = ny + Math.sin(nx * 2 + ny) * 0.8;
+          f1 = Math.abs(Math.sin(wx * 2 + wy * 2));
+          f2 = Math.abs(Math.cos(wx * 3 - wy));
+          filament = Math.pow(Math.max(0, 1 - Math.min(f1, f2) * 3.1), 4.0);
+        } else {
+          // Crystalline lunar / glacial dark facet interference
+          const wx = nx + Math.sin(ny * 2) * 0.55;
+          const wy = ny + Math.sin(nx * 2) * 0.55;
+          f1 = Math.cos(wx * 3 + wy * 3) * 0.5 + 0.5;
+          f2 = Math.sin(wx * 4 - wy * 2) * 0.5 + 0.5;
+          filament = Math.pow(Math.max(0, 1 - Math.abs(f1 - f2) * 3.0), 3.5);
+        }
+
+        const v = f1 * 0.55 + f2 * 0.45;
+        const p = (y * size + x) * 4;
+        d[p] = Math.min(255, Math.round(th.base[0] + v * th.mid[0] + filament * th.vein[0]));
+        d[p + 1] = Math.min(255, Math.round(th.base[1] + v * th.mid[1] + filament * th.vein[1]));
+        d[p + 2] = Math.min(255, Math.round(th.base[2] + v * th.mid[2] + filament * th.vein[2]));
+        d[p + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    this.darkBackdropCache.set(levelId, c);
+    return c;
+  }
+
+  private buildStarfieldTile(size: number): HTMLCanvasElement {
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    const g = c.getContext('2d')!;
+    let seed = 133791;
+    const rnd = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0xffffffff;
+    };
+    for (let i = 0; i < 62; i++) {
+      const sx = Math.floor(rnd() * size);
+      const sy = Math.floor(rnd() * size);
+      const bright = 0.14 + rnd() * 0.44;
+      const huePick = i % 4;
+      g.fillStyle =
+        huePick === 0
+          ? `rgba(155, 210, 235, ${bright})`
+          : huePick === 1
+            ? `rgba(195, 160, 235, ${bright})`
+            : huePick === 2
+              ? `rgba(140, 215, 185, ${bright})`
+              : `rgba(235, 215, 175, ${bright})`;
+      const r = rnd() > 0.88 ? 2 : 1;
+      g.fillRect(sx, sy, r, r);
+    }
+    return c;
+  }
+
+  private drawCosmicClearBackdrop(
+    ctx: CanvasRenderingContext2D,
+    viewW: number,
+    viewH: number,
+    camera: Camera,
+    time: number,
+    levelId: string
+  ) {
+    const tex = this.getDarkBackdropTile(levelId);
+    const tile = tex.width;
+    const scale = 1.45;
+    const step = tile * scale;
+
+    // Layer 1: deep dark drifting fractal abyss
+    const ox1 = (((-camera.x * 0.4 + time * 5.5) % step) + step) % step;
+    const oy1 = (((-camera.y * 0.4 + time * 3.8) % step) + step) % step;
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    for (let y = oy1 - step; y < viewH; y += step) {
+      for (let x = ox1 - step; x < viewW; x += step) {
+        ctx.drawImage(tex, x, y, step + 1, step + 1);
+      }
+    }
+
+    // Layer 2: subtle counter-drifting dark veil interference (moody & restrained!)
+    const step2 = tile * 2.05;
+    const ox2 = (((-camera.x * 0.22 - time * 4.2) % step2) + step2) % step2;
+    const oy2 = (((-camera.y * 0.22 + time * 5.0) % step2) + step2) % step2;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.18 + 0.05 * Math.sin(time * 0.7);
+    for (let y = oy2 - step2; y < viewH; y += step2) {
+      for (let x = ox2 - step2; x < viewW; x += step2) {
+        ctx.drawImage(tex, x, y, step2 + 1, step2 + 1);
+      }
+    }
+
+    // Layer 3: dim distant atmospheric dust/starlight
+    const ox3 = (((-camera.x * 0.65 + time * 2.6) % tile) + tile) % tile;
+    const oy3 = (((-camera.y * 0.65 - time * 1.8) % tile) + tile) % tile;
+    ctx.globalAlpha = 0.34 + 0.12 * Math.sin(time * 1.5);
+    for (let y = oy3 - tile; y < viewH; y += tile) {
+      for (let x = ox3 - tile; x < viewW; x += tile) {
+        ctx.drawImage(this.cosmicStars, x, y);
+      }
+    }
+
+    // Soft dark vignette framing the cleared artwork so the glowing picture pops dramatically!
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    const vig = ctx.createRadialGradient(
+      viewW * 0.5,
+      viewH * 0.5,
+      Math.min(viewW, viewH) * 0.22,
+      viewW * 0.5,
+      viewH * 0.5,
+      Math.max(viewW, viewH) * 0.72
+    );
+    vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    vig.addColorStop(1, 'rgba(0, 0, 0, 0.56)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, viewW, viewH);
+    ctx.restore();
   }
 
   resizeWorld(width: number, height: number) {
@@ -355,9 +843,13 @@ export class WorldRenderer {
     this.lastVisualVersion = -1;
   }
 
-  private rebuildWorldTextures(world: World, time: number) {
+  private rebuildWorldTextures(world: World, time: number, minX = 0, minY = 0, maxX = world.width - 1, maxY = world.height - 1) {
     const w = world.width;
     const h = world.height;
+    const rx0 = Math.max(0, Math.min(w - 1, minX | 0));
+    const ry0 = Math.max(0, Math.min(h - 1, minY | 0));
+    const rx1 = Math.max(rx0, Math.min(w - 1, maxX | 0));
+    const ry1 = Math.max(ry0, Math.min(h - 1, maxY | 0));
     const data = this.imgData.data;
     const data32 = this.imgData32;
     const glow = this.glowImgData.data;
@@ -384,12 +876,14 @@ export class WorldRenderer {
     const bgPacked = ((255 << 24) | (bB << 16) | (bG << 8) | bR) >>> 0;
     const emptyPacked = ((255 << 24) | (eB << 16) | (eG << 8) | eR) >>> 0;
     const cleared = world.stats.mapCleared;
+    // When the map is 100% cleared, exterior pixels outside HiddenArt become transparent (alpha=0) so the animated cosmic fractal backdrop shines through!
+    const exteriorPacked = cleared ? 0 : bgPacked;
     const sugarExp = world.sugarExposed;
     const artDefExp = world.artifactExposed;
 
-    for (let y = 0; y < h; y++) {
+    for (let y = ry0; y <= ry1; y++) {
       const row = y * w;
-      for (let x = 0; x < w; x++) {
+      for (let x = rx0; x <= rx1; x++) {
         const idx = row + x;
         const cell = cells[idx] as CellType;
         glow32[idx] = 0;
@@ -401,7 +895,7 @@ export class WorldRenderer {
           cell !== CellType.Artifact &&
           interior[idx] === 0
         ) {
-          data32[idx] = bgPacked;
+          data32[idx] = exteriorPacked;
           continue;
         }
 
@@ -680,8 +1174,10 @@ export class WorldRenderer {
       }
     }
 
-    this.offCtx.putImageData(this.imgData, 0, 0);
-    this.glowCtx.putImageData(this.glowImgData, 0, 0);
+    const rw = rx1 - rx0 + 1;
+    const rh = ry1 - ry0 + 1;
+    this.offCtx.putImageData(this.imgData, 0, 0, rx0, ry0, rw, rh);
+    this.glowCtx.putImageData(this.glowImgData, 0, 0, rx0, ry0, rw, rh);
 
     // Fast hardware bilinear downsample bloom (single pass on mobile, dual-scale on desktop — zero ctx.filter stalls!)
     this.bloomCtx.clearRect(0, 0, this.bloomW, this.bloomH);
@@ -708,12 +1204,15 @@ export class WorldRenderer {
     sugarBurst: { x: number; y: number; progress: number } | null = null,
     scentTrail: ScentPoint[] = [],
     beacon: PheromoneBeacon | null = null,
-    evos: boolean | { worker?: boolean; warrior?: boolean; scout?: boolean; queen?: boolean } = false
+    evos: boolean | { worker?: boolean; warrior?: boolean; scout?: boolean; queen?: boolean; phantom?: boolean; phantomSparkRadius?: number } = false,
+    skin: AntSkinId = 'classic'
   ) {
     const workerEvo = typeof evos === 'boolean' ? evos : Boolean(evos.worker);
     const warriorEvo = typeof evos === 'boolean' ? false : Boolean(evos.warrior);
     const scoutEvo = typeof evos === 'boolean' ? false : Boolean(evos.scout);
     const queenEvo = typeof evos === 'boolean' ? false : Boolean(evos.queen);
+    const phantomEvo = typeof evos === 'boolean' ? false : Boolean(evos.phantom);
+    const phantomSparkRadius = typeof evos === 'boolean' ? 5.4 : evos.phantomSparkRadius || 5.4;
     if (world.width !== this.width || world.height !== this.height) {
       this.resizeWorld(world.width, world.height);
     }
@@ -724,40 +1223,58 @@ export class WorldRenderer {
     const mobile = this.mobile;
     const now = performance.now();
 
-    const worldChanged = this.lastWorldRef !== world;
-    const dirty = world.visualVersion !== this.lastVisualVersion;
-    const elapsedSinceRebuild = now - this.lastRebuildMs;
-    const animInterval = mobile ? (world.stats.mapCleared ? 95 : 160) : (world.stats.mapCleared ? 34 : 55);
-    const dirtyInterval = mobile ? 48 : 14;
-    const forceBurstRebuild = dirty && sugarBurst !== null && sugarBurst.progress < 0.08;
-
-    if (
-      worldChanged ||
-      forceBurstRebuild ||
-      (dirty && elapsedSinceRebuild >= dirtyInterval) ||
-      elapsedSinceRebuild >= animInterval
-    ) {
-      this.rebuildWorldTextures(world, time);
-      this.lastWorldRef = world;
-      this.lastVisualVersion = world.visualVersion;
-      this.lastRebuildMs = now;
-    }
-
-    // Fill outer canvas with exact level palette background color (100% seamless!)
-    ctx.fillStyle = pal.bgHex;
-    ctx.fillRect(0, 0, viewW, viewH);
-
     const z = camera.zoom;
     const drawX = viewW * 0.5 - camera.x * z;
     const drawY = viewH * 0.5 - camera.y * z;
 
-    // 9-arg viewport-clipped blit: draws ONLY visible map pixels (massive GPU fill-rate win when zoomed in!)
+    // 9-arg viewport-clipped bounds: used both for GPU blit AND zero-lag viewport-clipped pulse updates on huge 930x608 maps!
     const srcX = Math.max(0, Math.floor(-drawX / z) - 1);
     const srcY = Math.max(0, Math.floor(-drawY / z) - 1);
     const srcX2 = Math.min(w, Math.ceil((viewW - drawX) / z) + 1);
     const srcY2 = Math.min(h, Math.ceil((viewH - drawY) / z) + 1);
     const srcW = srcX2 - srcX;
     const srcH = srcY2 - srcY;
+
+    const worldChanged = this.lastWorldRef !== world;
+    const dirty = world.visualVersion !== this.lastVisualVersion;
+    const elapsedSinceRebuild = now - this.lastRebuildMs;
+    const elapsedSincePulse = now - this.lastPulseMs;
+    const isLargeMap = w * h > 260000;
+    const animInterval = mobile
+      ? world.stats.mapCleared ? 115 : isLargeMap ? 220 : 165
+      : world.stats.mapCleared ? 42 : isLargeMap ? 95 : 62;
+    const dirtyInterval = mobile ? 42 : 14;
+    const forceBurstRebuild = dirty && sugarBurst !== null && sugarBurst.progress < 0.08;
+
+    if (worldChanged || forceBurstRebuild) {
+      world.consumeDirtyRect();
+      this.rebuildWorldTextures(world, time, 0, 0, w - 1, h - 1);
+      this.lastWorldRef = world;
+      this.lastVisualVersion = world.visualVersion;
+      this.lastRebuildMs = now;
+      this.lastPulseMs = now;
+    } else if (dirty && elapsedSinceRebuild >= dirtyInterval) {
+      const rect = world.consumeDirtyRect();
+      if (!rect || rect.full) {
+        this.rebuildWorldTextures(world, time, 0, 0, w - 1, h - 1);
+      } else {
+        this.rebuildWorldTextures(world, time, rect.minX, rect.minY, rect.maxX, rect.maxY);
+      }
+      this.lastVisualVersion = world.visualVersion;
+      this.lastRebuildMs = now;
+    } else if (elapsedSincePulse >= animInterval && srcW > 0 && srcH > 0) {
+      // Shimmer pulse ONLY inside visible viewport pixels -> blazing fast even on 930x608 maps!
+      this.rebuildWorldTextures(world, time, srcX, srcY, Math.min(w - 1, srcX2), Math.min(h - 1, srcY2));
+      this.lastPulseMs = now;
+    }
+
+    // Fill outer canvas with exact level palette OR moody dark animated fractal backdrop tailored to each map on 100% clear!
+    if (world.stats.mapCleared) {
+      this.drawCosmicClearBackdrop(ctx, viewW, viewH, camera, time, world.level.id);
+    } else {
+      ctx.fillStyle = pal.bgHex;
+      ctx.fillRect(0, 0, viewW, viewH);
+    }
 
     ctx.save();
     if (srcW > 0 && srcH > 0) {
@@ -1085,6 +1602,65 @@ export class WorldRenderer {
       ctx.setLineDash([]);
     }
 
+    // Phase Ant Quantum Sparks field (40 SP mutation): calm, sleek quantum arcs (no visual noise!) scaling with Spark Overload!
+    if (phantomEvo) {
+      const sparkFieldR = phantomSparkRadius * camera.zoom;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (let i = 0; i < ants.length; i++) {
+        const ant = ants[i];
+        if (ant.type !== 'phantom') continue;
+        const px = drawX + ant.x * camera.zoom;
+        const py = drawY + ant.y * camera.zoom;
+        if (px + sparkFieldR < -12 || px - sparkFieldR > viewW + 12 || py + sparkFieldR < -12 || py - sparkFieldR > viewH + 12) continue;
+
+        const pulse = 0.78 + 0.22 * Math.sin(time * 3.8 + ant.id);
+        // Subtle calm quantum field rim
+        ctx.fillStyle = `rgba(98, 224, 245, ${0.06 * pulse})`;
+        ctx.beginPath();
+        ctx.arc(px, py, sparkFieldR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(130, 232, 255, ${0.24 * pulse})`;
+        ctx.lineWidth = Math.max(0.8, camera.zoom * 0.13);
+        ctx.beginPath();
+        ctx.arc(px, py, sparkFieldR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 3 calm smoothly rotating electric arcs (gentle cadence, easy on the eyes!)
+        const tickBucket = Math.floor(time * 5.5);
+        for (let b = 0; b < 3; b++) {
+          const seed = ant.id * 29 + b * 19 + tickBucket * 11;
+          const h1 = Math.sin(seed * 12.9898) * 43758.5453;
+          const f1 = h1 - Math.floor(h1);
+          const h2 = Math.sin((seed + 7) * 78.233) * 43758.5453;
+          const f2 = h2 - Math.floor(h2);
+          const ang = (b / 3) * Math.PI * 2 + time * 0.9 + f1 * 0.55;
+          const reach = sparkFieldR * (0.68 + f2 * 0.3);
+          const midAng = ang + (f1 - 0.5) * 0.36;
+          const midR = reach * 0.54;
+          const mx = px + Math.cos(midAng) * midR;
+          const my = py + Math.sin(midAng) * midR;
+          const ex = px + Math.cos(ang) * reach;
+          const ey = py + Math.sin(ang) * reach;
+
+          ctx.strokeStyle = `rgba(145, 240, 255, ${0.56 * pulse})`;
+          ctx.lineWidth = Math.max(0.9, camera.zoom * 0.15);
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(mx, my);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+
+          ctx.fillStyle = `rgba(220, 252, 255, ${0.72 * pulse})`;
+          ctx.beginPath();
+          ctx.arc(ex, ey, Math.max(0.9, camera.zoom * 0.17), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
     // Floating particles (fast crisp pixel squares on mobile, soft circles on desktop)
     for (let i = 0; i < particles.particles.length; i++) {
       const pt = particles.particles[i];
@@ -1116,8 +1692,22 @@ export class WorldRenderer {
         (ant.type === 'worker' && workerEvo) ||
         (ant.type === 'warrior' && warriorEvo && !ant.isWarriorClone) ||
         (ant.type === 'scout' && scoutEvo) ||
-        (ant.type === 'queen' && queenEvo);
-      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, camera.zoom, 'classic', undefined, isEvo);
+        (ant.type === 'queen' && queenEvo) ||
+        (ant.type === 'phantom' && phantomEvo);
+      drawDetailedAnt(
+        ctx,
+        ant.type,
+        sx,
+        sy,
+        ant.angle,
+        ant.legPhase,
+        ant.biteFlash,
+        camera.zoom,
+        skin,
+        undefined,
+        isEvo,
+        Boolean(ant.isWarriorClone)
+      );
     }
 
     // Warrior directional aiming preview

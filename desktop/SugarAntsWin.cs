@@ -21,8 +21,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyCompany("GrAx Studio")]
 [assembly: AssemblyProduct("Sugar Ants")]
 #endif
-[assembly: AssemblyVersion("1.3.3.0")]
-[assembly: AssemblyFileVersion("1.3.3.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
 
 namespace SugarAntsDesktop
 {
@@ -274,6 +274,12 @@ namespace SugarAntsDesktop
         private void HandleWebMessage(string json)
         {
             if (string.IsNullOrEmpty(json)) return;
+            if (json.IndexOf("\"exitApp\"", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Log("exitApp requested from JS");
+                Close();
+                return;
+            }
             if (json.IndexOf("\"setDisplay\"", StringComparison.OrdinalIgnoreCase) < 0) return;
 
             bool nextFs = _isFullscreen;
@@ -300,12 +306,14 @@ namespace SugarAntsDesktop
         {
             try
             {
-                string userDataDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "GrAxStudio",
-                    AppDataFolder,
-                    "WebView2"
-                );
+                string userDataDir = _selfTest
+                    ? Path.Combine(Path.GetTempPath(), "SugarAntsSelfTest_" + Process.GetCurrentProcess().Id)
+                    : Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "GrAxStudio",
+                        AppDataFolder,
+                        "WebView2"
+                    );
                 Directory.CreateDirectory(userDataDir);
 
                 Log("Creating CoreWebView2Environment...");

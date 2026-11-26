@@ -3,6 +3,7 @@ import { setLang } from '../core/i18n';
 import { LEVELS } from '../core/levels';
 import {
   AchievementDef,
+  AntSkinId,
   AutoSummonMode,
   CareerStats,
   DisplayMode,
@@ -57,6 +58,13 @@ export const BRANCH_COLORS: Record<
     bg: 'rgba(78, 64, 14, 0.55)',
     label: 'Колония',
     labelEn: 'Colony'
+  },
+  phantom: {
+    main: '#7cf2ff',
+    glow: 'rgba(124, 242, 255, 0.48)',
+    bg: 'rgba(22, 42, 74, 0.58)',
+    label: 'Фазовый',
+    labelEn: 'Phase Ant'
   }
 };
 
@@ -158,12 +166,12 @@ export const SKILL_NODES: SkillNodeDef[] = [
     categoryEn: 'Worker Evolution',
     title: 'Эволюция: Титан-труженик',
     titleEn: 'Evolution: Titan Worker',
-    description: 'Эволюция Рабочих: +12% к скорости, +1 к урону, +1 к лимиту, чуть шире проход и 15% шанс изумрудного микро-импульса по соседним блокам. (Открывается после 1-го уровня)',
-    descriptionEn: 'Worker evolution: +12% speed, +1 damage, +1 cap, slightly wider tunnel, and 15% emerald micro-pulse on nearby blocks. (Unlocks after Level 1)',
+    description: 'Эволюция Рабочих: +12% к скорости, +1 к урону, +1 к лимиту, чуть шире проход и 15% шанс изумрудного микро-импульса по соседним блокам. (Открывается после нахождения сахара на 2-м уровне)',
+    descriptionEn: 'Worker evolution: +12% speed, +1 damage, +1 cap, slightly wider tunnel, and 15% emerald micro-pulse on nearby blocks. (Unlocks after finding Sugar on Level 2)',
     cost: 10,
     maxRank: 1,
     requires: ['worker_cap'],
-    requiredLevelIndex: 0
+    requiredLevelIndex: 1
   },
 
   // LEFT — Warrior (Orange/Red — balanced heavy line-breaker!)
@@ -229,12 +237,12 @@ export const SKILL_NODES: SkillNodeDef[] = [
     categoryEn: 'Warrior Evolution',
     title: 'Эволюция: Дублирующий таран',
     titleEn: 'Evolution: Phalanx Ram',
-    description: 'При столкновении с нерушимым блоком Воин порождает обычную версию Воина (до 2 порождений одновременно). (Открывается после 2-го уровня)',
-    descriptionEn: 'On hitting an indestructible wall, Evolved Warriors spawn a regular Warrior copy (up to 2 active copies at once). (Unlocks after Level 2)',
+    description: 'При столкновении с нерушимым блоком каждый призванный Воин порождает до 2 призрачных клонов (в 2 раза слабее обычного Воина). (Открывается после нахождения сахара на 3-м уровне)',
+    descriptionEn: 'On hitting an indestructible wall, each summoned Warrior spawns up to 2 spectral clones (half as strong as a regular Warrior). (Unlocks after finding Sugar on Level 3)',
     cost: 20,
     maxRank: 1,
     requires: ['warrior_cleave'],
-    requiredLevelIndex: 1
+    requiredLevelIndex: 2
   },
   {
     id: 'warrior_cap',
@@ -334,12 +342,12 @@ export const SKILL_NODES: SkillNodeDef[] = [
     categoryEn: 'Scout Evolution',
     title: 'Эволюция: Токсичный импульс',
     titleEn: 'Evolution: Toxic Detonator',
-    description: 'При столкновении с другим муравьём Разведчик создаёт небольшой ядовитый взрыв вокруг, повреждая и отравляя породу. (Открывается после 3-го уровня)',
-    descriptionEn: 'When colliding with another ant, Evolved Scouts unleash a small toxic blast around them, damaging and corroding nearby rock. (Unlocks after Level 3)',
+    description: 'При столкновении с другим муравьём Разведчик создаёт небольшой ядовитый взрыв вокруг, повреждая и отравляя породу. (Открывается после нахождения сахара на 4-м уровне)',
+    descriptionEn: 'When colliding with another ant, Evolved Scouts unleash a small toxic blast around them, damaging and corroding nearby rock. (Unlocks after finding Sugar on Level 4)',
     cost: 20,
     maxRank: 1,
     requires: ['scout_poison'],
-    requiredLevelIndex: 2
+    requiredLevelIndex: 3
   },
   {
     id: 'scout_dmg',
@@ -473,12 +481,82 @@ export const SKILL_NODES: SkillNodeDef[] = [
     categoryEn: 'Queen Evolution',
     title: 'Эволюция: Императрица роя',
     titleEn: 'Evolution: Swarm Empress',
-    description: 'Удваивает радиус ауры Матки (×2) и даёт 5% шанс породить взрывного жучка, который детонирует при столкновении с блоком. (Открывается после 4-го уровня)',
-    descriptionEn: 'Doubles the Queen aura radius (×2) and grants a 5% chance to hatch an Exploding Beetle that detonates on block impact. (Unlocks after Level 4)',
+    description: 'Удваивает радиус ауры Матки (×2) и даёт 5% шанс породить взрывного жучка, который детонирует при столкновении с блоком. (Открывается после нахождения сахара на 5-м уровне)',
+    descriptionEn: 'Doubles the Queen aura radius (×2) and grants a 5% chance to hatch an Exploding Beetle that detonates on block impact. (Unlocks after finding Sugar on Level 5)',
     cost: 25,
     maxRank: 1,
     requires: ['queen_brood_life'],
-    requiredLevelIndex: 3
+    requiredLevelIndex: 4
+  },
+
+  // UPPER-LEFT — Secret Phase Ant Branch (Visible ONLY after unlocking Phase Ant in the Colony Shop!)
+  {
+    id: 'phantom_dmg',
+    gx: -1,
+    gy: -1,
+    branch: 'phantom',
+    shape: 'circle',
+    icon: 'phase',
+    category: 'Фазовый муравей',
+    categoryEn: 'Phase Ant',
+    title: 'Фазовый импульс',
+    titleEn: 'Phase Pulse',
+    description: '+1 к урону Фазового муравья и +15% к скорости его движения.',
+    descriptionEn: '+1 Phase Ant damage and +15% movement speed.',
+    cost: 6,
+    maxRank: 2,
+    requires: ['worker_root']
+  },
+  {
+    id: 'phantom_cap',
+    gx: -2,
+    gy: -1,
+    branch: 'phantom',
+    shape: 'square',
+    icon: 'swarm',
+    category: 'Фазовый муравей',
+    categoryEn: 'Phase Ant',
+    title: 'Квантовый рой',
+    titleEn: 'Quantum Swarm',
+    description: '+1 к лимиту Фазовых муравьёв и -0.8 сек к перезарядке фазового скачка.',
+    descriptionEn: '+1 max active Phase Ants and -0.8s quantum blink cooldown.',
+    cost: 5,
+    maxRank: 2,
+    requires: ['phantom_dmg']
+  },
+  {
+    id: 'phantom_evo',
+    gx: -2,
+    gy: -2,
+    branch: 'phantom',
+    shape: 'square',
+    icon: 'evo',
+    category: 'Мутация Фазового',
+    categoryEn: 'Phase Mutation',
+    title: 'Мутация: Квантовые искры',
+    titleEn: 'Mutation: Quantum Sparks',
+    description: 'Вокруг Фазового муравья постоянно бьют квантовые искры, непрерывно повреждая ближайшие блоки в небольшой области вокруг него.',
+    descriptionEn: 'Continuous crackling quantum sparks arc around Phase Ants, steadily damaging nearby blocks in a compact field.',
+    cost: 30,
+    maxRank: 1,
+    requires: ['phantom_cap']
+  },
+  {
+    id: 'phantom_sparks_amp',
+    gx: -3,
+    gy: -2,
+    branch: 'phantom',
+    shape: 'circle',
+    icon: 'cleave',
+    category: 'Фазовый муравей',
+    categoryEn: 'Phase Ant',
+    title: 'Перегрузка искр',
+    titleEn: 'Spark Overload',
+    description: 'Увеличивает урон квантовых искр (+2 за ранг) и расширяет их радиус (+1.4 пикс. за ранг).',
+    descriptionEn: 'Increases Quantum Sparks damage (+2 per rank) and expands spark field radius (+1.4 px per rank).',
+    cost: 12,
+    maxRank: 3,
+    requires: ['phantom_evo']
   },
 
   // SIDE PANEL — General Colony Upgrades (Displayed as Matching Glowing Skill Cells!)
@@ -592,6 +670,15 @@ export interface ColonyStats {
   warrior: { speedMult: number; dmgBonus: number; radiusBonus: number; maxActive: number; evolved: boolean };
   scout: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number; poisonRank: number; evolved: boolean };
   queen: { spawnRateMult: number; broodDmgBonus: number; broodLifeMult: number; maxActive: number; evolved: boolean };
+  phantom?: {
+    speedMult: number;
+    dmgBonus: number;
+    maxActive: number;
+    blinkCdSec: number;
+    evolved: boolean;
+    sparkDmgBonus: number;
+    sparkRadius: number;
+  };
 }
 
 export function createDefaultAutoSummonTypes(): Record<PlayableAntId, boolean> {
@@ -600,7 +687,8 @@ export function createDefaultAutoSummonTypes(): Record<PlayableAntId, boolean> {
     warrior: true,
     scout: true,
     queen: true,
-    compass: false
+    compass: false,
+    phantom: true
   };
 }
 
@@ -617,7 +705,8 @@ function createDefaultSettings(): GameSettings {
     autoSummonMode: 'smart',
     autoSummonTypes: createDefaultAutoSummonTypes(),
     displayMode: 'fullscreen',
-    resolution: 'auto'
+    resolution: 'auto',
+    selectedSkin: 'classic'
   };
 }
 
@@ -627,7 +716,8 @@ function createDefaultAntSpawns(): Record<PlayableAntId, number> {
     warrior: 0,
     scout: 0,
     queen: 0,
-    compass: 0
+    compass: 0,
+    phantom: 0
   };
 }
 
@@ -669,6 +759,11 @@ function createDefaultSave(): SaveState {
     mutations: [],
     artifacts: [],
     achievements: [],
+    sugarCurrency: 0,
+    sugarCurrencyLevels: [],
+    sugarCurrencyClaims: [],
+    unlockedSkins: ['classic'],
+    secretAntUnlocked: false,
     career: createDefaultCareer(),
     records: {},
     currentLevelId: 'prism',
@@ -708,6 +803,14 @@ export class SkillTreeManager {
         typeof parsedSettings.resolution === 'string' && validRes.includes(parsedSettings.resolution as ResolutionId)
           ? (parsedSettings.resolution as ResolutionId)
           : 'auto';
+      const validSkins: AntSkinId[] = ['classic', 'cyber', 'royal', 'alien', 'cosmic'];
+      const unlockedSkins: AntSkinId[] = Array.isArray(parsed.unlockedSkins)
+        ? Array.from(new Set(['classic', ...parsed.unlockedSkins.filter((sk): sk is AntSkinId => validSkins.includes(sk as AntSkinId))]))
+        : ['classic'];
+      const rawSkin = parsedSettings.selectedSkin;
+      const selectedSkin: AntSkinId =
+        typeof rawSkin === 'string' && unlockedSkins.includes(rawSkin as AntSkinId) ? (rawSkin as AntSkinId) : 'classic';
+
       const settings: GameSettings = {
         ...createDefaultSettings(),
         ...parsedSettings,
@@ -726,10 +829,21 @@ export class SkillTreeManager {
           ...(parsedSettings.autoSummonTypes || {})
         },
         displayMode,
-        resolution
+        resolution,
+        selectedSkin
       };
 
       const completedLevels = Array.isArray(parsed.completedLevels) ? parsed.completedLevels : [];
+      const sugarCurrencyLevels = Array.isArray(parsed.sugarCurrencyLevels) ? [...parsed.sugarCurrencyLevels] : [];
+      const sugarCurrencyClaims = Array.isArray(parsed.sugarCurrencyClaims) ? [...parsed.sugarCurrencyClaims] : [];
+      let sugarCurrency = typeof parsed.sugarCurrency === 'number' && Number.isFinite(parsed.sugarCurrency) ? Math.max(0, Math.floor(parsed.sugarCurrency)) : 0;
+      // Seamless migration: grant +1 Sugar Currency for any previously completed levels not yet credited!
+      for (const lvlId of completedLevels) {
+        if (!sugarCurrencyLevels.includes(lvlId)) {
+          sugarCurrencyLevels.push(lvlId);
+          sugarCurrency += 1;
+        }
+      }
       const records: Record<string, LevelRecord> = {};
       if (parsed.records && typeof parsed.records === 'object') {
         for (const [k, v] of Object.entries(parsed.records)) {
@@ -767,6 +881,11 @@ export class SkillTreeManager {
         mutations: Array.isArray(parsed.mutations) ? (parsed.mutations as MutationId[]) : [],
         artifacts: Array.isArray(parsed.artifacts) ? (parsed.artifacts as string[]) : [],
         achievements: Array.isArray(parsed.achievements) ? (parsed.achievements as string[]) : [],
+        sugarCurrency,
+        sugarCurrencyLevels,
+        sugarCurrencyClaims,
+        unlockedSkins,
+        secretAntUnlocked: Boolean(parsed.secretAntUnlocked),
         career,
         records,
         currentLevelId: typeof parsed.currentLevelId === 'string' ? parsed.currentLevelId : def.currentLevelId,
@@ -845,7 +964,7 @@ export class SkillTreeManager {
     }
   }
 
-  recordSugarWin(levelId: string, runElapsedSec: number): { isNewRecord: boolean; prevBestSec: number | null } {
+  recordSugarWin(levelId: string, runElapsedSec: number): { isNewRecord: boolean; prevBestSec: number | null; gainedCurrency: boolean } {
     const rec = this.getRecord(levelId);
     const prevBestSec = rec.bestSugarSec;
     rec.sugarFound = true;
@@ -856,10 +975,16 @@ export class SkillTreeManager {
       rec.bestSugarSec = Math.round(runElapsedSec);
       isNewRecord = true;
     }
+    let gainedCurrency = false;
+    if (!this.state.sugarCurrencyLevels.includes(levelId)) {
+      this.state.sugarCurrencyLevels.push(levelId);
+      this.state.sugarCurrency += 1;
+      gainedCurrency = true;
+    }
     this.state.career.sugarsFound += 1;
     this.markLevelCompleted(levelId);
     this.save();
-    return { isNewRecord, prevBestSec };
+    return { isNewRecord, prevBestSec, gainedCurrency };
   }
 
   recordMapClear(levelId: string, runElapsedSec: number) {
@@ -907,15 +1032,54 @@ export class SkillTreeManager {
     return 1 + this.state.achievements.length * 0.01;
   }
 
-  /** Explicitly unlock a trigger-based achievement (compass, zoom_macro, coop_play, etc.) */
+  /** Explicitly unlock a trigger-based achievement (compass, zoom_macro, visit_telegram, credits_ant_click, etc.) */
   unlockAchievement(id: string): boolean {
     if (this.state.achievements.includes(id)) return false;
     const def = getAchievementById(id);
     if (!def) return false;
     this.state.achievements.push(id);
+    if (def.currencyReward && def.currencyReward > 0 && !this.state.sugarCurrencyClaims.includes(id)) {
+      this.state.sugarCurrencyClaims.push(id);
+      this.state.sugarCurrency += def.currencyReward;
+    }
     this.save();
     this.onAchievementUnlocked?.(def);
     return true;
+  }
+
+  /** Permanent Main Menu Shop: Buy Alien (4) or Cosmic (4, Full Game only) cosmetic skin */
+  buySkin(skin: 'alien' | 'cosmic'): boolean {
+    if (skin === 'cosmic' && isDemoVersion) return false;
+    if (this.state.unlockedSkins.includes(skin)) return false;
+    const cost = 4;
+    if (this.state.sugarCurrency < cost) return false;
+    this.state.sugarCurrency -= cost;
+    this.state.unlockedSkins.push(skin);
+    this.state.settings.selectedSkin = skin;
+    this.save();
+    return true;
+  }
+
+  selectSkin(skin: AntSkinId): boolean {
+    if (!this.state.unlockedSkins.includes(skin)) return false;
+    this.state.settings.selectedSkin = skin;
+    this.save();
+    return true;
+  }
+
+  /** Permanent Main Menu Shop: Unlock Secret Phase Ant for 2 Sugar Currency! */
+  buySecretAnt(): boolean {
+    if (this.state.secretAntUnlocked) return false;
+    const cost = 2;
+    if (this.state.sugarCurrency < cost) return false;
+    this.state.sugarCurrency -= cost;
+    this.state.secretAntUnlocked = true;
+    this.save();
+    return true;
+  }
+
+  getTotalCurrencyEarned(): number {
+    return this.state.sugarCurrencyLevels.length + this.state.sugarCurrencyClaims.length;
   }
 
   /** Evaluates all progress-based achievements and emits callbacks for any newly earned ones */
@@ -1020,6 +1184,7 @@ export class SkillTreeManager {
   }
 
   isNodeLevelUnlocked(node: SkillNodeDef): boolean {
+    if (isDemoVersion && node.id === 'queen_evo') return false;
     if (node.requiredLevelIndex === undefined) return true;
     const reqLvl = LEVELS[node.requiredLevelIndex];
     if (!reqLvl) return true;
@@ -1027,12 +1192,14 @@ export class SkillTreeManager {
   }
 
   isNodeVisible(node: SkillNodeDef): boolean {
+    if (node.branch === 'phantom' && !this.state.secretAntUnlocked) return false;
     if (node.requires.length === 0) return true;
     if (this.getRank(node.id) > 0) return true;
     return node.requires.some((reqId) => this.getRank(reqId) > 0);
   }
 
   isNodeUnlockedForPurchase(node: SkillNodeDef): boolean {
+    if (node.branch === 'phantom' && !this.state.secretAntUnlocked) return false;
     if (!this.isNodeLevelUnlocked(node)) return false;
     if (node.requires.length === 0) return true;
     return node.requires.some((reqId) => this.getRank(reqId) > 0);
@@ -1067,6 +1234,7 @@ export class SkillTreeManager {
     if (id === 'warrior') return this.getRank('warrior_unlock') > 0;
     if (id === 'scout') return this.getRank('scout_unlock') > 0;
     if (id === 'queen') return this.getRank('queen_unlock') > 0;
+    if (id === 'phantom') return Boolean(this.state.secretAntUnlocked);
     return false;
   }
 
@@ -1139,6 +1307,15 @@ export class SkillTreeManager {
         broodLifeMult: 1 + r('queen_brood_life') * 0.35,
         maxActive: 1 + r('queen_brood_life'),
         evolved: queenEvo
+      },
+      phantom: {
+        speedMult: (1 + r('phantom_dmg') * 0.15) * totalGlobalSpeed,
+        dmgBonus: r('phantom_dmg'),
+        maxActive: 2 + r('phantom_cap'),
+        blinkCdSec: Math.max(3.8, 6.0 - r('phantom_cap') * 0.8),
+        evolved: r('phantom_evo') > 0,
+        sparkDmgBonus: r('phantom_sparks_amp') * 2,
+        sparkRadius: 5.4 + r('phantom_sparks_amp') * 1.4
       }
     };
   }

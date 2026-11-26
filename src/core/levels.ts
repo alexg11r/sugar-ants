@@ -221,7 +221,7 @@ function drawStar(mask: Uint8Array, w: number, h: number, cx: number, cy: number
   }
 }
 
-/** Delicate notched outer medallion frame with wide interior sanctuary */
+/** Delicate notched outer medallion frame with wide interior sanctuary (100% 4-connected watertight at any map scale!) */
 function drawNotchedMedallion(
   mask: Uint8Array,
   w: number,
@@ -233,36 +233,41 @@ function drawNotchedMedallion(
   notchBottom = true,
   notchTop = false
 ) {
-  const steps = 640;
-  let prevX = 0;
-  let prevY = 0;
-  let hasPrev = false;
-
-  for (let i = 0; i <= steps; i++) {
-    const a = (i / steps) * Math.PI * 2;
-    const deg = (a * 180) / Math.PI;
-    // Skip notch zone to draw sharp architectural V-cut
-    if (notchBottom && deg > 74 && deg < 106) {
-      hasPrev = false;
-      continue;
-    }
-    if (notchTop && deg > 256 && deg < 284) {
-      hasPrev = false;
-      continue;
-    }
-    const nx = cx + Math.cos(a) * rx;
-    const ny = cy + Math.sin(a) * ry;
-    if (hasPrev) {
+  const degToRad = (d: number) => (d * Math.PI) / 180;
+  const drawRimArc = (degStart: number, degEnd: number) => {
+    const aStart = degToRad(degStart);
+    const aEnd = degToRad(degEnd);
+    const arcLen = Math.abs(aEnd - aStart) * Math.max(rx, ry);
+    const steps = Math.max(64, Math.ceil(arcLen * 1.4));
+    let prevX = cx + Math.cos(aStart) * rx;
+    let prevY = cy + Math.sin(aStart) * ry;
+    for (let i = 1; i <= steps; i++) {
+      const a = aStart + ((aEnd - aStart) * i) / steps;
+      const nx = cx + Math.cos(a) * rx;
+      const ny = cy + Math.sin(a) * ry;
       drawCrispLine(mask, w, h, prevX, prevY, nx, ny, true);
+      prevX = nx;
+      prevY = ny;
     }
-    prevX = nx;
-    prevY = ny;
-    hasPrev = true;
+  };
+
+  if (notchBottom && notchTop) {
+    drawRimArc(0, 74);
+    drawRimArc(106, 256);
+    drawRimArc(284, 360);
+  } else if (notchBottom) {
+    drawRimArc(0, 74);
+    drawRimArc(106, 360);
+  } else if (notchTop) {
+    drawRimArc(0, 256);
+    drawRimArc(284, 360);
+  } else {
+    drawRimArc(0, 360);
   }
 
   if (notchBottom) {
-    const aL = (106 * Math.PI) / 180;
-    const aR = (74 * Math.PI) / 180;
+    const aL = degToRad(106);
+    const aR = degToRad(74);
     const lx = cx + Math.cos(aL) * rx;
     const ly = cy + Math.sin(aL) * ry;
     const rxP = cx + Math.cos(aR) * rx;
@@ -271,8 +276,8 @@ function drawNotchedMedallion(
     drawCrispLine(mask, w, h, cx, cy + ry * 0.8, rxP, ryP, true);
   }
   if (notchTop) {
-    const aL = (256 * Math.PI) / 180;
-    const aR = (284 * Math.PI) / 180;
+    const aL = degToRad(256);
+    const aR = degToRad(284);
     const lx = cx + Math.cos(aL) * rx;
     const ly = cy + Math.sin(aL) * ry;
     const rxP = cx + Math.cos(aR) * rx;
@@ -1421,9 +1426,9 @@ export const LEVELS: LevelDefinition[] = [
     nameEn: 'Crystal Hydra',
     subtitle: 'Трёхглавый ледяной дракон в толще плотного гранита',
     subtitleEn: 'Three-headed glacial dragon encased in dense sapphire rock',
-    width: 680,
-    height: 424,
-    crystalCount: 108,
+    width: 860,
+    height: 536,
+    crystalCount: 145,
     difficulty: 1.35,
     difficultyLabel: 'hard',
     palette: {
@@ -1445,11 +1450,12 @@ export const LEVELS: LevelDefinition[] = [
     nameEn: 'Ember Phoenix',
     subtitle: 'Огненная птица в вулканической породе и базальте',
     subtitleEn: 'Risen firebird sealed inside volcanic basalt and ember stone',
-    width: 708,
-    height: 452,
-    crystalCount: 118,
+    width: 896,
+    height: 572,
+    crystalCount: 160,
     difficulty: 1.65,
     difficultyLabel: 'hard',
+    rockHpMult: 1.5,
     palette: {
       bgHex: '#1f0d0a',
       bgRgb: [31, 13, 10],
@@ -1469,11 +1475,12 @@ export const LEVELS: LevelDefinition[] = [
     nameEn: 'Void Leviathan',
     subtitle: 'Древний змей бездны — предельное испытание для колонии',
     subtitleEn: 'Ancient serpent of the astral abyss — the ultimate colony trial',
-    width: 736,
-    height: 480,
-    crystalCount: 130,
+    width: 930,
+    height: 608,
+    crystalCount: 175,
     difficulty: 1.95,
     difficultyLabel: 'extreme',
+    rockHpMult: 1.5,
     palette: {
       bgHex: '#0e0a20',
       bgRgb: [14, 10, 32],

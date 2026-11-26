@@ -1,6 +1,6 @@
 import { getOptimalDpr, isMobileDevice } from '../core/device';
 import { drawDetailedAnt, UNEXPLORED_BG_HEX } from '../core/renderer';
-import { AntTypeId } from '../core/types';
+import { AntSkinId, AntTypeId } from '../core/types';
 
 interface MenuAnt {
   type: AntTypeId;
@@ -27,8 +27,10 @@ export class MenuBackground {
   private viewW = 1;
   private viewH = 1;
   private mobile = false;
+  private skin: AntSkinId = 'classic';
   private pointer: { x: number; y: number; active: boolean } = { x: 0, y: 0, active: false };
   private motes: { x: number; y: number; r: number; spd: number; phase: number; gold: boolean }[] = [];
+  private boopSparks: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -135,6 +137,27 @@ export class MenuBackground {
     }));
   }
 
+  setSkin(skin: AntSkinId) {
+    this.skin = skin;
+  }
+
+  /** Secret achievement interaction: boops a crawling background ant when clicked! */
+  hitTestAndBoop(clientX: number, clientY: number): boolean {
+    for (const ant of this.ants) {
+      if (Math.hypot(clientX - ant.x, clientY - ant.y) <= 28) {
+        ant.angle += Math.PI + (Math.random() - 0.5) * 0.8;
+        ant.turnTimer = 0.25;
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2 + Math.random() * 0.4;
+          const sp = 40 + Math.random() * 65;
+          this.boopSparks.push({ x: ant.x, y: ant.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.7 });
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   start() {
     if (this.running) return;
     this.running = true;
@@ -167,6 +190,14 @@ export class MenuBackground {
     const w = this.viewW;
     const h = this.viewH;
     const recordTrails = !this.mobile;
+
+    for (let i = this.boopSparks.length - 1; i >= 0; i--) {
+      const sp = this.boopSparks[i];
+      sp.x += sp.vx * dt;
+      sp.y += sp.vy * dt;
+      sp.life -= dt;
+      if (sp.life <= 0) this.boopSparks.splice(i, 1);
+    }
 
     for (const m of this.motes) {
       m.y -= m.spd * dt;
@@ -290,9 +321,14 @@ export class MenuBackground {
       ctx.fillRect(Math.round(m.x), Math.round(m.y), s, s);
     }
 
-    // Draw articulated crawling ants
+    // Draw articulated crawling ants in player's chosen cosmetic skin!
     for (const ant of this.ants) {
-      drawDetailedAnt(ctx, ant.type, ant.x, ant.y, ant.angle, ant.legPhase, 0, this.mobile ? 4.4 : 5.2);
+      drawDetailedAnt(ctx, ant.type, ant.x, ant.y, ant.angle, ant.legPhase, 0, this.mobile ? 4.4 : 5.2, this.skin);
+    }
+
+    for (const sp of this.boopSparks) {
+      ctx.fillStyle = `rgba(255, 232, 120, ${Math.max(0, sp.life / 0.7)})`;
+      ctx.fillRect(Math.round(sp.x), Math.round(sp.y), 4, 4);
     }
   }
 }

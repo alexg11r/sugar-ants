@@ -11,12 +11,14 @@ import { isMobileDevice } from '../core/device';
 import {
   RESOLUTION_PRESETS,
   applyDisplaySettings,
+  exitGameApp,
   getCurrentDisplayMode,
   isDesktopApp,
   subscribeDisplayChanges
 } from '../core/display';
 import { downloadArtworkPng, renderArtworkToCanvas } from '../core/gallery';
 import { BOOSTY_QR_SVG, TELEGRAM_QR_SVG } from '../core/qrAssets';
+import { drawDetailedAnt } from '../core/renderer';
 import { notifyYandexGameplayStart, notifyYandexGameplayStop } from '../core/yandexSdk';
 import {
   formatNum,
@@ -43,6 +45,7 @@ import {
 } from '../core/types';
 import { ACHIEVEMENTS } from '../game/achievements';
 import { SECRET_ARTIFACTS, renderArtifactSvg } from '../game/artifacts';
+import { CHANGELOG, GAME_VERSION } from '../game/changelog';
 import { GameEngine } from '../game/engine';
 import { MenuBackground } from '../game/menuBg';
 import { MUTATIONS, pickMutationChoices, renderMutationSvg } from '../game/mutations';
@@ -73,94 +76,210 @@ const SKIN_OPTIONS: { id: AntSkinId; name: string; nameEn: string }[] = [
   { id: 'royal', name: 'Король', nameEn: 'Royal' }
 ];
 
+/** Organic bioluminescent chitin/gemstone skill emblems (signature Sugar Ants craft, distinct from flat wireframe icons!) */
 function renderSkillSvg(icon: SkillIcon): string {
   switch (icon) {
     case 'ant':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-        <ellipse cx="12" cy="17.5" rx="3.4" ry="4" fill="currentColor" fill-opacity="0.28"/>
-        <ellipse cx="12" cy="11.5" rx="2" ry="2.2" fill="currentColor" fill-opacity="0.5"/>
-        <circle cx="12" cy="6.8" r="2.1" fill="currentColor"/>
-        <path d="M10.5 5 8 2.5M13.5 5 16 2.5M10 10 5.5 8M14 10 18.5 8M10 12 5 13M14 12 19 13M10 14 6 18M14 14 18 18"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <ellipse cx="14" cy="20.2" rx="4.4" ry="5" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M10.4 19.2h7.2M10.8 22h6.4" stroke="#ffffff" stroke-opacity="0.45" stroke-width="1.1" stroke-linecap="round"/>
+        <ellipse cx="14" cy="13.2" rx="2.7" ry="2.8" fill="currentColor" fill-opacity="0.72" stroke="currentColor" stroke-width="1.4"/>
+        <circle cx="14" cy="7.6" r="2.6" fill="currentColor"/>
+        <circle cx="13" cy="7.1" r="0.7" fill="#06120c"/><circle cx="15" cy="7.1" r="0.7" fill="#06120c"/>
+        <path d="M12.2 5.4 9.6 2.8M15.8 5.4 18.4 2.8" stroke="#ffe78a" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M11.3 12 6.4 9.5 4.5 11.4M16.7 12 21.6 9.5 23.5 11.4M11.2 14.2 5.8 15 4.2 17.6M16.8 14.2 22.2 15 23.8 17.6M10.6 17.5 6.4 20.5 5.2 23.6M17.4 17.5 21.6 20.5 22.8 23.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`;
     case 'compass':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="9"/>
-        <polygon points="15.5,8.5 13.5,13.5 8.5,15.5 10.5,10.5" fill="currentColor" fill-opacity="0.45"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="10.2" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="14" cy="14" r="7.4" stroke="currentColor" stroke-opacity="0.45" stroke-width="1.1" stroke-dasharray="2.5 2.5"/>
+        <polygon points="19.5,8.5 15.8,15.8 8.5,19.5 12.2,12.2" fill="currentColor" fill-opacity="0.32" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        <polygon points="19.5,8.5 15.5,15.5 12.5,12.5" fill="#fff6cc"/>
+        <circle cx="14" cy="14" r="1.7" fill="#ffffff"/>
       </svg>`;
     case 'sword':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14.5 17.5 3 6V3h3l11.5 11.5"/>
-        <path d="M13 19l6-6M16 16l4 4M19 21l2-2"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M7.5 6.5C5.2 10.5 6 15.8 10.5 19.2L12.8 16.4C10.1 14 9.7 10.4 11 7.6Z" fill="currentColor" fill-opacity="0.48" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M20.5 6.5C22.8 10.5 22 15.8 17.5 19.2L15.2 16.4C17.9 14 18.3 10.4 17 7.6Z" fill="currentColor" fill-opacity="0.48" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M14 4.5 16.4 11.5 14 15.2 11.6 11.5Z" fill="#ffe680" stroke="#ffffff" stroke-width="1.1"/>
+        <path d="M11 19.5h6l-1.2 4h-3.6z" fill="currentColor"/>
       </svg>`;
     case 'speed':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <path d="M4 7h9M2 12h12M6 17h8"/>
-        <circle cx="18" cy="12" r="3" fill="currentColor"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M4.5 18.5C9 18 12.5 14 15 8.5L23.5 6.5C21.2 13.5 16.5 19.2 9.5 22Z" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M12.5 15.2 21.5 8.2" stroke="#ffffff" stroke-opacity="0.7" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M4 9.5h7M2.5 13.5h6.5" stroke="#ffe680" stroke-width="1.8" stroke-linecap="round"/>
       </svg>`;
     case 'hourglass':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M6 3h12M6 21h12M7 3v4l5 5 5-5V3M7 21v-4l5-5 5 5v4"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M7.5 4.5h13M7.5 23.5h13" stroke="#ffe680" stroke-width="2" stroke-linecap="round"/>
+        <path d="M9 5v4.2c0 2.4 2.4 3.8 5 4.8-2.6 1-5 2.4-5 4.8V23h10v-4.2c0-2.4-2.4-3.8-5-4.8 2.6-1 5-2.4 5-4.8V5z" fill="currentColor" fill-opacity="0.22" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M11 21.5h6l-3-4.2z" fill="currentColor"/>
+        <circle cx="14" cy="9.2" r="1.8" fill="#ffffff" fill-opacity="0.75"/>
       </svg>`;
     case 'cleave':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4 12a8 8 0 0 1 16 0"/>
-        <path d="M7 16a5 5 0 0 1 10 0"/>
-        <path d="M12 4v16"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M4.5 17.5A10.5 10.5 0 0 1 23.5 17.5L19.5 19.5A6.8 6.8 0 0 0 8.5 19.5Z" fill="currentColor" fill-opacity="0.35" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M7 11.5A8.2 8.2 0 0 1 21 11.5" stroke="#ffe680" stroke-width="2" stroke-linecap="round"/>
+        <polygon points="14,3.5 16.2,9 14,13 11.8,9" fill="#ffffff" fill-opacity="0.85"/>
       </svg>`;
     case 'bounce':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4 18 11 11 16 16 20 6"/>
-        <path d="M15 6h5v5"/>
-        <circle cx="5" cy="17" r="2" fill="currentColor"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M4.5 21 11.5 12 16.8 17.5 22.8 6.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+        <polygon points="23.8,5.2 17.5,6.6 22.4,11.5" fill="#ffffff"/>
+        <circle cx="5.2" cy="20.6" r="2.6" fill="currentColor" fill-opacity="0.45" stroke="currentColor" stroke-width="1.4"/>
+        <circle cx="11.5" cy="12" r="2.1" fill="#ffe680"/>
+        <circle cx="16.8" cy="17.5" r="2.1" fill="currentColor"/>
       </svg>`;
     case 'queen':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 17 5 8l4.5 4L12 5l2.5 7L19 8l2 9H3z" fill="currentColor" fill-opacity="0.22"/>
-        <path d="M4 20h16"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M4 19.5 6.5 9.5 11.2 13.8 14 6.2 16.8 13.8 21.5 9.5 24 19.5Z" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <rect x="5.5" y="21.2" width="17" height="2.4" rx="1.2" fill="#ffe680"/>
+        <circle cx="14" cy="5.2" r="1.7" fill="#fff6cc"/>
+        <circle cx="6.2" cy="8.5" r="1.4" fill="#ffe680"/>
+        <circle cx="21.8" cy="8.5" r="1.4" fill="#ffe680"/>
+        <polygon points="14,13.2 15.8,16 14,18.2 12.2,16" fill="#ffffff"/>
       </svg>`;
     case 'brood':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3.2" fill="currentColor"/>
-        <circle cx="5.5" cy="7.5" r="1.8" fill="currentColor"/>
-        <circle cx="18.5" cy="7.5" r="1.8" fill="currentColor"/>
-        <circle cx="6.5" cy="17.5" r="1.8" fill="currentColor"/>
-        <circle cx="17.5" cy="17.5" r="1.8" fill="currentColor"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <ellipse cx="14" cy="14" rx="4.4" ry="5.5" fill="currentColor" fill-opacity="0.38" stroke="currentColor" stroke-width="1.6"/>
+        <ellipse cx="7.4" cy="9.2" rx="2.6" ry="3.2" fill="currentColor" fill-opacity="0.65"/>
+        <ellipse cx="20.6" cy="9.2" rx="2.6" ry="3.2" fill="currentColor" fill-opacity="0.65"/>
+        <ellipse cx="7.8" cy="19.2" rx="2.5" ry="3" fill="currentColor" fill-opacity="0.5"/>
+        <ellipse cx="20.2" cy="19.2" rx="2.5" ry="3" fill="currentColor" fill-opacity="0.5"/>
+        <circle cx="13.2" cy="12.2" r="1.3" fill="#ffffff" fill-opacity="0.8"/>
       </svg>`;
     case 'crystal':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
-        <polygon points="12,2 20,12 12,22 4,12" fill="currentColor" fill-opacity="0.25"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <polygon points="14,2.8 22.8,11.8 14,25.2 5.2,11.8" fill="currentColor" fill-opacity="0.28" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <polygon points="14,2.8 18.2,11.8 14,25.2 9.8,11.8" fill="#ffffff" fill-opacity="0.26"/>
+        <path d="M5.6 11.8h16.8" stroke="#ffffff" stroke-opacity="0.65" stroke-width="1.3"/>
       </svg>`;
     case 'swarm':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <circle cx="9" cy="10" r="2.8" fill="currentColor"/>
-        <circle cx="16" cy="14" r="2.4" fill="currentColor" fill-opacity="0.7"/>
-        <path d="M17 5v4M15 7h4"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <circle cx="10.5" cy="12.5" r="4.2" fill="currentColor" fill-opacity="0.42" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="18.2" cy="17.5" r="3.6" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="9.6" cy="11.6" r="1.1" fill="#ffffff"/>
+        <circle cx="17.5" cy="16.8" r="0.9" fill="#ffffff"/>
+        <path d="M19.5 5.5v6M16.5 8.5h6" stroke="#ffe680" stroke-width="2.1" stroke-linecap="round"/>
       </svg>`;
     case 'poison':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 3 C12 3 6.5 10.2 6.5 14.5 A5.5 5.5 0 0 0 17.5 14.5 C17.5 10.2 12 3 12 3 Z" fill="currentColor" fill-opacity="0.28"/>
-        <circle cx="10.5" cy="14.5" r="1.2" fill="currentColor"/>
-        <circle cx="14" cy="16.2" r="0.9" fill="currentColor"/>
-        <circle cx="13.5" cy="12" r="0.8" fill="currentColor"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M11 4.5h6v3.5l4.6 7.5a6.2 6.2 0 0 1-5.3 9.4h-4.6a6.2 6.2 0 0 1-5.3-9.4L11 8z" fill="currentColor" fill-opacity="0.24" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.4 17.5c2.2-1.2 4.2 1.2 6.4 0 1.8-1 3.3-.4 4.8.4a5.2 5.2 0 0 1-4.2 5.6h-2.8a5.2 5.2 0 0 1-4.2-6z" fill="#b4ff4d" fill-opacity="0.72"/>
+        <circle cx="12.2" cy="15.2" r="1.2" fill="#e8ff99"/><circle cx="16.2" cy="13.5" r="0.9" fill="#e8ff99"/>
       </svg>`;
     case 'evo':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="12,2 16,8 22,12 16,16 12,22 8,16 2,12 8,8" fill="currentColor" fill-opacity="0.24"/>
-        <circle cx="12" cy="12" r="3" fill="currentColor"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <polygon points="14,2.2 17.8,9.2 25.8,14 17.8,18.8 14,25.8 10.2,18.8 2.2,14 10.2,9.2" fill="currentColor" fill-opacity="0.32" stroke="#ffe680" stroke-width="1.7" stroke-linejoin="round"/>
+        <polygon points="14,6.8 16.8,11.6 21.2,14 16.8,16.4 14,21.2 11.2,16.4 6.8,14 11.2,11.6" fill="#ffffff" fill-opacity="0.32"/>
+        <circle cx="14" cy="14" r="2.8" fill="#fff7cc"/>
       </svg>`;
     case 'radar':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="9" stroke-opacity="0.45"/>
-        <circle cx="12" cy="12" r="5" stroke-opacity="0.8"/>
-        <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
-        <path d="M12 12 L18.5 6.5"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="10" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-opacity="0.55" stroke-width="1.5"/>
+        <circle cx="14" cy="14" r="6" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M14 14 L21.5 7.5" stroke="#ffe680" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="14" cy="14" r="2.2" fill="#ffffff"/>
+        <circle cx="19.5" cy="17.5" r="1.4" fill="#ffe680"/>
       </svg>`;
     case 'beacon':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 21 C12 21 6.5 14.5 6.5 9.8 A5.5 5.5 0 1 1 17.5 9.8 C17.5 14.5 12 21 12 21 Z" fill="currentColor" fill-opacity="0.25"/>
-        <circle cx="12" cy="9.5" r="2.2" fill="currentColor"/>
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <path d="M14 24.5S7.2 17 7.2 11.5a6.8 6.8 0 1 1 13.6 0c0 5.5-6.8 13-6.8 13z" fill="currentColor" fill-opacity="0.3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <circle cx="14" cy="11.2" r="2.8" fill="#fff6cc"/>
+      </svg>`;
+    case 'phase':
+      return `<svg viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="9.6" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 3"/>
+        <ellipse cx="14" cy="14" rx="9" ry="4" transform="rotate(-35 14 14)" stroke="#d29bff" stroke-width="1.5"/>
+        <ellipse cx="14" cy="14" rx="9" ry="4" transform="rotate(35 14 14)" stroke="currentColor" stroke-width="1.5"/>
+        <polygon points="14,9 17.5,14 14,19 10.5,14" fill="#ffffff" fill-opacity="0.9"/>
       </svg>`;
   }
+}
+
+/** Crisp pixel-textured SVG rock block previews for the elevated Guide Codex! */
+function renderGuideBlockSvg(kind: 'soil' | 'clay' | 'stone' | 'obsidian' | 'art'): string {
+  switch (kind) {
+    case 'soil':
+      return `<svg viewBox="0 0 36 36" shape-rendering="crispEdges">
+        <rect width="36" height="36" rx="6" fill="#4f3721"/>
+        <rect x="2" y="2" width="32" height="9" rx="3" fill="#6d4c2f"/>
+        <rect x="5" y="14" width="6" height="4" fill="#3a2616"/>
+        <rect x="20" y="12" width="8" height="4" fill="#6b4a2e"/>
+        <rect x="12" y="22" width="9" height="5" fill="#382414"/>
+        <rect x="25" y="24" width="6" height="4" fill="#64452b"/>
+        <rect x="4" y="27" width="5" height="4" fill="#5e4128"/>
+      </svg>`;
+    case 'clay':
+      return `<svg viewBox="0 0 36 36" shape-rendering="crispEdges">
+        <rect width="36" height="36" rx="6" fill="#7c4529"/>
+        <rect x="0" y="7" width="36" height="5" fill="#9a5937"/>
+        <rect x="0" y="19" width="36" height="4" fill="#64341d"/>
+        <rect x="0" y="28" width="36" height="4" fill="#8f5131"/>
+        <rect x="6" y="13" width="10" height="4" fill="#592e18"/>
+        <rect x="22" y="23" width="9" height="4" fill="#a8623d"/>
+      </svg>`;
+    case 'stone':
+      return `<svg viewBox="0 0 36 36" shape-rendering="crispEdges">
+        <rect width="36" height="36" rx="6" fill="#505a64"/>
+        <polygon points="3,3 19,3 15,16 3,18" fill="#6a7682"/>
+        <polygon points="21,4 33,4 33,20 18,17" fill="#5b6672"/>
+        <polygon points="4,20 17,19 20,33 4,33" fill="#434c56"/>
+        <polygon points="20,19 33,22 33,33 22,33" fill="#606c78"/>
+        <path d="M18 3 L15 17 L20 33 M3 18 L33 21" stroke="#2c333b" stroke-width="2"/>
+      </svg>`;
+    case 'obsidian':
+      return `<svg viewBox="0 0 36 36" shape-rendering="crispEdges">
+        <rect width="36" height="36" rx="6" fill="#231438"/>
+        <polygon points="4,6 16,4 12,18 4,14" fill="#3a2159"/>
+        <polygon points="19,5 32,7 28,22 16,17" fill="#321b4e"/>
+        <polygon points="7,20 22,22 30,32 8,32" fill="#2a1642"/>
+        <path d="M9 7 L17 16 L27 11 M12 27 L21 19 L29 27" stroke="#c882ff" stroke-width="2" stroke-linecap="round"/>
+        <rect x="25" y="9" width="3" height="3" fill="#f0d4ff"/>
+      </svg>`;
+    case 'art':
+      return `<svg viewBox="0 0 36 36">
+        <defs>
+          <linearGradient id="gArtGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="48%" stop-color="#6effb8"/>
+            <stop offset="100%" stop-color="#60e2ff"/>
+          </linearGradient>
+        </defs>
+        <rect width="36" height="36" rx="6" fill="#0c1b18"/>
+        <rect x="4" y="4" width="28" height="28" rx="4" fill="none" stroke="url(#gArtGrad)" stroke-width="2.4"/>
+        <polygon points="18,8 26,18 18,28 10,18" fill="url(#gArtGrad)" fill-opacity="0.28" stroke="#ffffff" stroke-width="1.6"/>
+        <circle cx="18" cy="18" r="3" fill="#ffffff"/>
+      </svg>`;
+  }
+}
+
+/** Articulated colorful mini-ant SVGs for the Guide Codex (animated on card hover!) */
+function renderGuideAntSvg(id: string, color: string): string {
+  if (id === 'beetle') {
+    return `<svg class="guide-ant-svg" viewBox="0 0 36 36" fill="none">
+      <ellipse cx="18" cy="20" rx="8.5" ry="9.5" fill="#c8261a" stroke="#ff9848" stroke-width="1.6"/>
+      <path d="M18 11v18" stroke="#ffe678" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="18" cy="9.5" r="4" fill="#ff7838"/>
+      <circle cx="18" cy="20" r="3" fill="#fff6cc"/>
+      <path d="M10 15 5 12M26 15 31 12M9.5 21 4.5 21M26.5 21 31.5 21M11 26.5 6 29.5M25 26.5 30 29.5" stroke="#ffaa66" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>`;
+  }
+  const crown = id === 'queen' ? `<path d="M13 6 15 3 18 5.2 21 3 23 6Z" fill="#ffe680"/>` : '';
+  const ring = id === 'phantom' ? `<circle cx="18" cy="18" r="14" stroke="#c892ff" stroke-width="1.3" stroke-dasharray="4 3"/>` : '';
+  const mand = id === 'warrior'
+    ? `<path d="M15 9.5C12.2 6.8 12.2 4.5 14.5 3M21 9.5C23.8 6.8 23.8 4.5 21.5 3" stroke="#ffe26a" stroke-width="2.4" stroke-linecap="round"/>`
+    : `<path d="M16 9.5 13.5 5.2M20 9.5 22.5 5.2" stroke="#e8fff2" stroke-width="1.6" stroke-linecap="round"/>`;
+  return `<svg class="guide-ant-svg" viewBox="0 0 36 36" fill="none">
+    ${ring}
+    <path d="M14 15.5 7 12.5 5 15M22 15.5 29 12.5 31 15M13.5 18.5 6.5 19.5 5 22.5M22.5 18.5 29.5 19.5 31 22.5M13.5 22 7.5 25.5 6.5 29.5M22.5 22 28.5 25.5 29.5 29.5" stroke="${color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    <ellipse cx="18" cy="25.5" rx="${id === 'queen' ? 7 : 5.2}" ry="${id === 'queen' ? 6.5 : 5.8}" fill="${color}" fill-opacity="0.58" stroke="${color}" stroke-width="1.5"/>
+    <ellipse cx="18" cy="17.2" rx="3.4" ry="3.6" fill="${color}" fill-opacity="0.88"/>
+    <circle cx="18" cy="10.8" r="${id === 'warrior' ? 4.2 : 3.2}" fill="${color}"/>
+    <circle cx="16.5" cy="10" r="0.9" fill="#07120d"/><circle cx="19.5" cy="10" r="0.9" fill="#07120d"/>
+    ${mand}${crown}
+  </svg>`;
 }
 
 export class HudController {
@@ -194,6 +313,9 @@ export class HudController {
   private menuProgressCountEl = document.getElementById('menu-progress-count')!;
   private menuGalleryCountEl = document.getElementById('menu-gallery-count')!;
   private menuMutCountEl = document.getElementById('menu-mut-count')!;
+  private menuCurrencyValEl = document.getElementById('menu-currency-val')!;
+  private menuShopMetaEl = document.getElementById('menu-shop-meta')!;
+  private menuVersionPillEl = document.getElementById('menu-version-pill')!;
 
   // Classic HUD elements
   private hudTopEl = document.getElementById('hud-top')!;
@@ -246,6 +368,7 @@ export class HudController {
   private sugarFoundCtaEl = document.getElementById('sugar-found-cta') as HTMLButtonElement;
   private epicClearBannerEl = document.getElementById('epic-clear-banner')!;
   private epicClearTitleEl = document.getElementById('epic-clear-title')!;
+  private epicClearStatsEl = document.getElementById('epic-clear-stats')!;
   private epicBtnSavePngEl = document.getElementById('epic-btn-save-png') as HTMLButtonElement;
   private epicBtnNextEl = document.getElementById('epic-btn-next') as HTMLButtonElement;
   private toastContainerEl = document.getElementById('toast-container')!;
@@ -298,6 +421,7 @@ export class HudController {
   private selectedNodeId: string = 'worker_root';
   private lastBoughtNodeId: string | null = null;
   private lastSkillPointerType = 'mouse';
+  private shopPreviewRafId = 0;
   private tutorialStep: 'launch' | 'zoom' | 'pan' | 'done' = 'launch';
   private introTimers: number[] = [];
   private introRafId = 0;
@@ -374,6 +498,7 @@ export class HudController {
     this.bindButtons();
     this.bindUiSounds();
     this.applyExternalLinksPolicy();
+    this.menuBg.setSkin(this.engine.skillTree.state.settings.selectedSkin || 'classic');
     this.applyLanguage();
     // Defer MenuBackground animation until Language Picker / Splash finishes so ZERO canvases render underneath them!
     this.showMainMenu(false);
@@ -466,19 +591,25 @@ export class HudController {
     }
     setText('menu-tagline', t('tagline'));
     setText('menu-mp-label', t('multiplayer'));
-    setText('menu-mp-meta', t('mpMeta'));
-    setText('menu-art-label', t('secretFinds'));
-    setText('menu-ach-label', t('achievements'));
+    setText('menu-mp-meta', '🚧');
+    setText('menu-shop-label', t('shopBtn'));
+    setText('menu-art-label', getLang() === 'en' ? 'Finds' : 'Находки');
+    setText('menu-ach-label', getLang() === 'en' ? 'Badges' : 'Ачивки');
     setText('menu-guide-label', t('guideBtn'));
-    setText('menu-guide-meta', t('guideMeta'));
     setText('menu-lbl-levels', t('maps'));
     setText('menu-lbl-gallery', t('gallery'));
     setText('menu-lbl-stats', t('stats'));
     setText('menu-lbl-mutations', t('mutations'));
     setText('menu-lbl-settings', t('settings'));
     setText('menu-lbl-credits', t('credits'));
-    setText('menu-boosty-text', t('allContentBoosty'));
+    setText('menu-exit-label', t('exitBtn'));
+    setText('menu-boosty-text', t('fullGameBtn'));
+    setText('fg-tip-title', t('fullGameTooltipTitle'));
+    setText('fg-tip-body', t('fullGameTooltipBody'));
     setText('menu-tg-text', t('ourTelegram'));
+    this.menuVersionPillEl.textContent = GAME_VERSION;
+    setTitle('menu-btn-changelog', t('changelogTitle'));
+    setTitle('menu-currency-pill', `${t('shopBalance')} — ${t('shopTitle')}`);
 
     // Classic HUD tooltips & labels
     setTitle('btn-menu', t('tipMainMenu'));
@@ -573,7 +704,7 @@ export class HudController {
   private bindUiSounds() {
     let lastHovered: Element | null = null;
     const selector =
-      '.mbtn, .mbtn-mini, .menu-lang-btn, .lang-pick-card, .beacon-fab, .auto-config-pill, .auto-mode-chip, .auto-ant-chip, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card, .guide-tab';
+      '.mbtn, .mbtn-mini, .mbtn-util, .menu-corner-btn, .menu-lang-btn, .lang-pick-card, .beacon-fab, .auto-config-pill, .auto-mode-chip, .auto-ant-chip, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card, .guide-tab';
     document.addEventListener('pointerover', (e) => {
       if ((e as PointerEvent).pointerType === 'touch') return;
       const btn = (e.target as HTMLElement | null)?.closest(selector);
@@ -878,6 +1009,9 @@ export class HudController {
       this.showToast(t('mpInDevToast'));
     });
 
+    document.getElementById('menu-btn-changelog')!.addEventListener('click', () => this.openChangelogModal());
+    document.getElementById('menu-currency-pill')!.addEventListener('click', () => this.openShopModal());
+    document.getElementById('menu-btn-shop')!.addEventListener('click', () => this.openShopModal());
     document.getElementById('menu-btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
     document.getElementById('menu-btn-achievements')!.addEventListener('click', () => this.openAchievementsModal());
     document.getElementById('menu-btn-guide')!.addEventListener('click', () => this.openGuideModal('ants'));
@@ -887,6 +1021,29 @@ export class HudController {
     document.getElementById('menu-btn-mutations')!.addEventListener('click', () => this.openMutationsModal());
     document.getElementById('menu-btn-settings')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('menu-btn-credits')!.addEventListener('click', () => this.openCreditsModal());
+    document.getElementById('menu-btn-exit')!.addEventListener('click', () => {
+      this.engine.saveRunProgress();
+      if (!exitGameApp()) {
+        this.showToast(t('exitWebToast'));
+      }
+    });
+    document.getElementById('menu-boosty-link')?.addEventListener('click', () => {
+      this.openFullGameModal();
+    });
+    document.getElementById('menu-tg-link')?.addEventListener('click', () => {
+      this.engine.skillTree.unlockAchievement('visit_telegram');
+      this.syncMenuSummary();
+    });
+    // Secret easter egg: boop a crawling background ant in the Main Menu!
+    this.mainMenuEl.addEventListener('pointerdown', (e) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || target.closest('button, a, .full-game-wrap')) return;
+      if (this.menuBg.hitTestAndBoop(e.clientX, e.clientY)) {
+        this.engine.audio.ensureStarted();
+        this.engine.audio.playRevealPop(1);
+        this.engine.skillTree.unlockAchievement('menu_ant_boop');
+      }
+    });
 
     // Classic HUD buttons
     document.getElementById('btn-menu')!.addEventListener('click', () => this.showMainMenu());
@@ -1246,9 +1403,12 @@ export class HudController {
     this.menuGalleryCountEl.textContent = `${skillTree.getDiscoveredGalleryCount()}/${LEVELS.length}`;
     this.menuMutCountEl.textContent = String(skillTree.state.mutations.length);
     const artCnt = skillTree.state.artifacts.length;
-    this.menuArtCountEl.textContent = `${artCnt}/${SECRET_ARTIFACTS.length} • +${artCnt} ♦`;
+    this.menuArtCountEl.textContent = `${artCnt}/${SECRET_ARTIFACTS.length}`;
     const achCnt = skillTree.state.achievements.length;
-    this.menuAchCountEl.textContent = `${achCnt}/${ACHIEVEMENTS.length} • +${achCnt}% ⚡`;
+    this.menuAchCountEl.textContent = `${achCnt}/${ACHIEVEMENTS.length}`;
+    const cur = skillTree.state.sugarCurrency;
+    this.menuCurrencyValEl.textContent = String(cur);
+    this.menuShopMetaEl.textContent = `🍬 ${cur}`;
   }
 
   /* =========================================================
@@ -1325,7 +1485,8 @@ export class HudController {
 
   private handleAchievementUnlocked(ach: AchievementDef) {
     this.engine.audio.playAchievementUnlock();
-    this.showToast(t('achUnlockedToast', { name: loc(ach.name, ach.nameEn) }), 'ach');
+    const curSuffix = ach.currencyReward ? ` +${ach.currencyReward} 🍬` : '';
+    this.showToast(`${t('achUnlockedToast', { name: loc(ach.name, ach.nameEn) })}${curSuffix}`, 'ach');
     this.syncMenuSummary();
     this.statAchCountEl.textContent = `${this.engine.skillTree.state.achievements.length}/${ACHIEVEMENTS.length}`;
   }
@@ -2356,6 +2517,7 @@ export class HudController {
 
     this.mpAntBarEl.innerHTML = '';
     for (const id of PLAYABLE_ANTS) {
+      if (id === 'phantom') continue;
       const cfg = ANT_TYPES[id];
       const unlocked = this.mp.isAntUnlocked(id);
       const activeCount = this.mp.countAnts(st.localPlayerId, id);
@@ -2474,6 +2636,28 @@ export class HudController {
     const isDemoCap = isDemoVersion && idx >= DEMO_MAX_LEVELS - 1;
     this.epicCurrentLevel = level;
     this.epicClearTitleEl.textContent = loc(level.name, level.nameEn);
+
+    // Render per-run breakdown: Top Damage MVP + deployed count per ant type!
+    const runStats = this.engine.getRunClearStats();
+    const spawnChips = runStats.spawns
+      .map((s) => {
+        const cfg = ANT_TYPES[s.type];
+        return `<span class="epic-stat-chip" style="--ec-col:${cfg.color}">${escapeHtml(loc(cfg.shortName, cfg.shortNameEn))} <strong>×${s.count}</strong></span>`;
+      })
+      .join('');
+    if (runStats.topDamage || spawnChips) {
+      const mvpHtml = runStats.topDamage
+        ? `<div class="epic-mvp-line">${t('epicTopDmg')}: <strong style="color:${ANT_TYPES[runStats.topDamage.type].color}">${escapeHtml(loc(ANT_TYPES[runStats.topDamage.type].name, ANT_TYPES[runStats.topDamage.type].nameEn))}</strong> — <span>${formatNum(runStats.topDamage.damage)} ${t('epicDmgUnit')}</span></div>`
+        : '';
+      const spawnsHtml = spawnChips
+        ? `<div class="epic-spawns-row"><span class="epic-spawns-lbl">${t('epicSpawnedLabel')}:</span> ${spawnChips}</div>`
+        : '';
+      this.epicClearStatsEl.innerHTML = `${mvpHtml}${spawnsHtml}`;
+      this.epicClearStatsEl.classList.remove('hidden');
+    } else {
+      this.epicClearStatsEl.classList.add('hidden');
+    }
+
     if (isDemoCap) {
       this.epicBtnNextEl.textContent = t('demoUnlockCta');
       this.epicNextAction = () => {
@@ -2497,6 +2681,7 @@ export class HudController {
   showMpEpicClearBanner() {
     this.epicCurrentLevel = this.mp.state.level;
     this.epicClearTitleEl.textContent = loc(this.mp.state.level.name, this.mp.state.level.nameEn);
+    this.epicClearStatsEl.classList.add('hidden');
     this.epicBtnNextEl.textContent = t('epicNext');
     this.epicNextAction = () => {
       this.mp.advanceToNextCoopLevel();
@@ -2883,26 +3068,35 @@ export class HudController {
 
     for (const ach of ACHIEVEMENTS) {
       const isDone = unlockedIds.includes(ach.id);
+      const isHiddenSecret = Boolean(ach.secret && !isDone);
       const rawProg = Math.max(0, Math.min(ach.goal, ach.getProgress(state)));
       const progPct = ach.goal > 0 ? Math.round((rawProg / ach.goal) * 100) : 0;
 
       const card = document.createElement('div');
-      card.className = `ach-card ${isDone ? 'unlocked' : 'locked'}`;
+      card.className = `ach-card ${isDone ? 'unlocked' : 'locked'}${ach.secret ? ' secret' : ''}`;
       card.style.setProperty('--ach-color', ach.accent);
       const wipNote =
         !isDone && ach.id === 'coop_play'
           ? ` (${getLang() === 'en' ? 'in development' : 'в разработке'})`
           : '';
+      const displayName = isHiddenSecret ? t('achSecretName') : escapeHtml(loc(ach.name, ach.nameEn));
+      const displayDesc = isHiddenSecret ? t('achSecretDesc') : `${escapeHtml(loc(ach.description, ach.descriptionEn))}${wipNote}`;
+      const curPill = ach.currencyReward
+        ? `<span class="ach-currency-pill">${isDone ? '✓ ' : ''}🍬 +${ach.currencyReward}</span>`
+        : '';
       card.innerHTML = `
-        <div class="ach-icon-box">${ach.icon}</div>
+        <div class="ach-icon-box">${isHiddenSecret ? '🔒' : ach.icon}</div>
         <div class="card-row-info" style="flex:1;min-width:0;">
           <div class="card-row-title">
-            <span style="color:${isDone ? ach.accent : 'var(--text-main)'}">${escapeHtml(loc(ach.name, ach.nameEn))}</span>
-            ${isDone ? '<span class="badge-done">✓ +1% ⚡</span>' : '<span style="font-size:11px;color:var(--text-muted);">+1% ⚡</span>'}
+            <span style="color:${isDone ? ach.accent : 'var(--text-main)'}">${displayName}</span>
+            <span style="display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;">
+              ${curPill}
+              ${isDone ? '<span class="badge-done">✓ +1% ⚡</span>' : '<span style="font-size:11px;color:var(--text-muted);">+1% ⚡</span>'}
+            </span>
           </div>
-          <div class="card-row-desc">${escapeHtml(loc(ach.description, ach.descriptionEn))}${wipNote}</div>
+          <div class="card-row-desc">${displayDesc}</div>
           ${
-            !isDone && ach.goal > 1
+            !isDone && !isHiddenSecret && ach.goal > 1
               ? `<div class="ach-mini-bar">
                   <div class="ach-mini-track"><div class="ach-mini-fill" style="width:${progPct}%"></div></div>
                   <span class="ach-mini-num">${formatNum(rawProg)} / ${formatNum(ach.goal)}</span>
@@ -2915,7 +3109,7 @@ export class HudController {
     }
   }
 
-  /** Interactive 4-Tab Colony Guide Book (Ants & Evolutions / Rocks & HP / Underground Finds / Controls & Tips) */
+  /** Interactive 4-Tab Illuminated Colony Guide Codex (Animated Ant Icons + Pixel-Textured Zooming Rock Blocks!) */
   openGuideModal(activeTab: 'ants' | 'blocks' | 'finds' | 'tips' = 'ants') {
     this.openModal(t('guideTitle'));
     this.renderGuideContent(activeTab);
@@ -2925,6 +3119,9 @@ export class HudController {
     const en = getLang() === 'en';
     this.modalTitleEl.textContent = t('guideTitle');
     this.modalBodyEl.innerHTML = '';
+
+    const codex = document.createElement('div');
+    codex.className = 'guide-codex';
 
     const tabsBar = document.createElement('div');
     tabsBar.className = 'guide-tabs';
@@ -2942,95 +3139,104 @@ export class HudController {
       btn.addEventListener('click', () => this.renderGuideContent(tb.id));
       tabsBar.appendChild(btn);
     }
-    this.modalBodyEl.appendChild(tabsBar);
+    codex.appendChild(tabsBar);
 
     const content = document.createElement('div');
     content.className = 'guide-content';
 
     if (activeTab === 'ants') {
       const antEntries: {
+        id: string;
         color: string;
-        icon: string;
         name: string;
         role: string;
         stats: string[];
         evo?: string;
       }[] = [
         {
+          id: 'worker',
           color: ANT_TYPES.worker.color,
-          icon: renderSkillSvg('ant'),
           name: loc(ANT_TYPES.worker.name, ANT_TYPES.worker.nameEn),
           role: loc(ANT_TYPES.worker.description, ANT_TYPES.worker.descriptionEn),
           stats: en
-            ? ['DMG: 1', 'SPD: 12.5', 'CAP: 6', 'LIFE: 75s']
-            : ['УРОН: 1', 'СКОР: 12.5', 'ЛИМИТ: 6', 'ЖИЗНЬ: 75с'],
+            ? ['DMG: 1', 'SPD: 10.0', 'CAP: 6', 'LIFE: 75s']
+            : ['УРОН: 1', 'СКОР: 10.0', 'ЛИМИТ: 6', 'ЖИЗНЬ: 75с'],
           evo: en
             ? 'Evolution (10 SP, after Level 1): +12% speed, +1 dmg, +1 cap, wider dig, 15% emerald micro-pulse.'
             : 'Эволюция (10 ♦, после 1-го ур.): +12% скорости, +1 урон, +1 лимит, шире проход, 15% шанс импульса.'
         },
         {
+          id: 'warrior',
           color: ANT_TYPES.warrior.color,
-          icon: renderSkillSvg('sword'),
           name: loc(ANT_TYPES.warrior.name, ANT_TYPES.warrior.nameEn),
           role: loc(ANT_TYPES.warrior.description, ANT_TYPES.warrior.descriptionEn),
           stats: en
-            ? ['DMG: 3', 'SPD: 9.2', 'CAP: 2', 'CLEAVE: 1.95 (+0.85/lvl)']
-            : ['УРОН: 3', 'СКОР: 9.2', 'ЛИМИТ: 2', 'РАДИУС: 1.95 (+0.85/ур.)'],
+            ? ['DMG: 3', 'SPD: 7.4', 'CAP: 2', 'CLEAVE: 1.95 (+0.85/lvl)']
+            : ['УРОН: 3', 'СКОР: 7.4', 'ЛИМИТ: 2', 'РАДИУС: 1.95 (+0.85/ур.)'],
           evo: en
-            ? 'Evolution (20 SP, after Level 2): Hitting an indestructible wall spawns a regular Warrior copy (max 2 live).'
-            : 'Эволюция (20 ♦, после 2-го ур.): Удар о нерушимый блок порождает обычного Воина (до 2 одновременно).'
+            ? 'Evolution (20 SP, after Level 2): Hitting an indestructible wall spawns up to 2 spectral half-strength clones per summoned Warrior.'
+            : 'Эволюция (20 ♦, после 2-го ур.): Удар о нерушимый блок порождает до 2 призрачных клонов (в 2 раза слабее) на каждого призванного Воина.'
         },
         {
+          id: 'scout',
           color: ANT_TYPES.scout.color,
-          icon: renderSkillSvg('bounce'),
           name: loc(ANT_TYPES.scout.name, ANT_TYPES.scout.nameEn),
           role: loc(ANT_TYPES.scout.description, ANT_TYPES.scout.descriptionEn),
           stats: en
-            ? ['DMG: 1', 'SPD: 27', 'CAP: 4', 'ACID DOT: up to 3.5/s']
-            : ['УРОН: 1', 'СКОР: 27', 'ЛИМИТ: 4', 'ЯД: до 3.5/сек'],
+            ? ['DMG: 1', 'SPD: 19.4', 'CAP: 4', 'ACID DOT: up to 3.5/s']
+            : ['УРОН: 1', 'СКОР: 19.4', 'ЛИМИТ: 4', 'ЯД: до 3.5/сек'],
           evo: en
             ? 'Evolution (20 SP, after Level 3): Colliding with another ant triggers a toxic blast & acid cloud.'
             : 'Эволюция (20 ♦, после 3-го ур.): Столкновение с другим муравьём вызывает ядовитый взрыв вокруг.'
         },
         {
+          id: 'queen',
           color: ANT_TYPES.queen.color,
-          icon: renderSkillSvg('queen'),
           name: loc(ANT_TYPES.queen.name, ANT_TYPES.queen.nameEn),
           role: loc(ANT_TYPES.queen.description, ANT_TYPES.queen.descriptionEn),
           stats: en
             ? ['AURA: +35% SPD & +1 DMG', 'RADIUS: 13px', 'CAP: 1', 'LIFE: 135s']
             : ['АУРА: +35% СКОР и +1 УРОН', 'РАДИУС: 13 пикс.', 'ЛИМИТ: 1', 'ЖИЗНЬ: 135с'],
           evo: en
-            ? 'Evolution (25 SP, after Level 4): Doubles aura radius (×2 = 26px) + 5% chance to hatch an Exploding Beetle!'
-            : 'Эволюция (25 ♦, после 4-го ур.): Удваивает радиус ауры (×2 = 26 пикс.) и даёт 5% шанс родить взрывного жучка!'
+            ? 'Evolution (25 SP, after Level 4, Full Game): Doubles aura radius (×2 = 26px) + 5% chance to hatch an Exploding Beetle!'
+            : 'Эволюция (25 ♦, после 4-го ур., Полная игра): Удваивает радиус ауры (×2 = 26 пикс.) и даёт 5% шанс родить взрывного жучка!'
         },
         {
+          id: 'compass',
           color: ANT_TYPES.compass.color,
-          icon: renderSkillSvg('compass'),
           name: loc(ANT_TYPES.compass.name, ANT_TYPES.compass.nameEn),
           role: loc(ANT_TYPES.compass.description, ANT_TYPES.compass.descriptionEn),
           stats: en
-            ? ['DMG: 3', 'SPD: 26', 'RUN: 6.5s', 'CD: 2 min']
-            : ['УРОН: 3', 'СКОР: 26', 'БЕГ: 6.5с', 'КД: 2 мин']
+            ? ['DMG: 3', 'SPD: 20.8', 'RUN: 6.5s', 'CD: 2 min']
+            : ['УРОН: 3', 'СКОР: 20.8', 'БЕГ: 6.5с', 'КД: 2 мин']
         },
         {
+          id: 'phantom',
+          color: ANT_TYPES.phantom.color,
+          name: `${loc(ANT_TYPES.phantom.name, ANT_TYPES.phantom.nameEn)} (🍬 2)`,
+          role: loc(ANT_TYPES.phantom.description, ANT_TYPES.phantom.descriptionEn),
+          stats: en
+            ? ['DMG: 2', 'SPD: 10.6', 'CAP: 2', 'BLINK: every 6s']
+            : ['УРОН: 2', 'СКОР: 10.6', 'ЛИМИТ: 2', 'СКАЧОК: раз в 6с']
+        },
+        {
+          id: 'beetle',
           color: ANT_TYPES.beetle.color,
-          icon: '<span style="font-size:20px;line-height:1;">🪲</span>',
           name: loc(ANT_TYPES.beetle.name, ANT_TYPES.beetle.nameEn),
           role: loc(ANT_TYPES.beetle.description, ANT_TYPES.beetle.descriptionEn),
           stats: en
-            ? ['BLAST DMG: 12+', 'BLAST RADIUS: 5.2', '5% FROM EVOLVED QUEEN']
-            : ['УРОН ВЗРЫВА: 12+', 'РАДИУС: 5.2', '5% ОТ ЭВО-МАТКИ']
+            ? ['BLAST DMG: 12+', 'RADIUS: 5.2', 'SPD: 11.5', '5% FROM EVO QUEEN']
+            : ['УРОН ВЗРЫВА: 12+', 'РАДИУС: 5.2', 'СКОР: 11.5', '5% ОТ ЭВО-МАТКИ']
         }
       ];
 
       for (const item of antEntries) {
         const card = document.createElement('div');
-        card.className = 'guide-card';
+        card.className = 'guide-card guide-ant-card';
         card.style.setProperty('--g-color', item.color);
         card.innerHTML = `
           <div class="guide-card-head">
-            <div class="guide-icon-box">${item.icon}</div>
+            <div class="guide-icon-box guide-ant-icon-box">${renderGuideAntSvg(item.id, item.color)}</div>
             <div class="guide-card-head-info">
               <div class="guide-card-title">${escapeHtml(item.name)}</div>
               <div class="guide-stat-chips">${item.stats.map((s) => `<span class="guide-chip">${escapeHtml(s)}</span>`).join('')}</div>
@@ -3042,55 +3248,61 @@ export class HudController {
         content.appendChild(card);
       }
     } else if (activeTab === 'blocks') {
-      const blocks: { swatch: string; name: string; hp: string; desc: string }[] = [
+      const blocks: { kind: 'soil' | 'clay' | 'stone' | 'obsidian' | 'art'; accent: string; name: string; hp: string; desc: string }[] = [
         {
-          swatch: 'linear-gradient(135deg, #5e442c, #3b2919)',
+          kind: 'soil',
+          accent: '#9a7149',
           name: en ? 'Soft Soil' : 'Мягкая земля',
-          hp: '3 HP',
+          hp: en ? '3 HP (Lvl 7–8: 5 HP)' : '3 HP (Ур. 7–8: 5 HP)',
           desc: en
             ? 'Outer subterranean layer around the Nest. Workers and Brood chew right through it effortlessly.'
             : 'Рыхлый верхний слой вокруг гнезда. Легко и быстро прогрызается Рабочими и выводком.'
         },
         {
-          swatch: 'linear-gradient(135deg, #8e5234, #59301d)',
+          kind: 'clay',
+          accent: '#c97446',
           name: en ? 'Dense Clay' : 'Плотная глина',
-          hp: '8 HP',
+          hp: en ? '8 HP (Lvl 7–8: 12 HP)' : '8 HP (Ур. 7–8: 12 HP)',
           desc: en
             ? 'Thicker mineral veins mid-map. Upgrade Worker jaws, Stone Eaters, or send Warriors to carve faster.'
             : 'Плотные пласты в глубине карты. Улучшайте жвалы, «Камнеедов» или запускайте Воинов.'
         },
         {
-          swatch: 'linear-gradient(135deg, #68737d, #3b4249)',
+          kind: 'stone',
+          accent: '#90a4b8',
           name: en ? 'Ancient Stone' : 'Камень',
-          hp: '18 HP',
+          hp: en ? '18 HP (Lvl 7–8: 27 HP)' : '18 HP (Ур. 7–8: 27 HP)',
           desc: en
             ? 'Tough rock formations shielding outer regions. Warriors, Scout Acid Poison, and Queen aura shine here.'
             : 'Твёрдая горная порода в дальних секторах. Отлично пробивается Воинами, ядом Разведчиков и аурой Матки.'
         },
         {
-          swatch: 'linear-gradient(135deg, #4b3169, #1f132e)',
+          kind: 'obsidian',
+          accent: '#b46eff',
           name: en ? 'Obsidian' : 'Обсидиан',
-          hp: '36 HP',
+          hp: en ? '36 HP (Lvl 7–8: 54 HP)' : '36 HP (Ур. 7–8: 54 HP)',
           desc: en
-            ? 'The hardest breakable rock on extreme maps and deep pockets. Use Wide Cleave Warriors, Poison, and Beetles!'
-            : 'Самая прочная разрушаемая порода на сложных картах. Используйте Воинов с захватом, яд и взрывных жучков!'
+            ? 'The hardest breakable rock on extreme maps and deep pockets. Use Wide Cleave Warriors, Poison, Phase Ants & Beetles!'
+            : 'Самая прочная разрушаемая порода на сложных картах. Используйте Воинов с захватом, яд, Фазовых муравьёв и жучков!'
         },
         {
-          swatch: 'linear-gradient(135deg, #ffffff, #63ffa0, #5ce8ff)',
+          kind: 'art',
+          accent: '#6effb8',
           name: en ? 'Hidden Artwork (Indestructible)' : 'Скрытая картина (Нерушимый блок)',
           hp: en ? '∞ Indestructible' : '∞ Нерушимый',
           desc: en
             ? 'Glowing pixel-art silhouette buried inside every map. Deflects ants, seals the map boundary, and triggers Evolved Warrior clones!'
-            : 'Светящиеся линии тайной картины внутри карты. Не разрушается, направляет муравьёв и активирует клонирование Эво-Воина!'
+            : 'Светящиеся линии тайной картины внутри карты. Не разрушается, направляет муравьёв и активирует клонов Эво-Воина!'
         }
       ];
 
       for (const blk of blocks) {
         const card = document.createElement('div');
-        card.className = 'guide-card';
+        card.className = 'guide-card guide-block-card';
+        card.style.setProperty('--g-color', blk.accent);
         card.innerHTML = `
           <div class="guide-card-head">
-            <div class="guide-swatch" style="background:${blk.swatch};"></div>
+            <div class="guide-block-preview">${renderGuideBlockSvg(blk.kind)}</div>
             <div class="guide-card-head-info">
               <div class="guide-card-title">${escapeHtml(blk.name)}</div>
               <div class="guide-stat-chips"><span class="guide-chip guide-chip-hp">${escapeHtml(blk.hp)}</span></div>
@@ -3106,10 +3318,10 @@ export class HudController {
           color: '#ffe26a',
           emoji: '🧊',
           name: en ? 'Sugar Cube (Main Goal)' : 'Кристалл Сахара (Главная цель)',
-          badge: en ? '1 HP • Far from Nest' : '1 HP • Далеко от гнезда',
+          badge: en ? '1 HP • +1 🍬 Currency & 1 Mutation' : '1 HP • +1 🍬 валюта и 1 мутация',
           desc: en
-            ? 'Hidden in a different distant direction on every map launch! Discovering it unlocks the next map and grants 1 permanent Mutation per map (1 max per level).'
-            : 'При каждом запуске карты появляется в новом дальнем секторе! Находка открывает следующий уровень и даёт 1 постоянную мутацию за уровень (не более 1 на карту).'
+            ? 'Hidden in a different distant direction on every map launch! Discovering it unlocks the next map, awards +1 Sugar Currency for the Shop, and grants 1 permanent Mutation per map.'
+            : 'При каждом запуске карты появляется в новом дальнем секторе! Открывает следующий уровень, даёт +1 🍬 валюту для Лавки и 1 постоянную мутацию за уровень.'
         },
         {
           color: '#5ce8ff',
@@ -3187,8 +3399,8 @@ export class HudController {
           emoji: '📍',
           title: en ? 'Pheromone Beacon (Key B)' : 'Феромонная метка (клавиша B)',
           desc: en
-            ? 'Attracts free Workers and Queen Brood toward a chosen spot for 30s (2 min cooldown, upgradeable via Potent Pheromones).'
-            : 'Притягивает Рабочих и выводок Матки в выбранную точку на 30 сек (кулдаун 2 мин, улучшается в общих навыках).'
+            ? 'Attracts free Workers, Phase Ants & Queen Brood toward a chosen spot for 30s (2 min cooldown, upgradeable via Potent Pheromones).'
+            : 'Притягивает Рабочих, Фазовых муравьёв и выводок Матки в выбранную точку на 30 сек (кулдаун 2 мин).'
         },
         {
           emoji: '💥',
@@ -3198,18 +3410,18 @@ export class HudController {
             : 'Мгновенно раздавливает всех активных муравьёв на карте (кулдаун 1 мин), чтобы быстро перебросить рой в новый сектор!'
         },
         {
-          emoji: '🤖',
-          title: en ? 'Smart Auto-Summon' : 'Умный авто-призыв',
+          emoji: '🛍',
+          title: en ? 'Colony Shop & Secret Achievements' : 'Лавка колонии и секретные ачивки',
           desc: en
-            ? 'Enable on the left dock and tap ⚙ to pick Smart, Beacon, or Nest mode and choose which ant types to deploy automatically.'
-            : 'Включите на левой панели и нажмите ⚙, чтобы выбрать стратегию (Умный фронт, Метка, Гнездо) и нужные виды муравьёв.'
+            ? 'Earn up to 10 Sugar Currency (8 from level Sugars + 2 from Telegram & Boosty) to unlock the Secret Phase Ant (2) and Alien / Cosmic skins (4 each)!'
+            : 'Зарабатывайте до 10 сахарной валюты (8 за сахар на картах + 2 за Telegram и Boosty), чтобы открыть Фазового муравья (2) и скины (по 4)!'
         },
         {
-          emoji: '⏳',
-          title: en ? 'Passive SP, Evolutions & 100% Clear' : 'Пассивные ♦, Эволюции и очистка 100%',
+          emoji: '✨',
+          title: en ? 'Cosmic 100% Clear & Gallery' : 'Космический финал 100% и Галерея',
           desc: en
-            ? 'You gain +1 bonus SP every 5 minutes. Class Evolutions unlock after clearing Levels 1–4. Reaching 99.5% auto-clears the remaining crumbs to unveil the iridescent 100% masterpiece for PNG export!'
-            : 'Каждые 5 минут колония получает +1 ♦ бонусом. Эволюции классов открываются после 1–4 уровней. При 99.5% раскопок карта автоматически очищается на 100%!'
+            ? 'Reaching 99.5% auto-clears the remaining crumbs to unveil the iridescent artwork over an animated cosmic backdrop — saveable as high-res PNG!'
+            : 'При 99.5% раскопок карта автоматически очищается на 100%, открывая переливающийся рисунок на космическом фоне — его можно сохранить в PNG!'
         }
       ];
 
@@ -3229,7 +3441,280 @@ export class HudController {
       }
     }
 
-    this.modalBodyEl.appendChild(content);
+    codex.appendChild(content);
+    this.modalBodyEl.appendChild(codex);
+  }
+
+  private stopShopPreviewLoop() {
+    if (this.shopPreviewRafId) {
+      cancelAnimationFrame(this.shopPreviewRafId);
+      this.shopPreviewRafId = 0;
+    }
+  }
+
+  /** Colony Shop: Spend Sugar Currency (max 10) on Alien & Cosmic skins (with LIVE animated previews!) & Secret Phase Ant! */
+  openShopModal() {
+    this.openModal(t('shopTitle'));
+    this.renderShopContent();
+  }
+
+  private renderShopContent() {
+    this.stopShopPreviewLoop();
+    const { skillTree } = this.engine;
+    const st = skillTree.state;
+    const cur = st.sugarCurrency;
+    const activeSkin = st.settings.selectedSkin || 'classic';
+    const maxTotal = isDemoVersion ? 6 : 10;
+
+    this.modalTitleEl.textContent = t('shopTitle');
+    this.modalBodyEl.innerHTML = '';
+
+    // Balance Header
+    const hero = document.createElement('div');
+    hero.className = 'shop-balance-bar';
+    hero.innerHTML = `
+      <div class="shop-balance-top">
+        <strong>🍬 ${t('shopBalance')}</strong>
+        <span class="shop-balance-pill">🍬 ${cur} <small>(${skillTree.getTotalCurrencyEarned()}/${maxTotal})</small></span>
+      </div>
+      <div class="shop-balance-hint">${t('shopHint')}</div>
+    `;
+    this.modalBodyEl.appendChild(hero);
+
+    const previewJobs: { canvas: HTMLCanvasElement; skin: AntSkinId; mode: 'trio' | 'phantom' }[] = [];
+
+    // Section 1: Secret Ant (2 currency)
+    const secAntHead = document.createElement('div');
+    secAntHead.className = 'settings-label';
+    secAntHead.textContent = t('shopSectionAnts');
+    this.modalBodyEl.appendChild(secAntHead);
+
+    const phaseCard = document.createElement('div');
+    phaseCard.className = `shop-item-card${st.secretAntUnlocked ? ' owned' : ''}`;
+    const phaseCanvas = document.createElement('canvas');
+    phaseCanvas.className = 'shop-preview-canvas';
+    phaseCanvas.width = 160;
+    phaseCanvas.height = 68;
+    previewJobs.push({ canvas: phaseCanvas, skin: activeSkin, mode: 'phantom' });
+
+    const phaseInfo = document.createElement('div');
+    phaseInfo.className = 'shop-item-info';
+    phaseInfo.innerHTML = `
+      <div class="shop-item-title">🌀 ${t('shopPhaseName')}</div>
+      <div class="shop-item-desc">${t('shopPhaseDesc')}</div>
+    `;
+
+    const phaseAct = document.createElement('button');
+    if (st.secretAntUnlocked) {
+      phaseAct.className = 'action-btn primary';
+      phaseAct.disabled = true;
+      phaseAct.textContent = t('shopUnlocked');
+    } else {
+      phaseAct.className = `action-btn${cur >= 2 ? ' primary' : ''}`;
+      phaseAct.textContent = `${t('shopBuy')} • 🍬 2`;
+      phaseAct.addEventListener('click', () => {
+        if (skillTree.buySecretAnt()) {
+          this.engine.audio.playUpgrade();
+          this.showToast(t('toastSecretAntBought'));
+          this.syncMenuSummary();
+          this.renderShopContent();
+        } else {
+          this.showToast(t('toastNeedCurrency', { cost: 2 }));
+        }
+      });
+    }
+    phaseCard.appendChild(phaseCanvas);
+    phaseCard.appendChild(phaseInfo);
+    phaseCard.appendChild(phaseAct);
+    this.modalBodyEl.appendChild(phaseCard);
+
+    // Section 2: Cosmetic Skins with Live Animated Preview!
+    const secSkinHead = document.createElement('div');
+    secSkinHead.className = 'settings-label';
+    secSkinHead.textContent = t('shopSectionSkins');
+    this.modalBodyEl.appendChild(secSkinHead);
+
+    const skins: { id: 'classic' | 'alien' | 'cosmic'; name: string; desc: string; cost: number; fullOnly?: boolean }[] = [
+      { id: 'classic', name: t('shopSkinClassicName'), desc: t('shopSkinClassicDesc'), cost: 0 },
+      { id: 'alien', name: t('shopSkinAlienName'), desc: t('shopSkinAlienDesc'), cost: 4 },
+      { id: 'cosmic', name: t('shopSkinCosmicName'), desc: t('shopSkinCosmicDesc'), cost: 4, fullOnly: isDemoVersion }
+    ];
+
+    for (const sk of skins) {
+      const owned = st.unlockedSkins.includes(sk.id);
+      const equipped = activeSkin === sk.id;
+      const card = document.createElement('div');
+      card.className = `shop-item-card${equipped ? ' equipped' : owned ? ' owned' : ''}`;
+
+      const cv = document.createElement('canvas');
+      cv.className = 'shop-preview-canvas';
+      cv.width = 160;
+      cv.height = 68;
+      previewJobs.push({ canvas: cv, skin: sk.id, mode: 'trio' });
+
+      const info = document.createElement('div');
+      info.className = 'shop-item-info';
+      info.innerHTML = `
+        <div class="shop-item-title">${escapeHtml(sk.name)}</div>
+        <div class="shop-item-desc">${escapeHtml(sk.desc)}</div>
+      `;
+
+      const btn = document.createElement('button');
+      if (sk.fullOnly && !owned) {
+        btn.className = 'action-btn demo-full-btn';
+        btn.textContent = t('shopFullOnly');
+        btn.addEventListener('click', () => this.openFullGameModal());
+      } else if (equipped) {
+        btn.className = 'action-btn primary';
+        btn.disabled = true;
+        btn.textContent = t('shopEquipped');
+      } else if (owned) {
+        btn.className = 'action-btn';
+        btn.textContent = t('shopEquip');
+        btn.addEventListener('click', () => {
+          if (skillTree.selectSkin(sk.id)) {
+            this.menuBg.setSkin(sk.id);
+            this.engine.audio.playUiClick();
+            this.showToast(t('toastSkinEquipped', { name: sk.name }));
+            this.renderShopContent();
+          }
+        });
+      } else {
+        btn.className = `action-btn${cur >= sk.cost ? ' primary' : ''}`;
+        btn.textContent = `${t('shopBuy')} • 🍬 ${sk.cost}`;
+        btn.addEventListener('click', () => {
+          if (sk.id !== 'classic' && skillTree.buySkin(sk.id)) {
+            this.menuBg.setSkin(sk.id);
+            this.engine.audio.playUpgrade();
+            this.showToast(t('toastSkinBought', { name: sk.name }));
+            this.syncMenuSummary();
+            this.renderShopContent();
+          } else {
+            this.showToast(t('toastNeedCurrency', { cost: sk.cost }));
+          }
+        });
+      }
+
+      card.appendChild(cv);
+      card.appendChild(info);
+      card.appendChild(btn);
+      this.modalBodyEl.appendChild(card);
+    }
+
+    // Live 30fps animated preview loop for all skin & Phase Ant canvases!
+    let t0 = performance.now();
+    const renderPreviews = (now: number) => {
+      if (this.modalBackdropEl.classList.contains('hidden')) {
+        this.shopPreviewRafId = 0;
+        return;
+      }
+      const sec = (now - t0) / 1000;
+      for (const job of previewJobs) {
+        const g = job.canvas.getContext('2d');
+        if (!g) continue;
+        const cw = job.canvas.width;
+        const ch = job.canvas.height;
+        g.fillStyle = job.skin === 'cosmic' ? '#090e22' : job.skin === 'alien' ? '#140b18' : '#08170f';
+        g.fillRect(0, 0, cw, ch);
+        if (job.mode === 'phantom') {
+          const blink = (sec * 0.55) % 1;
+          const ax = 42 + blink * 76;
+          g.strokeStyle = 'rgba(130, 235, 255, 0.32)';
+          g.lineWidth = 1.5;
+          g.setLineDash([4, 4]);
+          g.beginPath();
+          g.moveTo(26, ch * 0.5);
+          g.lineTo(134, ch * 0.5);
+          g.stroke();
+          g.setLineDash([]);
+          drawDetailedAnt(g, 'phantom', ax, ch * 0.5 + Math.sin(sec * 3) * 3, 0, sec * 10, 0, 5.4, job.skin);
+        } else {
+          drawDetailedAnt(g, 'worker', 36, ch * 0.52, -0.15 + Math.sin(sec * 1.4) * 0.14, sec * 8, 0, 4.8, job.skin);
+          drawDetailedAnt(g, 'warrior', 82, ch * 0.52, 0.08 + Math.cos(sec * 1.2) * 0.12, sec * 7, Math.sin(sec * 4) > 0.7 ? 1 : 0, 4.7, job.skin);
+          drawDetailedAnt(g, 'queen', 128, ch * 0.52, -0.08 + Math.sin(sec * 0.9) * 0.1, sec * 4.5, 0, 4.2, job.skin);
+        }
+      }
+      this.shopPreviewRafId = requestAnimationFrame(renderPreviews);
+    };
+    this.shopPreviewRafId = requestAnimationFrame(renderPreviews);
+  }
+
+  /** Versioned Changelog Modal (Newest updates & key highlights at the top!) */
+  openChangelogModal() {
+    const en = getLang() === 'en';
+    this.openModal(t('changelogTitle'));
+    this.modalBodyEl.innerHTML = '';
+
+    for (const entry of CHANGELOG) {
+      const box = document.createElement('div');
+      box.className = 'changelog-entry';
+      const items = en ? entry.highlightsEn : entry.highlightsRu;
+      box.innerHTML = `
+        <div class="changelog-head">
+          <span class="changelog-ver">${escapeHtml(entry.version)}</span>
+          <span class="changelog-date">${escapeHtml(entry.date)}</span>
+        </div>
+        <div class="changelog-title">${escapeHtml(en ? entry.titleEn : entry.titleRu)}</div>
+        <ul class="changelog-list">
+          ${items.map((txt) => `<li>${escapeHtml(txt)}</li>`).join('')}
+        </ul>
+      `;
+      this.modalBodyEl.appendChild(box);
+    }
+  }
+
+  /** Full Game Showcase Modal (4 massive levels, more finds, Cosmic skin, one-time purchase forever + Boosty QR!) */
+  openFullGameModal() {
+    this.openModal(t('fullGameModalTitle'));
+    this.modalBodyEl.innerHTML = `
+      <div class="full-game-modal">
+        <div class="full-game-lead-pill">${t('fullGameLead')}</div>
+        <ul class="full-game-feats">
+          <li>${t('fullGameFeat1')}</li>
+          <li>${t('fullGameFeat2')}</li>
+          <li>${t('fullGameFeat3')}</li>
+          <li>${t('fullGameFeat4')}</li>
+        </ul>
+        <div class="demo-qr-grid">
+          <div class="demo-qr-card demo-qr-boosty">
+            <div class="demo-qr-frame">${BOOSTY_QR_SVG}</div>
+            <div class="demo-qr-title">${t('fullGameBtn')} • Boosty</div>
+            <div class="demo-qr-hint">${t('demoQrBoostyHint')}</div>
+            <a
+              id="fg-link-boosty"
+              href="${BOOSTY_URL}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="demo-qr-btn boosty"
+            >
+              <span>boosty.to/graxstudio ↗</span>
+            </a>
+          </div>
+          <div class="demo-qr-card demo-qr-tg">
+            <div class="demo-qr-frame">${TELEGRAM_QR_SVG}</div>
+            <div class="demo-qr-title">${t('demoQrTgTitle')}</div>
+            <div class="demo-qr-hint">${t('demoQrTgHint')}</div>
+            <a
+              id="fg-link-tg"
+              href="${TELEGRAM_URL}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="demo-qr-btn tg"
+            >
+              <span>t.me/graxstudio ↗</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('fg-link-boosty')?.addEventListener('click', () => {
+      this.engine.skillTree.unlockAchievement('visit_boosty');
+      this.syncMenuSummary();
+    });
+    document.getElementById('fg-link-tg')?.addEventListener('click', () => {
+      this.engine.skillTree.unlockAchievement('visit_telegram');
+      this.syncMenuSummary();
+    });
   }
 
   openCreditsModal() {
@@ -3237,13 +3722,13 @@ export class HudController {
     const tgBlock = hideExternalLinks
       ? ''
       : `<div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:12px;">
-          <a data-external-link="boosty" href="${BOOSTY_URL}" target="_blank" rel="noopener noreferrer" class="boosty-link-btn" style="padding:8px 16px;font-size:13px;">
+          <a id="credits-boosty-link" data-external-link="boosty" href="${BOOSTY_URL}" target="_blank" rel="noopener noreferrer" class="boosty-link-btn" style="padding:8px 16px;font-size:13px;">
             <svg class="boosty-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="currentColor" d="M13.4 2.2 6.8 13.1c-.9 1.5-.3 3.5 1.3 4.2l1.2.5-1.1 3.7c-.2.6.5 1.1 1 .7l7.9-6.6c1.2-1 1.4-2.8.4-4l-1.5-1.8 1.6-6.2c.2-.8-.8-1.3-1.3-.7l-2.9 3.6V2.5c0-.6-.7-.9-1-.3z" />
             </svg>
-            <span>${t('allContentBoosty')}</span>
+            <span>${t('fullGameBtn')}</span>
           </a>
-          <a data-external-link="telegram" href="${TELEGRAM_URL}" target="_blank" rel="noopener noreferrer" class="tg-donate-btn" style="padding:8px 16px;font-size:13px;">
+          <a id="credits-tg-link" data-external-link="telegram" href="${TELEGRAM_URL}" target="_blank" rel="noopener noreferrer" class="tg-donate-btn" style="padding:8px 16px;font-size:13px;">
             <svg class="tg-ico-svg" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="currentColor" d="M21.9 4.6c.3-1.2-.8-2.2-1.9-1.7L2.6 9.8c-1.2.5-1.1 2.2.1 2.6l4.4 1.4 1.7 5.3c.3 1 1.6 1.3 2.4.6l2.6-2.4 4.6 3.4c.9.7 2.2.2 2.4-.9L21.9 4.6zm-4.1 3.7-7.7 6.8-.5 3.1-1.2-3.9 9.4-6z" />
             </svg>
@@ -3260,13 +3745,38 @@ export class HudController {
           <div style="font-size:18px;font-weight:800;color:#ffffff;">GrAx</div>
           <div style="margin-top:8px;font-size:11px;letter-spacing:2px;color:#5ce8ff;">${t('creditsAudioLbl')}</div>
           <div style="font-size:13px;color:#d6ede0;">${t('creditsAudioVal')}</div>
+          <div style="margin-top:8px;font-size:11px;letter-spacing:2px;color:#7dffb2;">${t('creditsTestersLbl')}</div>
+          <div style="font-size:15px;font-weight:800;color:#b8ffdb;">${t('creditsTestersName')}</div>
           <div style="margin-top:8px;font-size:11px;letter-spacing:2px;color:#ff8ea0;">${t('creditsThanksLbl')}</div>
           <div style="font-size:14px;font-weight:700;color:#ffc2cb;">${t('creditsThanksName')}</div>
           <div style="font-size:12px;color:var(--text-muted);">${t('creditsThanksPlayers')}</div>
+          <div style="margin-top:12px;font-size:11.5px;color:#8fb8a4;opacity:0.88;">${t('creditsInspired')}</div>
         </div>
+        <button id="credits-secret-ant" class="credits-secret-ant" type="button" aria-label="Secret Ant" title="🐜">
+          ${renderGuideAntSvg('worker', '#3ce87a')}
+        </button>
       </div>
+      <div class="credits-inspired-note">${t('creditsInspired')}</div>
       ${tgBlock}
     `;
+
+    document.getElementById('credits-secret-ant')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget as HTMLElement;
+      btn.classList.add('caught');
+      this.engine.audio.ensureStarted();
+      this.engine.audio.playCrystal();
+      this.engine.skillTree.unlockAchievement('credits_ant_click');
+      window.setTimeout(() => btn.classList.remove('caught'), 500);
+    });
+    document.getElementById('credits-boosty-link')?.addEventListener('click', () => {
+      this.engine.skillTree.unlockAchievement('visit_boosty');
+      this.syncMenuSummary();
+    });
+    document.getElementById('credits-tg-link')?.addEventListener('click', () => {
+      this.engine.skillTree.unlockAchievement('visit_telegram');
+      this.syncMenuSummary();
+    });
   }
 
   /* =========================================================
@@ -3365,17 +3875,18 @@ export class HudController {
   private renderAntBar() {
     const { skillTree, selectedAnt, ants } = this.engine;
     const colStats = skillTree.getColonyStats();
+    const visibleAnts = PLAYABLE_ANTS.filter((id) => id !== 'phantom' || skillTree.state.secretAntUnlocked);
 
-    // Build the 5 ant dock buttons ONCE and update text/classes in place (eliminates 5x/sec SVG DOM rebuilds on mobile!)
-    if (this.antBarButtons.size !== PLAYABLE_ANTS.length) {
+    // Build the ant dock buttons ONCE (or when Secret Phase Ant unlocks!) and update text/classes in place!
+    if (this.antBarButtons.size !== visibleAnts.length) {
       this.antBarEl.innerHTML = '';
       this.antBarButtons.clear();
-      for (const id of PLAYABLE_ANTS) {
+      for (const id of visibleAnts) {
         const cfg = ANT_TYPES[id];
         const btn = document.createElement('button');
         btn.className = 'ant-btn';
         btn.style.setProperty('--ant-color', cfg.color);
-        const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
+        const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : id === 'phantom' ? 'phase' : 'ant';
         btn.innerHTML = `
           <span class="ant-key">${cfg.hotkey}</span>
           <span class="ant-icon-svg" style="color:${cfg.color}">${renderSkillSvg(iconType)}</span>
@@ -3395,7 +3906,7 @@ export class HudController {
       }
     }
 
-    for (const id of PLAYABLE_ANTS) {
+    for (const id of visibleAnts) {
       const entry = this.antBarButtons.get(id)!;
       const cfg = ANT_TYPES[id];
       const unlocked = skillTree.isAntUnlocked(id);
@@ -3479,10 +3990,11 @@ export class HudController {
 
     this.autoPopAntsEl.innerHTML = '';
     for (const id of PLAYABLE_ANTS) {
+      if (id === 'phantom' && !skillTree.state.secretAntUnlocked) continue;
       const cfg = ANT_TYPES[id];
       const unlocked = skillTree.isAntUnlocked(id);
       const enabled = Boolean(s.autoSummonTypes[id]);
-      const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
+      const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : id === 'phantom' ? 'phase' : 'ant';
       const chip = document.createElement('button');
       chip.className = `auto-ant-chip${enabled ? ' enabled' : ''}${unlocked ? '' : ' ant-locked'}`;
       chip.dataset.ant = id;
@@ -3763,9 +4275,13 @@ export class HudController {
       this.stTtCostEl.className = 'st-tt-cost maxed';
       this.stTtBuyEl.classList.add('hidden');
     } else if (!levelUnlocked && node.requiredLevelIndex !== undefined) {
-      const reqLvl = LEVELS[node.requiredLevelIndex];
-      const reqName = reqLvl ? loc(reqLvl.name, reqLvl.nameEn) : `#${node.requiredLevelIndex + 1}`;
-      this.stTtCostEl.textContent = t('stNeedLevel', { n: node.requiredLevelIndex + 1, name: reqName });
+      if (isDemoVersion && node.id === 'queen_evo') {
+        this.stTtCostEl.textContent = t('demoQueenEvoLocked');
+      } else {
+        const reqLvl = LEVELS[node.requiredLevelIndex];
+        const reqName = reqLvl ? loc(reqLvl.name, reqLvl.nameEn) : `#${node.requiredLevelIndex + 1}`;
+        this.stTtCostEl.textContent = t('stNeedLevel', { n: node.requiredLevelIndex + 1, name: reqName });
+      }
       this.stTtCostEl.className = 'st-tt-cost locked-lvl';
       this.stTtBuyEl.classList.remove('hidden');
       this.stTtBuyEl.textContent = `🔒 ♦ ${cost}`;
@@ -3789,6 +4305,7 @@ export class HudController {
   }
 
   closeModal() {
+    this.stopShopPreviewLoop();
     this.lobbyBrowserOpen = false;
     this.stopLobbyBrowserRefresh();
     this.modalBackdropEl.classList.add('hidden');
@@ -4089,6 +4606,15 @@ export class HudController {
     }
 
     this.modalBodyEl.appendChild(actions);
+
+    document.getElementById('demo-link-boosty')?.addEventListener('click', () => {
+      this.engine.skillTree.unlockAchievement('visit_boosty');
+      this.syncMenuSummary();
+    });
+    document.getElementById('demo-link-tg')?.addEventListener('click', () => {
+      this.engine.skillTree.unlockAchievement('visit_telegram');
+      this.syncMenuSummary();
+    });
   }
 
   openMutationsModal() {
@@ -4350,9 +4876,10 @@ export class HudController {
     const antsRow = document.createElement('div');
     antsRow.className = 'auto-pop-ants';
     for (const id of PLAYABLE_ANTS) {
+      if (id === 'phantom' && !skillTree.state.secretAntUnlocked) continue;
       const cfg = ANT_TYPES[id];
       const enabled = Boolean(s.autoSummonTypes[id]);
-      const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : 'ant';
+      const iconType: SkillIcon = id === 'queen' ? 'queen' : id === 'compass' ? 'compass' : id === 'phantom' ? 'phase' : 'ant';
       const chip = document.createElement('button');
       chip.className = `auto-ant-chip${enabled ? ' enabled' : ''}`;
       chip.style.setProperty('--ant-color', cfg.color);

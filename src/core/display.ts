@@ -45,6 +45,39 @@ export function isDesktopApp(): boolean {
   return Boolean(getDesktopInfo() || getWebView());
 }
 
+export function isAndroidApp(): boolean {
+  const w = window as unknown as { SugarAntsAndroid?: { exitApp?: () => void } };
+  return Boolean(w.SugarAntsAndroid && typeof w.SugarAntsAndroid.exitApp === 'function');
+}
+
+/** Exits native Windows or Android app cleanly; on browser attempts window.close() and returns false if blocked */
+export function exitGameApp(): boolean {
+  const wv = getWebView();
+  if (wv) {
+    try {
+      wv.postMessage(JSON.stringify({ type: 'exitApp' }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const w = window as unknown as { SugarAntsAndroid?: { exitApp?: () => void } };
+  if (w.SugarAntsAndroid && typeof w.SugarAntsAndroid.exitApp === 'function') {
+    try {
+      w.SugarAntsAndroid.exitApp();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    window.close();
+  } catch {
+    // Ignore browser close restriction
+  }
+  return false;
+}
+
 export function getPresetById(id: ResolutionId): ResolutionPreset {
   return RESOLUTION_PRESETS.find((p) => p.id === id) || RESOLUTION_PRESETS[0];
 }

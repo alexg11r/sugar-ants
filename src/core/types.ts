@@ -15,9 +15,9 @@ export const enum CellType {
 
 export type Language = 'ru' | 'en';
 
-export type PlayableAntId = 'worker' | 'warrior' | 'scout' | 'queen' | 'compass';
+export type PlayableAntId = 'worker' | 'warrior' | 'scout' | 'queen' | 'compass' | 'phantom';
 export type AntTypeId = PlayableAntId | 'brood' | 'beetle';
-export type AntSkinId = 'classic' | 'cyber' | 'royal';
+export type AntSkinId = 'classic' | 'cyber' | 'royal' | 'alien' | 'cosmic';
 
 export interface PlayerColorDef {
   id: string;
@@ -82,10 +82,14 @@ export interface Ant {
   wallSlideDir?: number;
   /** True when currently inside a Queen's tiny royal buff aura */
   queenBuffed?: boolean;
-  /** True for regular Warrior copies spawned by Evolved Warriors (capped at 2 active, do not self-replicate) */
+  /** True for Warrior clones spawned by Evolved Warriors (max 2 per parent Warrior, half strength, distinct skin) */
   isWarriorClone?: boolean;
-  /** Per-ant cooldown timer for evolution triggers (e.g. Scout poison collision blast / Warrior wall clone) */
+  /** ID of the summoned Evolved Warrior that spawned this clone */
+  parentWarriorId?: number;
+  /** Per-ant cooldown timer for evolution triggers or Phase Ant quantum blink */
   evoCooldown?: number;
+  /** Per-ant timer for Phase Ant Quantum Sparks mutation (40 SP) */
+  sparkTimer?: number;
 }
 
 export interface ScentPoint {
@@ -116,7 +120,7 @@ export interface Particle {
   size: number;
 }
 
-export type SkillBranch = 'worker' | 'warrior' | 'scout' | 'queen' | 'colony';
+export type SkillBranch = 'worker' | 'warrior' | 'scout' | 'queen' | 'colony' | 'phantom';
 export type SkillShape = 'square' | 'circle';
 export type SkillIcon =
   | 'ant'
@@ -133,7 +137,8 @@ export type SkillIcon =
   | 'poison'
   | 'evo'
   | 'radar'
-  | 'beacon';
+  | 'beacon'
+  | 'phase';
 
 export interface SkillNodeDef {
   id: string;
@@ -207,6 +212,7 @@ export interface GameSettings {
   autoSummonTypes: Record<PlayableAntId, boolean>;
   displayMode: DisplayMode;
   resolution: ResolutionId;
+  selectedSkin: AntSkinId;
 }
 
 export interface ArtifactDef {
@@ -254,6 +260,10 @@ export interface AchievementDef {
   icon: string;
   accent: string;
   goal: number;
+  /** If true, title & description stay hidden as "???" until unlocked */
+  secret?: boolean;
+  /** Optional permanent Sugar Currency reward granted once when unlocked */
+  currencyReward?: number;
   getProgress: (state: SaveState) => number;
 }
 
@@ -265,6 +275,12 @@ export interface SaveState {
   mutations: MutationId[];
   artifacts: string[];
   achievements: string[];
+  /** Spendable Sugar Currency (max 10: 8 from level Sugars + 2 from Telegram/Boosty achievements) */
+  sugarCurrency: number;
+  sugarCurrencyLevels: string[];
+  sugarCurrencyClaims: string[];
+  unlockedSkins: AntSkinId[];
+  secretAntUnlocked: boolean;
   career: CareerStats;
   records: Record<string, LevelRecord>;
   currentLevelId: string;
@@ -295,6 +311,8 @@ export interface LevelDefinition {
   /** Geological difficulty multiplier (default 1.0; >1 increases rock density & obsidian depth) */
   difficulty?: number;
   difficultyLabel?: 'hard' | 'extreme';
+  /** Multiplier applied to terrain block HP (SoftSoil/Clay/Stone/Obsidian); e.g. 1.5 on Levels 7 & 8 */
+  rockHpMult?: number;
   palette: LevelPalette;
   generateArt: (w: number, h: number) => Uint8Array;
 }

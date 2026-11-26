@@ -75,6 +75,7 @@ export interface DigResult {
   hitIndestructible: boolean;
   dugCount: number;
   damagedCount: number;
+  damageDealt: number;
   crystalsBroken: number;
   sugarHit: boolean;
   artifactFound: ArtifactDef | null;
@@ -140,6 +141,12 @@ export class World {
   stats: WorldStats;
   /** Incremented whenever cells, HP, exposure or fog change (used by renderer to skip redundant pixel rebuilds!) */
   visualVersion = 1;
+  /** Tight bounding box of cells modified since the last texture upload (200x faster on huge 930x608 maps!) */
+  private dirtyMinX = 0;
+  private dirtyMinY = 0;
+  private dirtyMaxX = -1;
+  private dirtyMaxY = -1;
+  private dirtyFull = true;
   /** Throttled cache of remaining interior terrain coordinates for >=98% endgame cleanup steering */
   private cleanupSpots: { x: number; y: number }[] = [];
   private cleanupSpotsVersion = -1;
@@ -191,6 +198,71 @@ export class World {
     }
   }
 
+  /** Returns effective max HP for a cell on this level (Levels 7 & 8 have +50% tougher rocks!) */
+  getBlockHp(type: CellType): number {
+    const base = BLOCK_HP[type] ?? 1;
+    const mult = this.level.rockHpMult || 1;
+    if (
+      mult !== 1 &&
+      (type === CellType.SoftSoil ||
+        type === CellType.Clay ||
+        type === CellType.Stone ||
+        type === CellType.Obsidian)
+    ) {
+      return Math.min(254, Math.round(base * mult));
+    }
+    return base;
+  }
+
+  markDirtyRect(x0: number, y0: number, x1: number, y1: number) {
+    if (this.dirtyFull) return;
+    const cx0 = Math.max(0, Math.min(this.width - 1, Math.floor(x0)));
+    const cy0 = Math.max(0, Math.min(this.height - 1, Math.floor(y0)));
+    const cx1 = Math.max(0, Math.min(this.width - 1, Math.ceil(x1)));
+    const cy1 = Math.max(0, Math.min(this.height - 1, Math.ceil(y1)));
+    if (this.dirtyMaxX < 0) {
+      this.dirtyMinX = cx0;
+      this.dirtyMinY = cy0;
+      this.dirtyMaxX = cx1;
+      this.dirtyMaxY = cy1;
+    } else {
+      if (cx0 < this.dirtyMinX) this.dirtyMinX = cx0;
+      if (cy0 < this.dirtyMinY) this.dirtyMinY = cy0;
+      if (cx1 > this.dirtyMaxX) this.dirtyMaxX = cx1;
+      if (cy1 > this.dirtyMaxY) this.dirtyMaxY = cy1;
+    }
+  }
+
+  markFullDirty() {
+    this.dirtyFull = true;
+    this.dirtyMinX = 0;
+    this.dirtyMinY = 0;
+    this.dirtyMaxX = this.width - 1;
+    this.dirtyMaxY = this.height - 1;
+  }
+
+  consumeDirtyRect(): { full: boolean; minX: number; minY: number; maxX: number; maxY: number } | null {
+    if (this.dirtyFull) {
+      this.dirtyFull = false;
+      this.dirtyMinX = 0;
+      this.dirtyMinY = 0;
+      this.dirtyMaxX = -1;
+      this.dirtyMaxY = -1;
+      return { full: true, minX: 0, minY: 0, maxX: this.width - 1, maxY: this.height - 1 };
+    }
+    if (this.dirtyMaxX < 0) return null;
+    const out = {
+      full: false,
+      minX: this.dirtyMinX,
+      minY: this.dirtyMinY,
+      maxX: this.dirtyMaxX,
+      maxY: this.dirtyMaxY
+    };
+    this.dirtyMaxX = -1;
+    this.dirtyMaxY = -1;
+    return out;
+  }
+
   /** Exports a compact (~12-25 KB) pixel-exact snapshot for mid-map progress persistence! */
   exportSnapshot(): WorldSnapshot {
     const damagedHp: [number, number][] = [];
@@ -198,7 +270,7 @@ export class World {
     for (let i = 0; i < total; i++) {
       const c = this.cells[i];
       if (c === CellType.Empty || c === CellType.HiddenArt || c === CellType.Sugar) continue;
-      const base = BLOCK_HP[c] ?? 1;
+      const base = this.getBlockHp(c as CellType);
       if (this.hp[i] !== base) {
         damagedHp.push([i, this.hp[i]]);
       }
@@ -268,7 +340,7 @@ export class World {
           c = CellType.SoftSoil;
           w.cells[idx] = c;
         }
-        const baseHp = BLOCK_HP[c] ?? 1;
+        const baseHp = w.getBlockHp(c);
         w.hp[idx] = baseHp;
         w.maxHp[idx] = baseHp;
       }
@@ -309,13 +381,14 @@ export class World {
         if (adjEmpty) w.isEdge[idx] = 1;
       }
     }
+    w.markFullDirty();
     w.visualVersion++;
     return w;
   }
 
   private setBlock(idx: number, type: CellType) {
     this.cells[idx] = type;
-    const baseHp = BLOCK_HP[type] ?? 1;
+    const baseHp = this.getBlockHp(type);
     this.hp[idx] = baseHp;
     this.maxHp[idx] = baseHp;
   }
@@ -744,7 +817,10 @@ export class World {
         }
       }
     }
-    if (changed) this.visualVersion++;
+    if (changed) {
+      this.markDirtyRect(x0, y0, x1, y1);
+      this.visualVersion++;
+    }
   }
 
   isTerrain(cell: CellType): boolean {
@@ -856,6 +932,7 @@ export class World {
       hitIndestructible: false,
       dugCount: 0,
       damagedCount: 0,
+      damageDealt: 0,
       crystalsBroken: 0,
       sugarHit: false,
       artifactFound: null,
@@ -918,6 +995,8 @@ export class World {
 
         result.hitSolid = true;
 
+        const dealt = Math.min(this.hp[idx], damage);
+        result.damageDealt += dealt;
         if (this.hp[idx] > damage) {
           this.hp[idx] -= damage;
           result.damagedCount++;
@@ -932,6 +1011,7 @@ export class World {
       this.revealCircle(cx, cy, this.revealRadius);
     }
     if (result.dugCount > 0 || result.damagedCount > 0 || result.artRevealed > 0 || result.sugarHit) {
+      this.markDirtyRect(cx - rCeil - 2, cy - rCeil - 2, cx + rCeil + 2, cy + rCeil + 2);
       this.visualVersion++;
     }
 
@@ -968,7 +1048,10 @@ export class World {
         }
       }
     }
-    if (touched) this.visualVersion++;
+    if (touched) {
+      this.markDirtyRect(cx - rCeil - 1, cy - rCeil - 1, cx + rCeil + 1, cy + rCeil + 1);
+      this.visualVersion++;
+    }
   }
 
   /** Ticks all currently poisoned blocks (O(poisoned count), 0 cost when empty!) */
@@ -978,6 +1061,7 @@ export class World {
       hitIndestructible: false,
       dugCount: 0,
       damagedCount: 0,
+      damageDealt: 0,
       crystalsBroken: 0,
       sugarHit: false,
       artifactFound: null,
@@ -990,12 +1074,25 @@ export class World {
 
     const w = this.width;
     let changed = false;
+    let pMinX = w;
+    let pMinY = this.height;
+    let pMaxX = -1;
+    let pMaxY = -1;
+    const trackP = (idx: number) => {
+      const px = idx % w;
+      const py = (idx / w) | 0;
+      if (px < pMinX) pMinX = px;
+      if (py < pMinY) pMinY = py;
+      if (px > pMaxX) pMaxX = px;
+      if (py > pMaxY) pMaxY = py;
+    };
 
     for (const [idx, entry] of this.poisonEntries) {
       const cell = this.cells[idx] as CellType;
       if (cell === CellType.Empty || cell === CellType.HiddenArt || cell === CellType.Sugar) {
         this.poisonEntries.delete(idx);
         this.poisonMask[idx] = 0;
+        trackP(idx);
         changed = true;
         continue;
       }
@@ -1006,9 +1103,11 @@ export class World {
       if (entry.accum >= 1) {
         const dmg = Math.floor(entry.accum);
         entry.accum -= dmg;
+        result.damageDealt += Math.min(this.hp[idx], dmg);
         if (this.hp[idx] > dmg) {
           this.hp[idx] -= dmg;
           result.damagedCount++;
+          trackP(idx);
           changed = true;
         } else {
           const x = idx % w;
@@ -1017,6 +1116,7 @@ export class World {
           this.poisonMask[idx] = 0;
           this.breakCellByType(x, y, cell, result);
           this.revealCircle(x, y, this.revealRadius);
+          trackP(idx);
           changed = true;
           continue;
         }
@@ -1025,11 +1125,15 @@ export class World {
       if (entry.timeLeft <= 0) {
         this.poisonEntries.delete(idx);
         this.poisonMask[idx] = 0;
+        trackP(idx);
         changed = true;
       }
     }
 
-    if (changed) this.visualVersion++;
+    if (changed) {
+      if (pMaxX >= 0) this.markDirtyRect(pMinX - 2, pMinY - 2, pMaxX + 2, pMaxY + 2);
+      this.visualVersion++;
+    }
     return result;
   }
 
@@ -1308,6 +1412,7 @@ export class World {
     }
     this.stats.dugBreakable = this.stats.totalBreakable;
     this.stats.revealedArt = this.stats.totalArt;
+    this.markFullDirty();
     this.visualVersion++;
     return true;
   }

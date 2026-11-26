@@ -27,7 +27,7 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#3ce87a',
     rgb: [60, 232, 122],
     hotkey: '1',
-    baseSpeed: 12.5,
+    baseSpeed: 10.0,
     baseDamage: 1,
     baseBiteInterval: 0.34,
     baseLifespan: 75,
@@ -46,7 +46,7 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#ff6b2b',
     rgb: [255, 107, 43],
     hotkey: '2',
-    baseSpeed: 9.2,
+    baseSpeed: 7.4,
     baseDamage: 3,
     baseBiteInterval: 0.54,
     baseLifespan: 72,
@@ -65,7 +65,7 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#35d6ff',
     rgb: [53, 214, 255],
     hotkey: '3',
-    baseSpeed: 27,
+    baseSpeed: 19.4,
     baseDamage: 1,
     baseBiteInterval: 0.1,
     baseLifespan: 75,
@@ -84,7 +84,7 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#e04bff',
     rgb: [224, 75, 255],
     hotkey: '4',
-    baseSpeed: 2.6,
+    baseSpeed: 1.05,
     baseDamage: 1,
     baseBiteInterval: 0.85,
     baseLifespan: 135,
@@ -103,7 +103,7 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#ffe07d',
     rgb: [255, 224, 125],
     hotkey: '5',
-    baseSpeed: 26,
+    baseSpeed: 20.8,
     baseDamage: 3,
     baseBiteInterval: 0.24,
     baseLifespan: 6.5,
@@ -111,6 +111,25 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     baseRadius: 1.65,
     scale: 1.08,
     cooldownSec: 120
+  },
+  phantom: {
+    id: 'phantom',
+    name: 'Фазовый муравей',
+    nameEn: 'Phase Ant',
+    shortName: 'Фазовый',
+    shortNameEn: 'Phase',
+    description: 'Секретный квантовый муравей: раз в 6 сек телепортируется сквозь толщу породы, нанося фазовый импульс в точке входа и выхода.',
+    descriptionEn: 'Secret quantum ant: every 6s blinks through solid rock, unleashing a phase pulse at departure and arrival.',
+    color: '#6ef5ff',
+    rgb: [110, 245, 255],
+    hotkey: '6',
+    baseSpeed: 10.6,
+    baseDamage: 2,
+    baseBiteInterval: 0.44,
+    baseLifespan: 60,
+    baseMaxActive: 2,
+    baseRadius: 1.25,
+    scale: 1.04
   },
   brood: {
     id: 'brood',
@@ -123,7 +142,7 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#f09bff',
     rgb: [240, 155, 255],
     hotkey: '',
-    baseSpeed: 15,
+    baseSpeed: 10.8,
     baseDamage: 1,
     baseBiteInterval: 0.45,
     baseLifespan: 20,
@@ -142,17 +161,17 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     color: '#ff4838',
     rgb: [255, 72, 56],
     hotkey: '',
-    baseSpeed: 22,
+    baseSpeed: 11.5,
     baseDamage: 12,
     baseBiteInterval: 0.2,
-    baseLifespan: 24,
+    baseLifespan: 28,
     baseMaxActive: 16,
     baseRadius: 5.2,
     scale: 0.92
   }
 };
 
-export const PLAYABLE_ANTS: PlayableAntId[] = ['worker', 'warrior', 'scout', 'queen', 'compass'];
+export const PLAYABLE_ANTS: PlayableAntId[] = ['worker', 'warrior', 'scout', 'queen', 'compass', 'phantom'];
 
 export interface AntUpdateEvents {
   crystalsBroken: number;
@@ -172,6 +191,8 @@ export interface AntUpdateEvents {
   cocoonHatches: { x: number; y: number }[];
   poisonBlasts: { x: number; y: number }[];
   beetleBlasts: { x: number; y: number }[];
+  phaseBlinks: { x: number; y: number }[];
+  damageByType: Partial<Record<AntTypeId, number>>;
 }
 
 export class AntManager {
@@ -209,12 +230,22 @@ export class AntManager {
     return count;
   }
 
-  /** Counts live regular Warrior copies spawned by Evolved Warriors (max 2 simultaneously!) */
+  /** Counts live Warrior clones spawned by Evolved Warriors */
   countWarriorClones(): number {
     let count = 0;
     for (let i = 0; i < this.ants.length; i++) {
       const a = this.ants[i];
       if (a.type === 'warrior' && a.isWarriorClone) count++;
+    }
+    return count;
+  }
+
+  /** Counts live clones belonging to one specific summoned Warrior (max 2 per summoned Warrior!) */
+  countWarriorClonesForParent(parentId: number): number {
+    let count = 0;
+    for (let i = 0; i < this.ants.length; i++) {
+      const a = this.ants[i];
+      if (a.type === 'warrior' && a.isWarriorClone && a.parentWarriorId === parentId) count++;
     }
     return count;
   }
@@ -245,6 +276,8 @@ export class AntManager {
         return stats.queen.maxActive;
       case 'compass':
         return 1;
+      case 'phantom':
+        return stats.phantom ? stats.phantom.maxActive : 2;
     }
   }
 
@@ -289,7 +322,8 @@ export class AntManager {
       spawnTimer: 1.4,
       legPhase: Math.random() * Math.PI * 2,
       trailTimer: 0,
-      fromQueen: false
+      fromQueen: false,
+      evoCooldown: type === 'phantom' ? 2.8 : 0
     });
     return { ok: true };
   }
@@ -310,12 +344,11 @@ export class AntManager {
     let maxAge = broodLife;
 
     // Queen Evolution (25 SP): 5% chance to hatch an Exploding Beetle that detonates on block impact!
+    const maxBrood = Math.max(ANT_TYPES.brood.baseMaxActive, this.countByType('queen') * 28);
     if (stats.queen.evolved && Math.random() < 0.05 && this.countByType('beetle') < ANT_TYPES.beetle.baseMaxActive) {
       spawnedType = 'beetle';
       maxAge = ANT_TYPES.beetle.baseLifespan * stats.globalLifeMult;
       particles.spawn(x, y, 255, 92, 52, 12, 24, 0.9, 1.8);
-    } else if (this.countByType('brood') >= ANT_TYPES.brood.baseMaxActive) {
-      return;
     } else if (stats.queenAnomaly && Math.random() < 0.05) {
       const anomalyPool: PlayableAntId[] = ['worker', 'warrior', 'scout'];
       spawnedType = anomalyPool[Math.floor(Math.random() * anomalyPool.length)];
@@ -323,6 +356,25 @@ export class AntManager {
       particles.spawn(x, y, rgb[0], rgb[1], rgb[2], 12, 24, 1.0, 1.9);
       events.anomalySpawned++;
       events.anomalyPoints.push({ x, y });
+    } else if (this.countByType('brood') >= maxBrood) {
+      // Recycle the oldest brood ant so EVERY Queen ALWAYS hatches fresh brood instead of stalling on beetles only!
+      let oldestIdx = -1;
+      let oldestFrac = -1;
+      for (let i = 0; i < this.ants.length; i++) {
+        const a = this.ants[i];
+        if (a.type === 'brood') {
+          const frac = a.age / Math.max(1, a.maxAge);
+          if (frac > oldestFrac) {
+            oldestFrac = frac;
+            oldestIdx = i;
+          }
+        }
+      }
+      if (oldestIdx >= 0) {
+        this.ants.splice(oldestIdx, 1);
+      } else {
+        return;
+      }
     }
 
     const candX = x + Math.cos(angle) * 2.2;
@@ -432,7 +484,9 @@ export class AntManager {
       sugarDustHits: [],
       cocoonHatches: [],
       poisonBlasts: [],
-      beetleBlasts: []
+      beetleBlasts: [],
+      phaseBlinks: [],
+      damageByType: {}
     };
 
     if (this.compassCooldown > 0) {
@@ -460,7 +514,7 @@ export class AntManager {
       poisonRes.sugarDustHits.length > 0 ||
       poisonRes.cocoonHatches.length > 0
     ) {
-      this.applyDigEvents(poisonRes, world.nestX, world.nestY, [115, 255, 95], world, particles, events, true);
+      this.applyDigEvents(poisonRes, world.nestX, world.nestY, [115, 255, 95], world, particles, events, true, 'scout');
     }
 
     // Collect active Queen coordinates for royal aura buffing (×2 radius with Queen Evolution!)
@@ -482,6 +536,9 @@ export class AntManager {
       if (ant.biteFlash > 0) ant.biteFlash = Math.max(0, ant.biteFlash - dt * 5);
       if (ant.evoCooldown && ant.evoCooldown > 0) {
         ant.evoCooldown = Math.max(0, ant.evoCooldown - dt);
+      }
+      if (ant.sparkTimer && ant.sparkTimer > 0) {
+        ant.sparkTimer = Math.max(0, ant.sparkTimer - dt);
       }
       ant.turnTimer -= dt;
 
@@ -528,6 +585,8 @@ export class AntManager {
         this.updateCompass(ant, dt, world, particles, stats, events, rushMult);
       } else if (ant.type === 'beetle') {
         this.updateBeetle(ant, dt, world, particles, stats, events, rushMult);
+      } else if (ant.type === 'phantom') {
+        this.updatePhantom(ant, dt, world, particles, stats, events, beacon, rushMult);
       } else {
         this.updateWorkerOrBrood(ant, dt, world, particles, stats, events, beacon, rushMult);
       }
@@ -577,10 +636,14 @@ export class AntManager {
     world: World,
     particles: ParticleSystem,
     events: AntUpdateEvents,
-    silentDig = false
+    silentDig = false,
+    sourceType?: AntTypeId
   ) {
     events.dugPixels += res.dugCount;
     events.damagedPixels += res.damagedCount;
+    if (sourceType && res.damageDealt > 0) {
+      events.damageByType[sourceType] = (events.damageByType[sourceType] || 0) + res.damageDealt;
+    }
     if (!silentDig && (res.dugCount > 0 || res.damagedCount > 0)) {
       events.dugPoints.push({ x, y });
     }
@@ -692,7 +755,7 @@ export class AntManager {
         ant.biteFlash = 1;
         const dmg = this.computeDamage(cfg.baseDamage + auraDmg, ahead, stats);
         const res = world.dig(probeX, probeY, cfg.baseRadius, dmg, ant.x, ant.y);
-        this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events);
+        this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events, false, 'compass');
       }
     }
   }
@@ -891,12 +954,12 @@ export class AntManager {
         ant.biteFlash = 1;
         const dmg = this.computeDamage(rawDmg, ahead, stats);
         const res = world.dig(probeX, probeY, digRadius, dmg, ant.x, ant.y);
-        this.applyDigEvents(res, probeX, probeY, isEvolved ? [125, 255, 170] : cfg.rgb, world, particles, events);
+        this.applyDigEvents(res, probeX, probeY, isEvolved ? [125, 255, 170] : cfg.rgb, world, particles, events, false, ant.type);
 
         // Worker Evolution Capstone (10 SP, rebalanced): 15% chance Emerald Seismic Micro-Pulse!
         if (isEvolved && Math.random() < 0.15) {
           const pulseRes = world.dig(probeX, probeY, 2.2, 1, ant.x, ant.y);
-          this.applyDigEvents(pulseRes, probeX, probeY, [255, 232, 120], world, particles, events);
+          this.applyDigEvents(pulseRes, probeX, probeY, [255, 232, 120], world, particles, events, false, ant.type);
           particles.spawn(probeX, probeY, 95, 255, 175, 4, 18, 0.5, 1.4);
         }
       }
@@ -946,7 +1009,7 @@ export class AntManager {
           ant.biteFlash = 1;
           const dmg = this.computeDamage(rawDmg, cell, stats);
           const res = world.dig(ix, iy, cfg.baseRadius, dmg, ant.x, ant.y);
-          this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+          this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events, false, 'scout');
 
           // Scout Skill: "Ядовитый рикошет" — applies lingering acid corrosion on ricochet!
           if (stats.scout.poisonRank > 0 && cell !== CellType.HiddenArt && cell !== CellType.Sugar) {
@@ -984,7 +1047,7 @@ export class AntManager {
         if (dx * dx + dy * dy <= hitDistSq) {
           const blastDmg = 2 + stats.scout.dmgBonus + (stats.globalDmgBonus || 0);
           const blastRes = world.dig(ant.x, ant.y, 4.4, blastDmg, ant.x, ant.y);
-          this.applyDigEvents(blastRes, ant.x, ant.y, [120, 255, 95], world, particles, events);
+          this.applyDigEvents(blastRes, ant.x, ant.y, [120, 255, 95], world, particles, events, false, 'scout');
           world.applyPoison(ant.x, ant.y, 5.2, 2.8, 4.5, ant.x, ant.y);
           particles.spawn(ant.x, ant.y, 125, 255, 90, 14, 28, 0.9, 1.8);
           particles.spawn(ant.x, ant.y, 65, 235, 165, 8, 22, 0.75, 1.4);
@@ -1048,7 +1111,7 @@ export class AntManager {
     ant.angle = ant.fixedAngle;
   }
 
-  /** Warrior Evolution (20 SP): hitting an indestructible block spawns a regular Warrior copy (max 2 live at once!) */
+  /** Warrior Evolution (20 SP): hitting an indestructible block spawns a spectral half-strength Warrior clone (max 2 per summoned Warrior!) */
   private trySpawnWarriorClone(
     ant: Ant,
     world: World,
@@ -1056,7 +1119,7 @@ export class AntManager {
     stats: ColonyStats
   ) {
     if (!stats.warrior.evolved || ant.isWarriorClone || (ant.evoCooldown || 0) > 0) return;
-    if (this.countWarriorClones() >= 2) return;
+    if (this.countWarriorClonesForParent(ant.id) >= 2) return;
     const cfg = ANT_TYPES.warrior;
     const cloneAngle = ant.fixedAngle + (Math.random() < 0.5 ? 0.36 : -0.36);
     const candX = ant.x + Math.cos(cloneAngle) * 1.8;
@@ -1072,7 +1135,7 @@ export class AntManager {
       angle: cloneAngle,
       fixedAngle: cloneAngle,
       age: 0,
-      maxAge: cfg.baseLifespan * stats.globalLifeMult * 0.75,
+      maxAge: cfg.baseLifespan * stats.globalLifeMult * 0.72,
       biteTimer: 0,
       biteFlash: 0,
       turnTimer: 0.4,
@@ -1080,11 +1143,165 @@ export class AntManager {
       legPhase: Math.random() * Math.PI * 2,
       trailTimer: 0,
       fromQueen: true,
-      isWarriorClone: true
+      isWarriorClone: true,
+      parentWarriorId: ant.id
     });
     ant.evoCooldown = 1.4;
-    particles.spawn(spawnPos.x, spawnPos.y, 255, 155, 58, 12, 24, 0.85, 1.8);
-    particles.spawn(spawnPos.x, spawnPos.y, 255, 232, 120, 6, 18, 0.65, 1.4);
+    particles.spawn(spawnPos.x, spawnPos.y, 130, 235, 255, 10, 22, 0.85, 1.7);
+    particles.spawn(spawnPos.x, spawnPos.y, 255, 175, 85, 8, 18, 0.65, 1.4);
+  }
+
+  /** Secret Phase Ant (Shop unlock, 2 currency): nibbles steadily & every 6s blinks through solid rock with quantum departure/arrival pulses! */
+  private updatePhantom(
+    ant: Ant,
+    dt: number,
+    world: World,
+    particles: ParticleSystem,
+    stats: ColonyStats,
+    events: AntUpdateEvents,
+    beacon: PheromoneBeacon | null,
+    rushMult: number
+  ) {
+    const cfg = ANT_TYPES.phantom;
+    const auraSpd = ant.queenBuffed ? 1.35 : 1;
+    const auraDmg = ant.queenBuffed ? 1 : 0;
+    const spdMult = (stats.phantom ? stats.phantom.speedMult : stats.globalSpeedMult) * auraSpd * rushMult;
+    const speed = cfg.baseSpeed * spdMult;
+    const biteInterval = cfg.baseBiteInterval / spdMult;
+    const rawDmg = cfg.baseDamage + (stats.phantom ? stats.phantom.dmgBonus : 0) + auraDmg;
+
+    if (ant.turnTimer <= 0) {
+      if (beacon) {
+        const toB = Math.atan2(beacon.y - ant.y, beacon.x - ant.x);
+        let diff = toB - ant.angle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        ant.angle += diff * 0.55 + (Math.random() - 0.5) * 0.55;
+      } else {
+        ant.angle += (Math.random() - 0.5) * 0.85;
+      }
+      ant.turnTimer = 0.7 + Math.random() * 0.6;
+    }
+
+        // Quantum Phase Blink: teleports 8-14px through solid rock (strictly inside interiorMask, never across HiddenArt!)
+    const blinkCd = stats.phantom ? stats.phantom.blinkCdSec : 6.0;
+    if ((ant.evoCooldown || 0) <= 0) {
+      const angles = [ant.angle, ant.angle + 0.3, ant.angle - 0.3, ant.angle + 0.65, ant.angle - 0.65];
+      let blinked = false;
+      for (let ai = 0; ai < angles.length && !blinked; ai++) {
+        const testAng = angles[ai];
+        for (let dist = 14; dist >= 8; dist -= 2) {
+          const tx = Math.round(ant.x + Math.cos(testAng) * dist);
+          const ty = Math.round(ant.y + Math.sin(testAng) * dist);
+          if (!world.inBounds(tx, ty) || !world.isInsidePlayable(tx, ty)) continue;
+          const cell = world.getCell(tx, ty);
+          if (cell === CellType.HiddenArt || cell === CellType.Sugar) continue;
+          if (world.hasArtBetween(ant.x, ant.y, tx, ty)) continue;
+
+          // Departure quantum rift pulse
+          const depRes = world.dig(ant.x, ant.y, 2.4, 3 + auraDmg, ant.x, ant.y);
+          this.applyDigEvents(depRes, ant.x, ant.y, [110, 245, 255], world, particles, events, false, 'phantom');
+          particles.spawn(ant.x, ant.y, 130, 225, 255, 10, 22, 0.75, 1.5);
+
+          // Arrival quantum rift pulse (punches through soft/clay pockets, chunks stone/obsidian!)
+          const arrRes = world.dig(tx, ty, 2.7, 5 + auraDmg, tx, ty);
+          this.applyDigEvents(arrRes, tx, ty, [185, 135, 255], world, particles, events, false, 'phantom');
+          particles.spawn(tx, ty, 190, 130, 255, 14, 28, 0.9, 1.7);
+          particles.spawn(tx, ty, 110, 250, 255, 10, 20, 0.7, 1.4);
+
+          // Move ant cleanly into the opened destination pocket (if arrival carved open or was Empty)
+          const landing = world.findNearestEmpty(tx, ty, 2);
+          if (landing && !world.hasArtBetween(ant.x, ant.y, landing.x, landing.y)) {
+            ant.x = landing.x;
+            ant.y = landing.y;
+            ant.angle = testAng;
+            ant.evoCooldown = blinkCd;
+          } else {
+            // Hard Obsidian absorbed part of the blink — shorter cooldown so next pulse breaks through!
+            ant.evoCooldown = Math.max(2.6, blinkCd * 0.58);
+          }
+          events.phaseBlinks.push({ x: tx, y: ty });
+          blinked = true;
+          break;
+        }
+      }
+      if (!blinked) {
+        ant.evoCooldown = 2.0;
+        ant.angle += (Math.random() < 0.5 ? 1 : -1) * Math.PI * 0.6;
+      }
+    }
+
+    // Phase Ant Mutation (40 SP — "Quantum Sparks"): steady spark field around the ant (upgradeable via Spark Overload!)
+    if (stats.phantom?.evolved && (ant.sparkTimer || 0) <= 0) {
+      ant.sparkTimer = 0.30;
+      const sparkR = stats.phantom.sparkRadius || 5.4;
+      const sparkRSq = sparkR * sparkR;
+      const rCeil = Math.ceil(sparkR);
+      const ax = Math.round(ant.x);
+      const ay = Math.round(ant.y);
+      const targets: { x: number; y: number }[] = [];
+      for (let dy = -rCeil; dy <= rCeil; dy++) {
+        for (let dx = -rCeil; dx <= rCeil; dx++) {
+          if (dx * dx + dy * dy > sparkRSq) continue;
+          const sx = ax + dx;
+          const sy = ay + dy;
+          if (!world.inBounds(sx, sy) || !world.isInsidePlayable(sx, sy)) continue;
+          const c = world.getCell(sx, sy);
+          if (c === CellType.Empty || c === CellType.HiddenArt || c === CellType.Sugar) continue;
+          if (world.hasArtBetween(ant.x, ant.y, sx, sy)) continue;
+          targets.push({ x: sx, y: sy });
+        }
+      }
+      if (targets.length > 0) {
+        const sparkDmg = 2 + stats.phantom.dmgBonus + (stats.phantom.sparkDmgBonus || 0) + auraDmg;
+        const strikeCount = Math.min(6, targets.length);
+        for (let k = 0; k < strikeCount; k++) {
+          const pickIdx = Math.floor(Math.random() * targets.length);
+          const hit = targets.splice(pickIdx, 1)[0];
+          const sparkRes = world.dig(hit.x, hit.y, 0.9, sparkDmg, ant.x, ant.y);
+          this.applyDigEvents(sparkRes, hit.x, hit.y, [115, 225, 245], world, particles, events, true, 'phantom');
+          if (k < 2) {
+            particles.spawn(hit.x, hit.y, 125, 238, 255, 1, 12, 0.28, 1.05);
+          }
+        }
+      }
+    }
+
+    const probeX = ant.x + Math.cos(ant.angle) * 1.4;
+    const probeY = ant.y + Math.sin(ant.angle) * 1.4;
+    const ix = Math.round(probeX);
+    const iy = Math.round(probeY);
+    if (!world.inBounds(ix, iy)) {
+      ant.angle += Math.PI * 0.7;
+      return;
+    }
+
+    const ahead = world.getCell(ix, iy);
+    const nx = ant.x + Math.cos(ant.angle) * speed * dt;
+    const ny = ant.y + Math.sin(ant.angle) * speed * dt;
+    const hitBarrier = ahead === CellType.HiddenArt || !world.isInsidePlayable(ix, iy);
+
+    if (ahead === CellType.Empty && !hitBarrier && world.canAntStep(ant.x, ant.y, nx, ny)) {
+      ant.x = nx;
+      ant.y = ny;
+      ant.legPhase += dt * speed * 1.45;
+    } else if (hitBarrier || ahead === CellType.Empty) {
+      if (ahead === CellType.HiddenArt) {
+        const res = world.dig(ix, iy, cfg.baseRadius, 1, ant.x, ant.y);
+        this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
+      }
+      ant.angle += (Math.random() < 0.5 ? 1 : -1) * (Math.PI * 0.52 + Math.random() * 0.25);
+      ant.turnTimer = 0.35;
+    } else {
+      ant.legPhase += dt * 4.2;
+      if (ant.biteTimer <= 0) {
+        ant.biteTimer = biteInterval;
+        ant.biteFlash = 1;
+        const dmg = this.computeDamage(rawDmg, ahead, stats);
+        const res = world.dig(probeX, probeY, cfg.baseRadius, dmg, ant.x, ant.y);
+        this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events, false, 'phantom');
+      }
+    }
   }
 
   /** Exploding Beetle (Queen Evolution 5% spawn): darts forward and detonates on colliding with any diggable block! */
@@ -1138,7 +1355,7 @@ export class AntManager {
         // Collided with a solid block -> DETONATE!
         const dmg = cfg.baseDamage + stats.queen.broodDmgBonus * 2 + (stats.globalDmgBonus || 0);
         const blastRes = world.dig(ix, iy, cfg.baseRadius, dmg, ant.x, ant.y);
-        this.applyDigEvents(blastRes, ix, iy, cfg.rgb, world, particles, events);
+        this.applyDigEvents(blastRes, ix, iy, cfg.rgb, world, particles, events, false, 'beetle');
         particles.spawn(ix, iy, 255, 88, 44, 24, 42, 1.2, 2.2);
         particles.spawn(ix, iy, 255, 228, 118, 14, 30, 0.95, 1.7);
         events.beetleBlasts.push({ x: ix, y: iy });
@@ -1165,8 +1382,11 @@ export class AntManager {
     const spdMult = stats.warrior.speedMult * auraSpd * rushMult;
     const speed = cfg.baseSpeed * spdMult;
     const biteInterval = cfg.baseBiteInterval / spdMult;
+    const isClone = Boolean(ant.isWarriorClone);
     const rawDmg = cfg.baseDamage + stats.warrior.dmgBonus + auraDmg;
-    const radius = cfg.baseRadius + stats.warrior.radiusBonus;
+    const radius = isClone
+      ? cfg.baseRadius * 0.78 + stats.warrior.radiusBonus * 0.5
+      : cfg.baseRadius + stats.warrior.radiusBonus;
 
     ant.angle = ant.fixedAngle;
 
@@ -1207,11 +1427,14 @@ export class AntManager {
     } else {
       ant.legPhase += dt * 3.8;
       if (ant.biteTimer <= 0) {
-        ant.biteTimer = biteInterval;
+        const fullDmg = this.computeDamage(rawDmg, ahead, stats);
+        const dmg = isClone ? Math.max(1, Math.round(fullDmg * 0.5)) : fullDmg;
+        // Exact 50% DPS scaling for Warrior clones even when fullDmg is odd (e.g. 3 -> 2 dmg at 1.33x interval = exact 1.5!)
+        const cloneCadenceMult = isClone ? dmg / Math.max(0.5, fullDmg * 0.5) : 1;
+        ant.biteTimer = biteInterval * cloneCadenceMult;
         ant.biteFlash = 1;
-        const dmg = this.computeDamage(rawDmg, ahead, stats);
         const res = world.dig(probeX, probeY, radius, dmg, ant.x, ant.y);
-        this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events);
+        this.applyDigEvents(res, probeX, probeY, isClone ? [145, 230, 255] : cfg.rgb, world, particles, events, false, 'warrior');
         // If corner-pinched against HiddenArt and bite dealt 0 real dig/damage, deflect cleanly instead of getting stuck!
         if (res.dugCount === 0 && res.damagedCount === 0 && !res.sugarHit) {
           this.deflectWarrior(ant, world);
@@ -1271,7 +1494,7 @@ export class AntManager {
         ant.biteFlash = 1;
         const dmg = this.computeDamage(cfg.baseDamage, ahead, stats);
         const res = world.dig(probeX, probeY, cfg.baseRadius, dmg, ant.x, ant.y);
-        this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events);
+        this.applyDigEvents(res, probeX, probeY, cfg.rgb, world, particles, events, false, 'queen');
       }
       if (Math.random() < 0.04) {
         ant.angle += (Math.random() < 0.5 ? 1 : -1) * 0.9;

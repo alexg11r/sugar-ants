@@ -222,6 +222,80 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     accent: '#42f5c5',
     goal: 1,
     getProgress: (s) => (s.achievements.includes('coop_play') ? 1 : 0)
+  },
+  // Unique Community Currency Achievements (+1 Sugar Currency each, max 2!)
+  {
+    id: 'visit_telegram',
+    name: 'Гость муравейника',
+    nameEn: 'Colony Telegram Guest',
+    description: 'Перейдите в наш Telegram-канал (награда: +1 🍬 валюты и +1% скорости).',
+    descriptionEn: 'Visit our Telegram channel (reward: +1 🍬 currency & +1% speed).',
+    icon: '✈️',
+    accent: '#56c8ff',
+    goal: 1,
+    currencyReward: 1,
+    getProgress: (s) => (s.achievements.includes('visit_telegram') ? 1 : 0)
+  },
+  {
+    id: 'visit_boosty',
+    name: 'Покровитель колонии',
+    nameEn: 'Patron of the Colony',
+    description: 'Откройте страницу полной версии игры на Boosty (награда: +1 🍬 валюты и +1% скорости).',
+    descriptionEn: 'Visit the Full Game page on Boosty (reward: +1 🍬 currency & +1% speed).',
+    icon: '🔥',
+    accent: '#ff8a52',
+    goal: 1,
+    currencyReward: 1,
+    getProgress: (s) => (s.achievements.includes('visit_boosty') ? 1 : 0)
+  },
+  // Secret Easter-Egg Achievements (hidden until discovered!)
+  {
+    id: 'credits_ant_click',
+    name: 'Любопытный наблюдатель',
+    nameEn: 'Curious Observer',
+    description: 'Вы поймали тайного муравья, ползущего в меню «Авторы»!',
+    descriptionEn: 'You caught the sneaky ant crawling inside the Credits window!',
+    icon: '🕵️',
+    accent: '#7dffb2',
+    goal: 1,
+    secret: true,
+    getProgress: (s) => (s.achievements.includes('credits_ant_click') ? 1 : 0)
+  },
+  {
+    id: 'menu_ant_boop',
+    name: 'Буп по усикам',
+    nameEn: 'Antenna Boop',
+    description: 'Вы нажали прямо на живого муравья на фоне главного меню!',
+    descriptionEn: 'You booped a live crawling ant on the Main Menu background!',
+    icon: '👆',
+    accent: '#ffe26a',
+    goal: 1,
+    secret: true,
+    getProgress: (s) => (s.achievements.includes('menu_ant_boop') ? 1 : 0)
+  },
+  {
+    id: 'crush_master',
+    name: 'Великий сброс',
+    nameEn: 'The Great Reset',
+    description: 'Раздавите 8 или более активных муравьёв за одно нажатие.',
+    descriptionEn: 'Crush 8 or more active ants in a single press.',
+    icon: '💥',
+    accent: '#ff6b4a',
+    goal: 1,
+    secret: true,
+    getProgress: (s) => (s.achievements.includes('crush_master') ? 1 : 0)
+  },
+  {
+    id: 'secret_ant_summon',
+    name: 'Тайная каста',
+    nameEn: 'Hidden Caste',
+    description: 'Откройте в лавке и выпустите на карту Фазового муравья.',
+    descriptionEn: 'Unlock the Phase Ant in the Shop and deploy one on a map.',
+    icon: '🌀',
+    accent: '#6ef5ff',
+    goal: 1,
+    secret: true,
+    getProgress: (s) => (s.achievements.includes('secret_ant_summon') ? 1 : 0)
   }
 ];
 

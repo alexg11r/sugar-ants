@@ -16,13 +16,13 @@ export const hideExternalLinks: boolean =
     ? __HIDE_EXTERNAL_LINKS__
     : DEFAULT_HIDE_EXTERNAL_LINKS;
 
-/** Включает демо-версию: доступны только первые 2 уровня, после 2-го уровня открывается экран с 2 QR (Boosty + Telegram) */
+/** Включает демо-версию: доступны только первые 4 уровня, закрыта эволюция Матки и космический скин */
 export const isDemoVersion: boolean =
   typeof __IS_DEMO_VERSION__ === 'boolean'
     ? __IS_DEMO_VERSION__
     : DEFAULT_IS_DEMO_VERSION;
 
-export const DEMO_MAX_LEVELS = 2;
+export const DEMO_MAX_LEVELS = 4;
 
 export const TELEGRAM_URL = 'https://t.me/graxstudio';
 export const BOOSTY_URL = 'https://boosty.to/graxstudio';

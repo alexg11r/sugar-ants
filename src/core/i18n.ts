@@ -183,6 +183,9 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   epicSavePng: { ru: '⬇ PNG', en: '⬇ PNG' },
   epicNext: { ru: 'Следующая карта →', en: 'Next Map →' },
   epicNextNamed: { ru: 'Далее: {name} →', en: 'Next: {name} →' },
+  epicTopDmg: { ru: '🏆 Лидер урона', en: '🏆 Top Damage' },
+  epicSpawnedLabel: { ru: 'Выпущено за карту', en: 'Deployed this map' },
+  epicDmgUnit: { ru: 'урона', en: 'dmg' },
 
   // Skill Tree Inspector & Side General Upgrades
   stTitle: { ru: 'Дерево навыков', en: 'Skill Tree' },
@@ -197,8 +200,8 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
     en: 'Tap any node to read its description, then tap the Unlock / Upgrade button below.'
   },
   stNeedLevel: {
-    ru: '🔒 Откроется после {n}-го уровня («{name}»)',
-    en: '🔒 Unlocks after Level {n} ("{name}")'
+    ru: '🔒 Найдите сахар на {n}-м уровне («{name}»)',
+    en: '🔒 Find Sugar on Level {n} ("{name}")'
   },
   stAvailableSp: { ru: 'Доступно очков', en: 'Available SP' },
   stLearn: { ru: 'Изучить', en: 'Unlock' },
@@ -338,20 +341,79 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   creditsAudioVal: { ru: 'Процедурный Web Audio движок<br/>Эмбиент • Трип-хоп • IDM', en: 'Procedural Web Audio Engine<br/>Ambient • Trip-Hop • IDM' },
   creditsThanksLbl: { ru: 'ОСОБАЯ БЛАГОДАРНОСТЬ', en: 'SPECIAL THANKS' },
   creditsThanksName: { ru: '🦐 Креветочке Русе', en: '🦐 Rusya the Shrimp' },
+  creditsTestersLbl: { ru: 'ЗА ТЕСТИРОВАНИЕ', en: 'SPECIAL THANKS FOR TESTING' },
+  creditsTestersName: { ru: '🧪 pintupagar', en: '🧪 pintupagar' },
   creditsThanksPlayers: { ru: 'и всем игрокам!', en: 'and all players!' },
+  creditsInspired: { ru: 'Вдохновлено игрой 10 Million Pixels', en: 'Inspired by 10 Million Pixels' },
   creditsTgBtn: { ru: 'Наш Telegram', en: 'Our Telegram' },
-  allContentBoosty: { ru: 'Весь контент', en: 'All Content' },
+  allContentBoosty: { ru: 'Полная игра', en: 'Full Game' },
+  fullGameBtn: { ru: 'Полная игра', en: 'Full Game' },
+  fullGameTooltipTitle: { ru: '✦ Полная версия (разовая покупка навсегда)', en: '✦ Full Game (one-time purchase forever)' },
+  fullGameTooltipBody: {
+    ru: '4 новых масштабных уровня • больше секретных находок • эволюция Матки • дополнительный космический скин',
+    en: '4 new massive levels • more secret finds • Queen Evolution • exclusive Cosmic ant skin'
+  },
+  fullGameModalTitle: { ru: '✦ Полная игра — Sugar Ants', en: '✦ Full Game — Sugar Ants' },
+  fullGameLead: {
+    ru: 'Разовая покупка навсегда на Boosty — без подписок, все будущие обновления включены!',
+    en: 'One-time purchase forever on Boosty — no subscription, all future updates included!'
+  },
+  fullGameFeat1: { ru: '🗺 4 новых масштабных уровня (Древо Жизни, Хрустальная Гидра, Пепельный Феникс, Бездна Левиафана)', en: '🗺 4 new massive levels (Tree of Life, Crystal Hydra, Ember Phoenix, Void Leviathan)' },
+  fullGameFeat2: { ru: '🏺 Больше подземных секретных находок (+4 стартовых ♦ навсегда) и Эволюция Матки', en: '🏺 More underground secret artifacts (+4 permanent start ♦) & Queen Evolution' },
+  fullGameFeat3: { ru: '🚀 Дополнительный космический футуристичный скин для всех муравьёв', en: '🚀 Exclusive futuristic Cosmic skin for every ant in your colony' },
+  fullGameFeat4: { ru: '💎 Разовая покупка навсегда — ПК, Android и Web в одном доступе', en: '💎 One-time purchase forever — PC, Android & Web editions included' },
+
+  // Shop, Currency, Secret Achievements, Changelog & Exit
+  shopBtn: { ru: 'ЛАВКА', en: 'SHOP' },
+  shopTitle: { ru: '🛍 Лавка колонии', en: '🛍 Colony Shop' },
+  shopBalance: { ru: 'Сахарная валюта', en: 'Sugar Currency' },
+  shopHint: {
+    ru: 'Получайте +1 🍬 за первый найденный сахар на каждой карте (до 8) и +2 🍬 за переход в Telegram и Boosty (всего до 10).',
+    en: 'Earn +1 🍬 per unique map Sugar found (up to 8) plus +2 🍬 from Telegram & Boosty achievements (10 max).'
+  },
+  shopSectionSkins: { ru: '🎨 Скины муравьёв (косметика с предпросмотром)', en: '🎨 Ant Skins (Cosmetic with Live Preview)' },
+  shopSectionAnts: { ru: '🌀 Секретный муравей', en: '🌀 Secret Ant' },
+  shopSkinClassicName: { ru: 'Классический рой', en: 'Classic Colony' },
+  shopSkinClassicDesc: { ru: 'Оригинальный биолюминесцентный облик муравьёв.', en: 'Original bioluminescent subterranean ant look.' },
+  shopSkinAlienName: { ru: 'Инопланетный рой', en: 'Alien Swarm' },
+  shopSkinAlienDesc: { ru: 'Жутковатые ксено-чудища: шипы на панцире, зазубренные жвалы и 4 горящих глаза.', en: 'Eerie xenomorph monstrosities with barbed spines, jagged fangs & 4 glowing eyes.' },
+  shopSkinCosmicName: { ru: 'Космический флот', en: 'Cosmic Fleet' },
+  shopSkinCosmicDesc: { ru: 'Футуристичный звёздный корпус, неоновый визор, энергетические крылья и плазменный след.', en: 'Futuristic starship carapace, neon optic visor, holographic fins & plasma thrusters.' },
+  shopPhaseName: { ru: 'Фазовый муравей', en: 'Phase Ant' },
+  shopPhaseDesc: {
+    ru: 'Секретный квантовый муравей (лимит 2, клавиша 6): раз в 6 сек телепортируется сквозь породу с фазовым импульсом на входе и выходе.',
+    en: 'Secret quantum ant (cap 2, hotkey 6): blinks through solid rock every 6s with a phase pulse on departure & arrival.'
+  },
+  shopEquipped: { ru: '✓ Выбран', en: '✓ Equipped' },
+  shopEquip: { ru: 'Надеть', en: 'Equip' },
+  shopUnlocked: { ru: '✓ Открыт', en: '✓ Unlocked' },
+  shopBuy: { ru: 'Купить', en: 'Buy' },
+  shopFullOnly: { ru: '🔒 В полной игре', en: '🔒 Full Game Only' },
+  toastCurrencyGain: { ru: '🍬 +{n} сахарная валюта! Потратьте в Лавке колонии', en: '🍬 +{n} Sugar Currency! Spend in the Colony Shop' },
+  toastSkinBought: { ru: '🎨 Куплен и надет скин «{name}»!', en: '🎨 Unlocked & equipped "{name}" skin!' },
+  toastSkinEquipped: { ru: '🎨 Выбран скин «{name}»', en: '🎨 Equipped "{name}" skin' },
+  toastSecretAntBought: { ru: '🌀 Открыт секретный Фазовый муравей! Доступен в игре (клавиша 6)', en: '🌀 Secret Phase Ant unlocked! Deploy in-game (key 6)' },
+  toastNeedCurrency: { ru: 'Недостаточно сахарной валюты (нужно {cost} 🍬)', en: 'Not enough Sugar Currency (need {cost} 🍬)' },
+
+  achSecretName: { ru: '??? (Секретная ачивка)', en: '??? (Secret Achievement)' },
+  achSecretDesc: { ru: 'Тайное условие — исследуйте меню и механики игры!', en: 'Hidden condition — explore menus and game secrets!' },
+  achCurrencyReward: { ru: '+1 🍬 валюты', en: '+1 🍬 currency' },
+
+  changelogTitle: { ru: '📋 История обновлений', en: '📋 Changelog' },
+  exitBtn: { ru: 'Выход', en: 'Exit' },
+  exitWebToast: { ru: 'Прогресс сохранён — можно безопасно закрыть вкладку', en: 'Progress saved — you can safely close this tab' },
+  demoQueenEvoLocked: { ru: '🔒 Эволюция Матки открыта только в полной игре', en: '🔒 Queen Evolution is only available in the Full Game' },
 
   // Demo Version
   demoBadge: { ru: 'ДЕМО', en: 'DEMO' },
-  demoMapLockedDesc: { ru: 'Доступно в полной версии Sugar Ants', en: 'Available in the full version of Sugar Ants' },
-  demoBtnFull: { ru: 'Полная версия', en: 'Full Version' },
+  demoMapLockedDesc: { ru: 'Доступно в полной версии Sugar Ants (разовая покупка)', en: 'Available in the Full Game of Sugar Ants (one-time purchase)' },
+  demoBtnFull: { ru: 'Полная игра', en: 'Full Game' },
   demoCompleteTitle: { ru: '🎉 Демо-версия пройдена!', en: '🎉 Demo Complete!' },
   demoCompleteSub: {
-    ru: 'Вы прошли оба уровня демо-версии! В полной версии вас ждут ещё 6 уникальных карт, секретные находки и испытания.',
-    en: 'You completed both demo levels! 6 more unique maps, secret artifacts, and challenges await in the full version.'
+    ru: 'Вы прошли все 4 уровня демо-версии! В полной игре (разовая покупка навсегда) вас ждут ещё 4 масштабных уровня, больше находок, эволюция Матки и космический скин.',
+    en: 'You completed all 4 demo levels! In the Full Game (one-time purchase forever), 4 more massive levels, extra secret finds, Queen Evolution & the Cosmic skin await.'
   },
-  demoQrBoostyTitle: { ru: 'Весь контент на Boosty', en: 'All Content on Boosty' },
+  demoQrBoostyTitle: { ru: 'Полная игра на Boosty', en: 'Full Game on Boosty' },
   demoQrBoostyHint: {
     ru: 'Полная версия — разовая покупка навсегда',
     en: 'Full version — one-time purchase forever'
