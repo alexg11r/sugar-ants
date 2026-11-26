@@ -61,8 +61,8 @@ import {
 import { onlineDirectory } from '../multiplayer/onlineDirectory';
 
 const NODE_STEP = 74;
-const ORIGIN_X = 270;
-const ORIGIN_Y = 192;
+const ORIGIN_X = 280;
+const ORIGIN_Y = 186;
 const NICK_STORAGE_KEY = 'sugar_ants_nick_v1';
 const HINTS_DONE_KEY = 'sugar_ants_hints_done_v1';
 const LANG_CHOSEN_KEY = 'sugar_ants_lang_chosen_v1';
@@ -213,6 +213,9 @@ export class HudController {
   private autoFabStatusEl = document.getElementById('auto-fab-status')!;
   private beaconFabLabelEl = document.getElementById('beacon-fab-label')!;
   private beaconFabStatusEl = document.getElementById('beacon-fab-status')!;
+  private btnCrushAntsEl = document.getElementById('btn-crush-ants')!;
+  private crushFabLabelEl = document.getElementById('crush-fab-label')!;
+  private crushFabStatusEl = document.getElementById('crush-fab-status')!;
   private mpTouchCamControlsEl = document.getElementById('mp-touch-cam-controls')!;
   private mpBtnTouchPanEl = document.getElementById('mp-btn-touch-pan')!;
   private levelNameEl = document.getElementById('level-name')!;
@@ -294,6 +297,7 @@ export class HudController {
   private lastRenderedSp = -1;
   private selectedNodeId: string = 'worker_root';
   private lastBoughtNodeId: string | null = null;
+  private lastSkillPointerType = 'mouse';
   private tutorialStep: 'launch' | 'zoom' | 'pan' | 'done' = 'launch';
   private introTimers: number[] = [];
   private introRafId = 0;
@@ -465,6 +469,8 @@ export class HudController {
     setText('menu-mp-meta', t('mpMeta'));
     setText('menu-art-label', t('secretFinds'));
     setText('menu-ach-label', t('achievements'));
+    setText('menu-guide-label', t('guideBtn'));
+    setText('menu-guide-meta', t('guideMeta'));
     setText('menu-lbl-levels', t('maps'));
     setText('menu-lbl-gallery', t('gallery'));
     setText('menu-lbl-stats', t('stats'));
@@ -494,7 +500,10 @@ export class HudController {
     this.autoFabLabelEl.textContent = t('autoFabLabel');
     setTitle('btn-beacon', t('tipBeacon'));
     this.beaconFabLabelEl.textContent = t('beaconLabel');
+    setTitle('btn-crush-ants', t('tipCrush'));
+    this.crushFabLabelEl.textContent = t('crushLabel');
     this.syncTouchPanButton();
+    setTitle('btn-guide-hud', t('tipGuide'));
     setTitle('btn-settings-hud', t('tipSettings'));
     setTitle('btn-reset-cam', t('tipCenterCam'));
     setTitle('btn-touch-pan', t('tipTouchPan'));
@@ -522,7 +531,7 @@ export class HudController {
     if (!this.skillTreeOpen) {
       this.stTtCatEl.textContent = t('stTitle');
       this.stTtTitleEl.textContent = t('stSelectNode');
-      this.stTtDescEl.textContent = t('stDefaultDesc');
+      this.stTtDescEl.textContent = isMobileDevice() ? t('stDefaultDescTouch') : t('stDefaultDesc');
     } else {
       this.renderSkillTree(false);
     }
@@ -564,7 +573,7 @@ export class HudController {
   private bindUiSounds() {
     let lastHovered: Element | null = null;
     const selector =
-      '.mbtn, .mbtn-mini, .menu-lang-btn, .lang-pick-card, .beacon-fab, .auto-config-pill, .auto-mode-chip, .auto-ant-chip, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card';
+      '.mbtn, .mbtn-mini, .menu-lang-btn, .lang-pick-card, .beacon-fab, .auto-config-pill, .auto-mode-chip, .auto-ant-chip, .touch-cam-btn, .action-btn, .pill-btn, .icon-btn, .ant-btn, .upgrade-btn, .track-card, .guide-tab';
     document.addEventListener('pointerover', (e) => {
       if ((e as PointerEvent).pointerType === 'touch') return;
       const btn = (e.target as HTMLElement | null)?.closest(selector);
@@ -698,7 +707,7 @@ export class HudController {
       },
       {
         step: 1,
-        delayMs: 1300,
+        delayMs: 2300,
         kicker: t('introBeat1Kicker'),
         big: t('introBeat1Big'),
         small: t('introBeat1Small'),
@@ -706,7 +715,7 @@ export class HudController {
       },
       {
         step: 2,
-        delayMs: 2550,
+        delayMs: 4700,
         kicker: t('introBeat2Kicker'),
         big: t('introBeat2Big'),
         small: t('introBeat2Small'),
@@ -714,7 +723,7 @@ export class HudController {
       },
       {
         step: 3,
-        delayMs: 3850,
+        delayMs: 7100,
         kicker: `${t('introMapWord')} ${roman} • ${lvlDisplayName}`,
         big: t('introBeat3Big'),
         small: t('introBeat3Small'),
@@ -759,11 +768,11 @@ export class HudController {
 
       this.engine.audio.playIntroBeat(b.step);
 
-      // Odometer fast count-up for real block count on Beat 0!
+      // Odometer count-up for real block count on Beat 0!
       if (b.rollTo !== undefined) {
         const target = b.rollTo;
         const startMs = performance.now();
-        const durMs = 540;
+        const durMs = 900;
         const tick = (now: number) => {
           const p = Math.min(1, (now - startMs) / durMs);
           const eased = 1 - Math.pow(1 - p, 3);
@@ -812,7 +821,7 @@ export class HudController {
         this.introTimers.push(window.setTimeout(() => showBeat(b), b.delayMs));
       }
     }
-    this.introTimers.push(window.setTimeout(finish, 4950));
+    this.introTimers.push(window.setTimeout(finish, 9300));
   }
 
   private clearIntroTimers() {
@@ -871,6 +880,7 @@ export class HudController {
 
     document.getElementById('menu-btn-artifacts')!.addEventListener('click', () => this.openArtifactsModal());
     document.getElementById('menu-btn-achievements')!.addEventListener('click', () => this.openAchievementsModal());
+    document.getElementById('menu-btn-guide')!.addEventListener('click', () => this.openGuideModal('ants'));
     document.getElementById('menu-btn-levels')!.addEventListener('click', () => this.openLevelsModal());
     document.getElementById('menu-btn-gallery')!.addEventListener('click', () => this.openGalleryModal());
     document.getElementById('menu-btn-stats')!.addEventListener('click', () => this.openStatsModal());
@@ -908,6 +918,11 @@ export class HudController {
       this.closeAutoPopover();
       this.engine.toggleBeaconMode();
     });
+    this.btnCrushAntsEl.addEventListener('click', () => {
+      this.closeAutoPopover();
+      this.engine.crushAllAnts();
+    });
+    document.getElementById('btn-guide-hud')!.addEventListener('click', () => this.openGuideModal('ants'));
     document.getElementById('btn-settings-hud')!.addEventListener('click', () => this.openSettingsModal());
     document.getElementById('btn-reset-cam')!.addEventListener('click', () => this.engine.resetCamera());
     document.getElementById('btn-upgrades')!.addEventListener('click', () => this.openSkillTree());
@@ -2900,6 +2915,323 @@ export class HudController {
     }
   }
 
+  /** Interactive 4-Tab Colony Guide Book (Ants & Evolutions / Rocks & HP / Underground Finds / Controls & Tips) */
+  openGuideModal(activeTab: 'ants' | 'blocks' | 'finds' | 'tips' = 'ants') {
+    this.openModal(t('guideTitle'));
+    this.renderGuideContent(activeTab);
+  }
+
+  private renderGuideContent(activeTab: 'ants' | 'blocks' | 'finds' | 'tips') {
+    const en = getLang() === 'en';
+    this.modalTitleEl.textContent = t('guideTitle');
+    this.modalBodyEl.innerHTML = '';
+
+    const tabsBar = document.createElement('div');
+    tabsBar.className = 'guide-tabs';
+    const tabs: { id: 'ants' | 'blocks' | 'finds' | 'tips'; label: string }[] = [
+      { id: 'ants', label: t('guideTabAnts') },
+      { id: 'blocks', label: t('guideTabBlocks') },
+      { id: 'finds', label: t('guideTabFinds') },
+      { id: 'tips', label: t('guideTabTips') }
+    ];
+    for (const tb of tabs) {
+      const btn = document.createElement('button');
+      btn.className = `guide-tab${activeTab === tb.id ? ' active' : ''}`;
+      btn.dataset.guideTab = tb.id;
+      btn.textContent = tb.label;
+      btn.addEventListener('click', () => this.renderGuideContent(tb.id));
+      tabsBar.appendChild(btn);
+    }
+    this.modalBodyEl.appendChild(tabsBar);
+
+    const content = document.createElement('div');
+    content.className = 'guide-content';
+
+    if (activeTab === 'ants') {
+      const antEntries: {
+        color: string;
+        icon: string;
+        name: string;
+        role: string;
+        stats: string[];
+        evo?: string;
+      }[] = [
+        {
+          color: ANT_TYPES.worker.color,
+          icon: renderSkillSvg('ant'),
+          name: loc(ANT_TYPES.worker.name, ANT_TYPES.worker.nameEn),
+          role: loc(ANT_TYPES.worker.description, ANT_TYPES.worker.descriptionEn),
+          stats: en
+            ? ['DMG: 1', 'SPD: 12.5', 'CAP: 6', 'LIFE: 75s']
+            : ['УРОН: 1', 'СКОР: 12.5', 'ЛИМИТ: 6', 'ЖИЗНЬ: 75с'],
+          evo: en
+            ? 'Evolution (10 SP, after Level 1): +12% speed, +1 dmg, +1 cap, wider dig, 15% emerald micro-pulse.'
+            : 'Эволюция (10 ♦, после 1-го ур.): +12% скорости, +1 урон, +1 лимит, шире проход, 15% шанс импульса.'
+        },
+        {
+          color: ANT_TYPES.warrior.color,
+          icon: renderSkillSvg('sword'),
+          name: loc(ANT_TYPES.warrior.name, ANT_TYPES.warrior.nameEn),
+          role: loc(ANT_TYPES.warrior.description, ANT_TYPES.warrior.descriptionEn),
+          stats: en
+            ? ['DMG: 3', 'SPD: 9.2', 'CAP: 2', 'CLEAVE: 1.95 (+0.85/lvl)']
+            : ['УРОН: 3', 'СКОР: 9.2', 'ЛИМИТ: 2', 'РАДИУС: 1.95 (+0.85/ур.)'],
+          evo: en
+            ? 'Evolution (20 SP, after Level 2): Hitting an indestructible wall spawns a regular Warrior copy (max 2 live).'
+            : 'Эволюция (20 ♦, после 2-го ур.): Удар о нерушимый блок порождает обычного Воина (до 2 одновременно).'
+        },
+        {
+          color: ANT_TYPES.scout.color,
+          icon: renderSkillSvg('bounce'),
+          name: loc(ANT_TYPES.scout.name, ANT_TYPES.scout.nameEn),
+          role: loc(ANT_TYPES.scout.description, ANT_TYPES.scout.descriptionEn),
+          stats: en
+            ? ['DMG: 1', 'SPD: 27', 'CAP: 4', 'ACID DOT: up to 3.5/s']
+            : ['УРОН: 1', 'СКОР: 27', 'ЛИМИТ: 4', 'ЯД: до 3.5/сек'],
+          evo: en
+            ? 'Evolution (20 SP, after Level 3): Colliding with another ant triggers a toxic blast & acid cloud.'
+            : 'Эволюция (20 ♦, после 3-го ур.): Столкновение с другим муравьём вызывает ядовитый взрыв вокруг.'
+        },
+        {
+          color: ANT_TYPES.queen.color,
+          icon: renderSkillSvg('queen'),
+          name: loc(ANT_TYPES.queen.name, ANT_TYPES.queen.nameEn),
+          role: loc(ANT_TYPES.queen.description, ANT_TYPES.queen.descriptionEn),
+          stats: en
+            ? ['AURA: +35% SPD & +1 DMG', 'RADIUS: 13px', 'CAP: 1', 'LIFE: 135s']
+            : ['АУРА: +35% СКОР и +1 УРОН', 'РАДИУС: 13 пикс.', 'ЛИМИТ: 1', 'ЖИЗНЬ: 135с'],
+          evo: en
+            ? 'Evolution (25 SP, after Level 4): Doubles aura radius (×2 = 26px) + 5% chance to hatch an Exploding Beetle!'
+            : 'Эволюция (25 ♦, после 4-го ур.): Удваивает радиус ауры (×2 = 26 пикс.) и даёт 5% шанс родить взрывного жучка!'
+        },
+        {
+          color: ANT_TYPES.compass.color,
+          icon: renderSkillSvg('compass'),
+          name: loc(ANT_TYPES.compass.name, ANT_TYPES.compass.nameEn),
+          role: loc(ANT_TYPES.compass.description, ANT_TYPES.compass.descriptionEn),
+          stats: en
+            ? ['DMG: 3', 'SPD: 26', 'RUN: 6.5s', 'CD: 2 min']
+            : ['УРОН: 3', 'СКОР: 26', 'БЕГ: 6.5с', 'КД: 2 мин']
+        },
+        {
+          color: ANT_TYPES.beetle.color,
+          icon: '<span style="font-size:20px;line-height:1;">🪲</span>',
+          name: loc(ANT_TYPES.beetle.name, ANT_TYPES.beetle.nameEn),
+          role: loc(ANT_TYPES.beetle.description, ANT_TYPES.beetle.descriptionEn),
+          stats: en
+            ? ['BLAST DMG: 12+', 'BLAST RADIUS: 5.2', '5% FROM EVOLVED QUEEN']
+            : ['УРОН ВЗРЫВА: 12+', 'РАДИУС: 5.2', '5% ОТ ЭВО-МАТКИ']
+        }
+      ];
+
+      for (const item of antEntries) {
+        const card = document.createElement('div');
+        card.className = 'guide-card';
+        card.style.setProperty('--g-color', item.color);
+        card.innerHTML = `
+          <div class="guide-card-head">
+            <div class="guide-icon-box">${item.icon}</div>
+            <div class="guide-card-head-info">
+              <div class="guide-card-title">${escapeHtml(item.name)}</div>
+              <div class="guide-stat-chips">${item.stats.map((s) => `<span class="guide-chip">${escapeHtml(s)}</span>`).join('')}</div>
+            </div>
+          </div>
+          <div class="guide-card-desc">${escapeHtml(item.role)}</div>
+          ${item.evo ? `<div class="guide-evo-box">✦ ${escapeHtml(item.evo)}</div>` : ''}
+        `;
+        content.appendChild(card);
+      }
+    } else if (activeTab === 'blocks') {
+      const blocks: { swatch: string; name: string; hp: string; desc: string }[] = [
+        {
+          swatch: 'linear-gradient(135deg, #5e442c, #3b2919)',
+          name: en ? 'Soft Soil' : 'Мягкая земля',
+          hp: '3 HP',
+          desc: en
+            ? 'Outer subterranean layer around the Nest. Workers and Brood chew right through it effortlessly.'
+            : 'Рыхлый верхний слой вокруг гнезда. Легко и быстро прогрызается Рабочими и выводком.'
+        },
+        {
+          swatch: 'linear-gradient(135deg, #8e5234, #59301d)',
+          name: en ? 'Dense Clay' : 'Плотная глина',
+          hp: '8 HP',
+          desc: en
+            ? 'Thicker mineral veins mid-map. Upgrade Worker jaws, Stone Eaters, or send Warriors to carve faster.'
+            : 'Плотные пласты в глубине карты. Улучшайте жвалы, «Камнеедов» или запускайте Воинов.'
+        },
+        {
+          swatch: 'linear-gradient(135deg, #68737d, #3b4249)',
+          name: en ? 'Ancient Stone' : 'Камень',
+          hp: '18 HP',
+          desc: en
+            ? 'Tough rock formations shielding outer regions. Warriors, Scout Acid Poison, and Queen aura shine here.'
+            : 'Твёрдая горная порода в дальних секторах. Отлично пробивается Воинами, ядом Разведчиков и аурой Матки.'
+        },
+        {
+          swatch: 'linear-gradient(135deg, #4b3169, #1f132e)',
+          name: en ? 'Obsidian' : 'Обсидиан',
+          hp: '36 HP',
+          desc: en
+            ? 'The hardest breakable rock on extreme maps and deep pockets. Use Wide Cleave Warriors, Poison, and Beetles!'
+            : 'Самая прочная разрушаемая порода на сложных картах. Используйте Воинов с захватом, яд и взрывных жучков!'
+        },
+        {
+          swatch: 'linear-gradient(135deg, #ffffff, #63ffa0, #5ce8ff)',
+          name: en ? 'Hidden Artwork (Indestructible)' : 'Скрытая картина (Нерушимый блок)',
+          hp: en ? '∞ Indestructible' : '∞ Нерушимый',
+          desc: en
+            ? 'Glowing pixel-art silhouette buried inside every map. Deflects ants, seals the map boundary, and triggers Evolved Warrior clones!'
+            : 'Светящиеся линии тайной картины внутри карты. Не разрушается, направляет муравьёв и активирует клонирование Эво-Воина!'
+        }
+      ];
+
+      for (const blk of blocks) {
+        const card = document.createElement('div');
+        card.className = 'guide-card';
+        card.innerHTML = `
+          <div class="guide-card-head">
+            <div class="guide-swatch" style="background:${blk.swatch};"></div>
+            <div class="guide-card-head-info">
+              <div class="guide-card-title">${escapeHtml(blk.name)}</div>
+              <div class="guide-stat-chips"><span class="guide-chip guide-chip-hp">${escapeHtml(blk.hp)}</span></div>
+            </div>
+          </div>
+          <div class="guide-card-desc">${escapeHtml(blk.desc)}</div>
+        `;
+        content.appendChild(card);
+      }
+    } else if (activeTab === 'finds') {
+      const finds: { color: string; emoji: string; name: string; badge: string; desc: string }[] = [
+        {
+          color: '#ffe26a',
+          emoji: '🧊',
+          name: en ? 'Sugar Cube (Main Goal)' : 'Кристалл Сахара (Главная цель)',
+          badge: en ? '1 HP • Far from Nest' : '1 HP • Далеко от гнезда',
+          desc: en
+            ? 'Hidden in a different distant direction on every map launch! Discovering it unlocks the next map and grants 1 permanent Mutation per map (1 max per level).'
+            : 'При каждом запуске карты появляется в новом дальнем секторе! Находка открывает следующий уровень и даёт 1 постоянную мутацию за уровень (не более 1 на карту).'
+        },
+        {
+          color: '#5ce8ff',
+          emoji: '♦',
+          name: en ? 'Skill Crystal' : 'Кристалл навыков',
+          badge: en ? '10 HP • +1 SP' : '10 HP • +1 очко навыков',
+          desc: en
+            ? 'Glowing cyan/violet crystals scattered in the rock. Breaking one awards +1 Skill Point (boosted by Pure Crystal & Crystal Luck).'
+            : 'Сияющие кристаллы в толще породы. Дают +1 очко навыков (усиливается навыком «Чистый кристалл» и мутацией удачи).'
+        },
+        {
+          color: '#ff7644',
+          emoji: '💥',
+          name: en ? 'Explosive Spore' : 'Взрывная спора',
+          badge: en ? '5 HP • Big Cavern Blast' : '5 HP • Взрыв пещеры',
+          desc: en
+            ? 'Glowing orange underground pod. When cracked, it detonates and instantly clears a huge cavern of surrounding blocks!'
+            : 'Оранжевая подземная спора. При разрушении мощно взрывается, мгновенно расчищая целую пещеру!'
+        },
+        {
+          color: '#ffe25c',
+          emoji: '✨',
+          name: en ? 'Sugar Dust Vein' : 'Сахарная пыль',
+          badge: en ? '6 HP • ×1.6 Speed (15s)' : '6 HP • Скорость ×1.6 (15с)',
+          desc: en
+            ? 'Golden sparkling pocket. Triggers Sugar Rush fever, boosting the movement and digging speed of ALL ants by ×1.6 for 15 seconds!'
+            : 'Золотая жила сладкой пыли. Запускает Сахарную лихорадку — ускоряет всех муравьёв в ×1.6 раза на 15 секунд!'
+        },
+        {
+          color: '#73f5b8',
+          emoji: '🥚',
+          name: en ? 'Ancient Cocoon' : 'Древний кокон',
+          badge: en ? '7 HP • +3 Bonus Ants' : '7 HP • +3 союзных муравья',
+          desc: en
+            ? 'Iridescent emerald-violet pod. Cracking it immediately frees 3 bonus allied ants (Worker, Scout & Warrior) right at that tunnel!'
+            : 'Мерцающий древний кокон. При вскрытии освобождает 3 бесплатных союзных муравьёв (Рабочего, Разведчика и Воина)!'
+        },
+        {
+          color: '#ff8ea0',
+          emoji: '🏺',
+          name: en ? 'Secret Artifact' : 'Секретная находка (Артефакт)',
+          badge: en ? '6 HP • +1 Start SP Forever' : '6 HP • +1 старт. ♦ навсегда',
+          desc: en
+            ? 'One unique relic hidden on each of the 8 maps. Collecting it permanently adds +1 starting Skill Point at the beginning of EVERY run!'
+            : 'По одному уникальному артефакту на каждой из 8 карт. Навсегда добавляет +1 стартовое очко навыков на каждом уровне!'
+        }
+      ];
+
+      for (const f of finds) {
+        const card = document.createElement('div');
+        card.className = 'guide-card';
+        card.style.setProperty('--g-color', f.color);
+        card.innerHTML = `
+          <div class="guide-card-head">
+            <div class="guide-icon-box" style="font-size:20px;">${f.emoji}</div>
+            <div class="guide-card-head-info">
+              <div class="guide-card-title">${escapeHtml(f.name)}</div>
+              <div class="guide-stat-chips"><span class="guide-chip">${escapeHtml(f.badge)}</span></div>
+            </div>
+          </div>
+          <div class="guide-card-desc">${escapeHtml(f.desc)}</div>
+        `;
+        content.appendChild(card);
+      }
+    } else {
+      const tips: { emoji: string; title: string; desc: string }[] = [
+        {
+          emoji: '🎯',
+          title: en ? 'Tap or Drag to Aim' : 'Тап или протяжка для прицеливания',
+          desc: en
+            ? 'Click/tap anywhere to deploy from the nearest tunnel, or hold and drag to aim an exact arrow — essential for Warriors and Scouts!'
+            : 'Нажмите на карту, чтобы выпустить муравья из ближайшего тоннеля, или потяните пальцем/мышью для точного прицела!'
+        },
+        {
+          emoji: '📍',
+          title: en ? 'Pheromone Beacon (Key B)' : 'Феромонная метка (клавиша B)',
+          desc: en
+            ? 'Attracts free Workers and Queen Brood toward a chosen spot for 30s (2 min cooldown, upgradeable via Potent Pheromones).'
+            : 'Притягивает Рабочих и выводок Матки в выбранную точку на 30 сек (кулдаун 2 мин, улучшается в общих навыках).'
+        },
+        {
+          emoji: '💥',
+          title: en ? 'Crush All Ants (Key X)' : 'Раздавить всех муравьёв (клавиша X)',
+          desc: en
+            ? 'Instantly squashes all active ants on the map (1 min cooldown) so you can immediately re-deploy your full swarm to a brand-new sector!'
+            : 'Мгновенно раздавливает всех активных муравьёв на карте (кулдаун 1 мин), чтобы быстро перебросить рой в новый сектор!'
+        },
+        {
+          emoji: '🤖',
+          title: en ? 'Smart Auto-Summon' : 'Умный авто-призыв',
+          desc: en
+            ? 'Enable on the left dock and tap ⚙ to pick Smart, Beacon, or Nest mode and choose which ant types to deploy automatically.'
+            : 'Включите на левой панели и нажмите ⚙, чтобы выбрать стратегию (Умный фронт, Метка, Гнездо) и нужные виды муравьёв.'
+        },
+        {
+          emoji: '⏳',
+          title: en ? 'Passive SP, Evolutions & 100% Clear' : 'Пассивные ♦, Эволюции и очистка 100%',
+          desc: en
+            ? 'You gain +1 bonus SP every 5 minutes. Class Evolutions unlock after clearing Levels 1–4. Reaching 99.5% auto-clears the remaining crumbs to unveil the iridescent 100% masterpiece for PNG export!'
+            : 'Каждые 5 минут колония получает +1 ♦ бонусом. Эволюции классов открываются после 1–4 уровней. При 99.5% раскопок карта автоматически очищается на 100%!'
+        }
+      ];
+
+      for (const tip of tips) {
+        const card = document.createElement('div');
+        card.className = 'guide-card';
+        card.innerHTML = `
+          <div class="guide-card-head">
+            <div class="guide-icon-box" style="font-size:19px;">${tip.emoji}</div>
+            <div class="guide-card-head-info">
+              <div class="guide-card-title">${escapeHtml(tip.title)}</div>
+            </div>
+          </div>
+          <div class="guide-card-desc">${escapeHtml(tip.desc)}</div>
+        `;
+        content.appendChild(card);
+      }
+    }
+
+    this.modalBodyEl.appendChild(content);
+  }
+
   openCreditsModal() {
     this.openModal(t('creditsTitle'));
     const tgBlock = hideExternalLinks
@@ -3004,6 +3336,18 @@ export class HudController {
       this.beaconFabStatusEl.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     } else {
       this.beaconFabStatusEl.textContent = t('ready');
+    }
+
+    // Left-side Crush All Ants button (1 min cooldown!)
+    const crushCd = this.engine.crushCooldown > 0;
+    const hasAnts = this.engine.ants.ants.length > 0;
+    this.btnCrushAntsEl.classList.toggle('beacon-cooldown', crushCd);
+    this.btnCrushAntsEl.classList.toggle('crush-ready', !crushCd && hasAnts);
+    if (crushCd) {
+      const sec = Math.ceil(this.engine.crushCooldown);
+      this.crushFabStatusEl.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    } else {
+      this.crushFabStatusEl.textContent = t('ready');
     }
 
     this.upgradeBadgeEl.classList.toggle('hidden', !skillTree.hasAffordableNode());
@@ -3193,6 +3537,7 @@ export class HudController {
         sp: this.mp.state.localSp,
         getRank: (id: string) => this.mp.getSkillRank(id),
         isVisible: (n: SkillNodeDef) => this.mp.isSkillVisible(n),
+        isLevelUnlocked: (_n: SkillNodeDef) => true,
         getCost: (n: SkillNodeDef) => this.mp.getSkillCost(n),
         canBuy: (n: SkillNodeDef) => this.mp.canBuySkill(n),
         buy: (id: string) => this.mp.buySkill(id)
@@ -3203,6 +3548,7 @@ export class HudController {
       sp: st.state.skillPoints,
       getRank: (id: string) => st.getRank(id),
       isVisible: (n: SkillNodeDef) => st.isNodeVisible(n),
+      isLevelUnlocked: (n: SkillNodeDef) => st.isNodeLevelUnlocked(n),
       getCost: (n: SkillNodeDef) => st.getNodeCost(n),
       canBuy: (n: SkillNodeDef) => st.canBuyNode(n),
       buy: (id: string) => st.buyNode(id)
@@ -3269,6 +3615,9 @@ export class HudController {
       btn.title = loc(node.title, node.titleEn);
       btn.innerHTML = `${renderSkillSvg(node.icon)}${node.maxRank > 1 ? `<span class="st-node-rank">${rank}/${node.maxRank}</span>` : ''}`;
 
+      btn.addEventListener('pointerdown', (e) => {
+        this.lastSkillPointerType = e.pointerType || 'mouse';
+      });
       btn.addEventListener('pointerenter', (e) => {
         if (e.pointerType === 'mouse') {
           this.selectedNodeId = node.id;
@@ -3279,8 +3628,16 @@ export class HudController {
       });
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const isTouch = (e as PointerEvent).pointerType === 'touch';
-        if ((!isTouch || this.selectedNodeId === node.id) && adapter.canBuy(node)) {
+        const pType = (e as PointerEvent).pointerType || this.lastSkillPointerType;
+        const isTouch = isMobileDevice() || pType === 'touch' || pType === 'pen';
+        if (isTouch) {
+          this.selectedNodeId = node.id;
+          this.updateInspector(node);
+          clearSelectedHighlight();
+          btn.classList.add('selected');
+          return;
+        }
+        if (adapter.canBuy(node)) {
           this.selectedNodeId = node.id;
           this.tryBuySkillNode(node.id);
         } else {
@@ -3319,10 +3676,12 @@ export class HudController {
     visibleNodes.forEach((node, idx) => {
       const rank = adapter.getRank(node.id);
       const isMaxed = rank >= node.maxRank;
+      const levelUnlocked = adapter.isLevelUnlocked(node);
       const canBuy = adapter.canBuy(node);
       const colors = BRANCH_COLORS[node.branch];
       let stateClass = 'state-locked';
       if (isMaxed) stateClass = 'state-maxed';
+      else if (!levelUnlocked) stateClass = 'state-locked state-level-locked';
       else if (canBuy) stateClass = 'state-available';
       else if (rank > 0) stateClass = 'state-owned';
 
@@ -3335,7 +3694,16 @@ export class HudController {
       el.style.setProperty('--node-bg', colors.bg);
       el.style.setProperty('--enter-delay', `${Math.min(240, idx * 22)}ms`);
       el.dataset.nodeId = node.id;
-      el.innerHTML = `${renderSkillSvg(node.icon)}${node.maxRank > 1 ? `<span class="st-node-rank">${rank}/${node.maxRank}</span>` : ''}`;
+      const rankOrLock = !levelUnlocked && rank === 0
+        ? '<span class="st-node-lock">🔒</span>'
+        : node.maxRank > 1
+          ? `<span class="st-node-rank">${rank}/${node.maxRank}</span>`
+          : '';
+      el.innerHTML = `${renderSkillSvg(node.icon)}${rankOrLock}`;
+
+      el.addEventListener('pointerdown', (e) => {
+        this.lastSkillPointerType = e.pointerType || 'mouse';
+      });
 
       el.addEventListener('pointerenter', (e) => {
         if (e.pointerType === 'mouse') {
@@ -3348,8 +3716,16 @@ export class HudController {
 
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        const isTouch = (e as PointerEvent).pointerType === 'touch';
-        if ((!isTouch || this.selectedNodeId === node.id) && adapter.canBuy(node)) {
+        const pType = (e as PointerEvent).pointerType || this.lastSkillPointerType;
+        const isTouch = isMobileDevice() || pType === 'touch' || pType === 'pen';
+        if (isTouch) {
+          this.selectedNodeId = node.id;
+          this.updateInspector(node);
+          clearSelectedHighlight();
+          el.classList.add('selected');
+          return;
+        }
+        if (adapter.canBuy(node)) {
           this.selectedNodeId = node.id;
           this.tryBuySkillNode(node.id);
         } else {
@@ -3371,6 +3747,7 @@ export class HudController {
     const adapter = this.getSkillAdapter();
     const rank = adapter.getRank(node.id);
     const isMaxed = rank >= node.maxRank;
+    const levelUnlocked = adapter.isLevelUnlocked(node);
     const cost = adapter.getCost(node);
     const canBuy = adapter.canBuy(node);
     const colors = BRANCH_COLORS[node.branch];
@@ -3385,6 +3762,14 @@ export class HudController {
       this.stTtCostEl.textContent = t('stMaxed');
       this.stTtCostEl.className = 'st-tt-cost maxed';
       this.stTtBuyEl.classList.add('hidden');
+    } else if (!levelUnlocked && node.requiredLevelIndex !== undefined) {
+      const reqLvl = LEVELS[node.requiredLevelIndex];
+      const reqName = reqLvl ? loc(reqLvl.name, reqLvl.nameEn) : `#${node.requiredLevelIndex + 1}`;
+      this.stTtCostEl.textContent = t('stNeedLevel', { n: node.requiredLevelIndex + 1, name: reqName });
+      this.stTtCostEl.className = 'st-tt-cost locked-lvl';
+      this.stTtBuyEl.classList.remove('hidden');
+      this.stTtBuyEl.textContent = `🔒 ♦ ${cost}`;
+      this.stTtBuyEl.disabled = true;
     } else {
       this.stTtCostEl.textContent = `♦ ${cost}`;
       this.stTtCostEl.className = `st-tt-cost${canBuy ? ' affordable' : ''}`;
@@ -3534,7 +3919,8 @@ export class HudController {
       <div class="sugar-stat-pill" style="--st-idx:3"><strong>${formatRecordTime(this.engine.runElapsedSec)}</strong><small>${t('statTime')}</small></div>
     `;
 
-    const hasChoices = pickMutationChoices(skillTree.state.mutations, 3).length > 0;
+    const alreadyClaimed = skillTree.hasClaimedMutationForLevel(level.id);
+    const hasChoices = !alreadyClaimed && pickMutationChoices(skillTree.state.mutations, 3).length > 0;
     this.sugarFoundCtaEl.textContent = hasChoices ? t('chooseMutationBtn') : t('continueBtn');
     // Gentle 850ms settle protection so an accidental click right as the card blooms never skips the celebration!
     this.sugarFoundCtaEl.disabled = true;
@@ -3548,7 +3934,8 @@ export class HudController {
 
   private openSugarMutationModal(level: LevelDefinition) {
     const { skillTree } = this.engine;
-    const choices = pickMutationChoices(skillTree.state.mutations, 3);
+    const alreadyClaimed = skillTree.hasClaimedMutationForLevel(level.id);
+    const choices = alreadyClaimed ? [] : pickMutationChoices(skillTree.state.mutations, 3);
     const lvlName = loc(level.name, level.nameEn);
 
     if (choices.length > 0) {

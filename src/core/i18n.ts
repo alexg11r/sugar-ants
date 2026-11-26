@@ -117,6 +117,19 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   },
   beaconLabel: { ru: 'Метка', en: 'Beacon' },
   beaconAim: { ru: 'На карту', en: 'Tap map' },
+  crushLabel: { ru: 'Раздавить', en: 'Crush All' },
+  tipCrush: {
+    ru: 'Раздавить всех активных муравьёв (X) • кулдаун 1 мин',
+    en: 'Crush all active ants (X) • 1 min cooldown'
+  },
+  guideBtn: { ru: 'ГАЙД-КНИГА', en: 'GUIDE BOOK' },
+  guideMeta: { ru: 'Муравьи • Породы • Находки', en: 'Ants • Rocks • Finds' },
+  tipGuide: { ru: 'Книга-гайд по муравьям, породам и находкам', en: 'Guide Book: ants, rocks & underground finds' },
+  guideTitle: { ru: '📖 Гайд-книга колонии', en: '📖 Colony Guide Book' },
+  guideTabAnts: { ru: '🐜 Муравьи', en: '🐜 Ants' },
+  guideTabBlocks: { ru: '🪨 Породы', en: '🪨 Rocks' },
+  guideTabFinds: { ru: '💎 Находки', en: '💎 Finds' },
+  guideTabTips: { ru: '🧭 Советы', en: '🧭 Tips' },
   touchModeLaunch: { ru: 'Запуск', en: 'Launch' },
   touchModePan: { ru: 'Камера', en: 'Pan' },
   tipSettings: { ru: 'Настройки и саундтрек', en: 'Settings & Soundtrack' },
@@ -178,6 +191,14 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   stDefaultDesc: {
     ru: 'Наведите на любой узел, чтобы увидеть описание. Нажмите на доступный узел, чтобы изучить его.',
     en: 'Hover any node to inspect details. Click an available node to unlock or upgrade it.'
+  },
+  stDefaultDescTouch: {
+    ru: 'Нажмите на любой узел, чтобы прочитать описание, а затем нажмите кнопку «Изучить» ниже.',
+    en: 'Tap any node to read its description, then tap the Unlock / Upgrade button below.'
+  },
+  stNeedLevel: {
+    ru: '🔒 Откроется после {n}-го уровня («{name}»)',
+    en: '🔒 Unlocks after Level {n} ("{name}")'
   },
   stAvailableSp: { ru: 'Доступно очков', en: 'Available SP' },
   stLearn: { ru: 'Изучить', en: 'Unlock' },
@@ -331,7 +352,10 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
     en: 'You completed both demo levels! 6 more unique maps, secret artifacts, and challenges await in the full version.'
   },
   demoQrBoostyTitle: { ru: 'Весь контент на Boosty', en: 'All Content on Boosty' },
-  demoQrBoostyHint: { ru: 'Полная версия, обновления и бонусы', en: 'Full version, updates & exclusives' },
+  demoQrBoostyHint: {
+    ru: 'Полная версия — разовая покупка навсегда',
+    en: 'Full version — one-time purchase forever'
+  },
   demoQrTgTitle: { ru: 'Наш Telegram', en: 'Our Telegram' },
   demoQrTgHint: { ru: 'Новости, билды и общение', en: 'News, builds & community' },
   demoOpenLink: { ru: 'Перейти ↗', en: 'Open Link ↗' },
@@ -383,6 +407,9 @@ export const STRINGS: Record<string, { ru: string; en: string }> = {
   toastCocoonHatch: { ru: '🥚 Древний кокон! Освобождены 3 союзных муравья!', en: '🥚 Ancient Cocoon! 3 allied ants freed!' },
   toastTouchPanOn: { ru: '✋ Режим камеры: 1 палец двигает карту', en: '✋ Camera Mode: 1-finger drags the map' },
   toastTouchPanOff: { ru: '🐜 Режим запуска: касание выпускает муравья', en: '🐜 Launch Mode: tap to deploy ants' },
+  toastCrushed: { ru: '💥 Раздавлено муравьёв: {n} (кулдаун 1 мин)', en: '💥 Crushed {n} ants (1 min cooldown)' },
+  toastCrushEmpty: { ru: 'На карте нет активных муравьёв', en: 'No active ants on the map right now' },
+  toastCrushCd: { ru: '💥 Раздавить всех перезаряжается: {time}', en: '💥 Crush All recharging: {time}' },
 
   // Multiplayer HUD & Lobby
   mpHudExit: { ru: 'Выйти в меню', en: 'Exit to Menu' },

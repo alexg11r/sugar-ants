@@ -47,7 +47,7 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     rgb: [255, 107, 43],
     hotkey: '2',
     baseSpeed: 9.2,
-    baseDamage: 2,
+    baseDamage: 3,
     baseBiteInterval: 0.54,
     baseLifespan: 72,
     baseMaxActive: 2,
@@ -130,6 +130,25 @@ export const ANT_TYPES: Record<AntTypeId, AntTypeConfig> = {
     baseMaxActive: 52,
     baseRadius: 0.9,
     scale: 0.65
+  },
+  beetle: {
+    id: 'beetle',
+    name: 'Взрывной жучок',
+    nameEn: 'Exploding Beetle',
+    shortName: 'Жучок',
+    shortNameEn: 'Beetle',
+    description: 'Редкий жучок эволюционировавшей Матки: взрывается при столкновении с блоком, разнося породу вокруг.',
+    descriptionEn: 'Rare beetle hatched by an Evolved Queen: detonates on block impact, blasting rock around it.',
+    color: '#ff4838',
+    rgb: [255, 72, 56],
+    hotkey: '',
+    baseSpeed: 22,
+    baseDamage: 12,
+    baseBiteInterval: 0.2,
+    baseLifespan: 24,
+    baseMaxActive: 16,
+    baseRadius: 5.2,
+    scale: 0.92
   }
 };
 
@@ -151,6 +170,8 @@ export interface AntUpdateEvents {
   sporeBlasts: { x: number; y: number }[];
   sugarDustHits: { x: number; y: number }[];
   cocoonHatches: { x: number; y: number }[];
+  poisonBlasts: { x: number; y: number }[];
+  beetleBlasts: { x: number; y: number }[];
 }
 
 export class AntManager {
@@ -185,6 +206,30 @@ export class AntManager {
       const a = this.ants[i];
       if (a.type === type && a.fromQueen) count++;
     }
+    return count;
+  }
+
+  /** Counts live regular Warrior copies spawned by Evolved Warriors (max 2 simultaneously!) */
+  countWarriorClones(): number {
+    let count = 0;
+    for (let i = 0; i < this.ants.length; i++) {
+      const a = this.ants[i];
+      if (a.type === 'warrior' && a.isWarriorClone) count++;
+    }
+    return count;
+  }
+
+  /** Squashes every active ant on the map with juicy particles and returns how many were crushed! */
+  crushAllAnts(particles: ParticleSystem): number {
+    const count = this.ants.length;
+    if (count === 0) return 0;
+    for (let i = 0; i < this.ants.length; i++) {
+      const a = this.ants[i];
+      const rgb = ANT_TYPES[a.type].rgb;
+      particles.spawn(a.x, a.y, rgb[0], rgb[1], rgb[2], 6, 22, 0.75, 1.6);
+      particles.spawn(a.x, a.y, 255, 110, 75, 3, 16, 0.55, 1.3);
+    }
+    this.ants = [];
     return count;
   }
 
@@ -257,13 +302,21 @@ export class AntManager {
     particles: ParticleSystem,
     events: AntUpdateEvents
   ) {
-    if (this.countByType('brood') >= ANT_TYPES.brood.baseMaxActive) return;
     const angle = Math.random() * Math.PI * 2;
     const broodCfg = ANT_TYPES.brood;
     const broodLife = broodCfg.baseLifespan * stats.queen.broodLifeMult * stats.globalLifeMult;
 
     let spawnedType: AntTypeId = 'brood';
-    if (stats.queenAnomaly && Math.random() < 0.05) {
+    let maxAge = broodLife;
+
+    // Queen Evolution (25 SP): 5% chance to hatch an Exploding Beetle that detonates on block impact!
+    if (stats.queen.evolved && Math.random() < 0.05 && this.countByType('beetle') < ANT_TYPES.beetle.baseMaxActive) {
+      spawnedType = 'beetle';
+      maxAge = ANT_TYPES.beetle.baseLifespan * stats.globalLifeMult;
+      particles.spawn(x, y, 255, 92, 52, 12, 24, 0.9, 1.8);
+    } else if (this.countByType('brood') >= ANT_TYPES.brood.baseMaxActive) {
+      return;
+    } else if (stats.queenAnomaly && Math.random() < 0.05) {
       const anomalyPool: PlayableAntId[] = ['worker', 'warrior', 'scout'];
       spawnedType = anomalyPool[Math.floor(Math.random() * anomalyPool.length)];
       const rgb = ANT_TYPES[spawnedType].rgb;
@@ -288,7 +341,7 @@ export class AntManager {
       angle,
       fixedAngle: angle,
       age: 0,
-      maxAge: broodLife,
+      maxAge,
       biteTimer: 0,
       biteFlash: 0,
       turnTimer: 0.4 + Math.random() * 0.6,
@@ -377,7 +430,9 @@ export class AntManager {
       expiredPoints: [],
       sporeBlasts: [],
       sugarDustHits: [],
-      cocoonHatches: []
+      cocoonHatches: [],
+      poisonBlasts: [],
+      beetleBlasts: []
     };
 
     if (this.compassCooldown > 0) {
@@ -408,14 +463,15 @@ export class AntManager {
       this.applyDigEvents(poisonRes, world.nestX, world.nestY, [115, 255, 95], world, particles, events, true);
     }
 
-    // Collect active Queen coordinates for tiny royal aura buffing!
+    // Collect active Queen coordinates for royal aura buffing (×2 radius with Queen Evolution!)
     const queens: { x: number; y: number }[] = [];
     for (let i = 0; i < this.ants.length; i++) {
       if (this.ants[i].type === 'queen') {
         queens.push({ x: this.ants[i].x, y: this.ants[i].y });
       }
     }
-    const queenAuraSq = QUEEN_AURA_RADIUS * QUEEN_AURA_RADIUS;
+    const queenAuraR = stats.queen.evolved ? QUEEN_AURA_RADIUS * 2 : QUEEN_AURA_RADIUS;
+    const queenAuraSq = queenAuraR * queenAuraR;
 
     for (let i = this.ants.length - 1; i >= 0; i--) {
       const ant = this.ants[i];
@@ -424,11 +480,14 @@ export class AntManager {
       ant.age += dt;
       if (ant.biteTimer > 0) ant.biteTimer -= dt;
       if (ant.biteFlash > 0) ant.biteFlash = Math.max(0, ant.biteFlash - dt * 5);
+      if (ant.evoCooldown && ant.evoCooldown > 0) {
+        ant.evoCooldown = Math.max(0, ant.evoCooldown - dt);
+      }
       ant.turnTimer -= dt;
 
       if (ant.age >= ant.maxAge) {
         particles.spawn(ant.x, ant.y, cfg.rgb[0], cfg.rgb[1], cfg.rgb[2], 5, 14, 0.75, 1.4);
-        if (ant.type !== 'brood') {
+        if (ant.type !== 'brood' && ant.type !== 'beetle') {
           events.antsExpired++;
           events.expiredPoints.push({ x: ant.x, y: ant.y });
         }
@@ -446,7 +505,7 @@ export class AntManager {
         ant.y = safe.y;
       }
 
-      // Check if inside any Queen's tiny buff aura!
+      // Check if inside any Queen's buff aura!
       ant.queenBuffed = false;
       if (ant.type !== 'queen' && queens.length > 0) {
         for (let q = 0; q < queens.length; q++) {
@@ -467,6 +526,8 @@ export class AntManager {
         this.updateQueen(ant, dt, world, particles, stats, events, rushMult);
       } else if (ant.type === 'compass') {
         this.updateCompass(ant, dt, world, particles, stats, events, rushMult);
+      } else if (ant.type === 'beetle') {
+        this.updateBeetle(ant, dt, world, particles, stats, events, rushMult);
       } else {
         this.updateWorkerOrBrood(ant, dt, world, particles, stats, events, beacon, rushMult);
       }
@@ -669,7 +730,7 @@ export class AntManager {
     const speed = cfg.baseSpeed * baseSpdMult;
     const biteInterval = cfg.baseBiteInterval / baseSpdMult;
     const rawDmg = cfg.baseDamage + (isWorker ? stats.worker.dmgBonus : stats.queen.broodDmgBonus) + auraDmg;
-    const digRadius = isEvolved ? cfg.baseRadius + 0.8 : cfg.baseRadius;
+    const digRadius = isEvolved ? cfg.baseRadius + 0.35 : cfg.baseRadius;
 
     if (ant.wallSlideTimer && ant.wallSlideTimer > 0) {
       ant.wallSlideTimer = Math.max(0, ant.wallSlideTimer - dt);
@@ -832,11 +893,11 @@ export class AntManager {
         const res = world.dig(probeX, probeY, digRadius, dmg, ant.x, ant.y);
         this.applyDigEvents(res, probeX, probeY, isEvolved ? [125, 255, 170] : cfg.rgb, world, particles, events);
 
-        // Worker Evolution Capstone (10 SP): 25% chance Emerald Seismic Micro-Pulse on nearby blocks!
-        if (isEvolved && Math.random() < 0.25) {
-          const pulseRes = world.dig(probeX, probeY, 3.2, 2, ant.x, ant.y);
+        // Worker Evolution Capstone (10 SP, rebalanced): 15% chance Emerald Seismic Micro-Pulse!
+        if (isEvolved && Math.random() < 0.15) {
+          const pulseRes = world.dig(probeX, probeY, 2.2, 1, ant.x, ant.y);
           this.applyDigEvents(pulseRes, probeX, probeY, [255, 232, 120], world, particles, events);
-          particles.spawn(probeX, probeY, 95, 255, 175, 5, 22, 0.55, 1.6);
+          particles.spawn(probeX, probeY, 95, 255, 175, 4, 18, 0.5, 1.4);
         }
       }
     }
@@ -911,6 +972,28 @@ export class AntManager {
     }
 
     ant.legPhase += dt * speed * 1.1;
+
+    // Scout Evolution (20 SP): colliding with another ant triggers a small toxic poison blast around itself!
+    if (stats.scout.evolved && (ant.evoCooldown || 0) <= 0) {
+      const hitDistSq = 3.8 * 3.8;
+      for (let j = 0; j < this.ants.length; j++) {
+        const other = this.ants[j];
+        if (other === ant || other.age >= other.maxAge) continue;
+        const dx = other.x - ant.x;
+        const dy = other.y - ant.y;
+        if (dx * dx + dy * dy <= hitDistSq) {
+          const blastDmg = 2 + stats.scout.dmgBonus + (stats.globalDmgBonus || 0);
+          const blastRes = world.dig(ant.x, ant.y, 4.4, blastDmg, ant.x, ant.y);
+          this.applyDigEvents(blastRes, ant.x, ant.y, [120, 255, 95], world, particles, events);
+          world.applyPoison(ant.x, ant.y, 5.2, 2.8, 4.5, ant.x, ant.y);
+          particles.spawn(ant.x, ant.y, 125, 255, 90, 14, 28, 0.9, 1.8);
+          particles.spawn(ant.x, ant.y, 65, 235, 165, 8, 22, 0.75, 1.4);
+          events.poisonBlasts.push({ x: ant.x, y: ant.y });
+          ant.evoCooldown = 0.85;
+          break;
+        }
+      }
+    }
   }
 
   /** Picks a smooth, non-oscillating deflection angle for a Warrior that hit HiddenArt, Sugar, or a corner pinch */
@@ -965,6 +1048,108 @@ export class AntManager {
     ant.angle = ant.fixedAngle;
   }
 
+  /** Warrior Evolution (20 SP): hitting an indestructible block spawns a regular Warrior copy (max 2 live at once!) */
+  private trySpawnWarriorClone(
+    ant: Ant,
+    world: World,
+    particles: ParticleSystem,
+    stats: ColonyStats
+  ) {
+    if (!stats.warrior.evolved || ant.isWarriorClone || (ant.evoCooldown || 0) > 0) return;
+    if (this.countWarriorClones() >= 2) return;
+    const cfg = ANT_TYPES.warrior;
+    const cloneAngle = ant.fixedAngle + (Math.random() < 0.5 ? 0.36 : -0.36);
+    const candX = ant.x + Math.cos(cloneAngle) * 1.8;
+    const candY = ant.y + Math.sin(cloneAngle) * 1.8;
+    const spawnPos = world.canAntStep(ant.x, ant.y, candX, candY)
+      ? { x: candX, y: candY }
+      : { x: ant.x, y: ant.y };
+    this.ants.push({
+      id: this.nextId++,
+      type: 'warrior',
+      x: spawnPos.x,
+      y: spawnPos.y,
+      angle: cloneAngle,
+      fixedAngle: cloneAngle,
+      age: 0,
+      maxAge: cfg.baseLifespan * stats.globalLifeMult * 0.75,
+      biteTimer: 0,
+      biteFlash: 0,
+      turnTimer: 0.4,
+      spawnTimer: 0,
+      legPhase: Math.random() * Math.PI * 2,
+      trailTimer: 0,
+      fromQueen: true,
+      isWarriorClone: true
+    });
+    ant.evoCooldown = 1.4;
+    particles.spawn(spawnPos.x, spawnPos.y, 255, 155, 58, 12, 24, 0.85, 1.8);
+    particles.spawn(spawnPos.x, spawnPos.y, 255, 232, 120, 6, 18, 0.65, 1.4);
+  }
+
+  /** Exploding Beetle (Queen Evolution 5% spawn): darts forward and detonates on colliding with any diggable block! */
+  private updateBeetle(
+    ant: Ant,
+    dt: number,
+    world: World,
+    particles: ParticleSystem,
+    stats: ColonyStats,
+    events: AntUpdateEvents,
+    rushMult: number
+  ) {
+    const cfg = ANT_TYPES.beetle;
+    const auraSpd = ant.queenBuffed ? 1.35 : 1;
+    const speed = cfg.baseSpeed * stats.globalSpeedMult * auraSpd * rushMult;
+
+    if (ant.turnTimer <= 0) {
+      ant.angle += (Math.random() - 0.5) * 0.55;
+      ant.turnTimer = 0.45 + Math.random() * 0.35;
+    }
+
+    const totalDist = speed * dt;
+    const steps = Math.max(1, Math.ceil(totalDist / 0.75));
+    const stepDist = totalDist / steps;
+
+    for (let s = 0; s < steps; s++) {
+      const nx = ant.x + Math.cos(ant.angle) * stepDist;
+      const ny = ant.y + Math.sin(ant.angle) * stepDist;
+      const ix = Math.round(nx);
+      const iy = Math.round(ny);
+
+      if (!world.inBounds(ix, iy)) {
+        ant.angle += Math.PI * 0.75 + (Math.random() - 0.5) * 0.4;
+        break;
+      }
+
+      if (world.canAntStep(ant.x, ant.y, nx, ny)) {
+        ant.x = nx;
+        ant.y = ny;
+      } else {
+        const cell = world.getCell(ix, iy);
+        if (cell === CellType.HiddenArt || !world.isInsidePlayable(ix, iy)) {
+          if (cell === CellType.HiddenArt) {
+            const rev = world.dig(ix, iy, 1.4, 1, ant.x, ant.y);
+            this.applyDigEvents(rev, ix, iy, cfg.rgb, world, particles, events);
+          }
+          ant.angle += (Math.random() < 0.5 ? 1 : -1) * (Math.PI * 0.58 + Math.random() * 0.3);
+          break;
+        }
+
+        // Collided with a solid block -> DETONATE!
+        const dmg = cfg.baseDamage + stats.queen.broodDmgBonus * 2 + (stats.globalDmgBonus || 0);
+        const blastRes = world.dig(ix, iy, cfg.baseRadius, dmg, ant.x, ant.y);
+        this.applyDigEvents(blastRes, ix, iy, cfg.rgb, world, particles, events);
+        particles.spawn(ix, iy, 255, 88, 44, 24, 42, 1.2, 2.2);
+        particles.spawn(ix, iy, 255, 228, 118, 14, 30, 0.95, 1.7);
+        events.beetleBlasts.push({ x: ix, y: iy });
+        ant.age = ant.maxAge + 1;
+        return;
+      }
+    }
+
+    ant.legPhase += dt * speed * 1.5;
+  }
+
   private updateWarrior(
     ant: Ant,
     dt: number,
@@ -993,17 +1178,18 @@ export class AntManager {
 
     if (!world.inBounds(ix, iy)) {
       this.deflectWarrior(ant, world);
+      this.trySpawnWarriorClone(ant, world, particles, stats);
       return;
     }
 
     const ahead = world.getCell(ix, iy);
     const nx = ant.x + Math.cos(ant.angle) * speed * dt;
     const ny = ant.y + Math.sin(ant.angle) * speed * dt;
-    const blockedByArt =
+    const hitIndestructible =
       ahead === CellType.HiddenArt ||
-      ahead === CellType.Sugar ||
       !world.isInsidePlayable(ix, iy) ||
       world.hasArtBetween(ant.x, ant.y, ix, iy);
+    const blockedByArt = hitIndestructible || ahead === CellType.Sugar;
 
     if (ahead === CellType.Empty && !blockedByArt && world.canAntStep(ant.x, ant.y, nx, ny)) {
       ant.x = nx;
@@ -1015,6 +1201,9 @@ export class AntManager {
         this.applyDigEvents(res, ix, iy, cfg.rgb, world, particles, events);
       }
       this.deflectWarrior(ant, world);
+      if (hitIndestructible) {
+        this.trySpawnWarriorClone(ant, world, particles, stats);
+      }
     } else {
       ant.legPhase += dt * 3.8;
       if (ant.biteTimer <= 0) {

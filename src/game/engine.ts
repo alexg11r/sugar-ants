@@ -16,6 +16,7 @@ import { SkillTreeManager } from './skillTree';
 const ACTIVE_RUN_STORAGE_KEY = isDemoVersion ? 'sugar_ants_active_run_demo_v1' : 'sugar_ants_active_run_v1';
 export const BEACON_DURATION_SEC = 30;
 export const BEACON_COOLDOWN_SEC = 120;
+export const CRUSH_COOLDOWN_SEC = 60;
 export const BONUS_SP_INTERVAL_SEC = 300; // +1 Skill Point every 5 minutes on all maps!
 
 interface ActiveRunSnapshot {
@@ -28,6 +29,7 @@ interface ActiveRunSnapshot {
   camera: Camera;
   beacon?: PheromoneBeacon | null;
   beaconCooldown?: number;
+  crushCooldown?: number;
   runElapsedSec?: number;
   bonusSpTimerSec?: number;
 }
@@ -64,6 +66,8 @@ export class GameEngine {
   beacon: PheromoneBeacon | null = null;
   beaconMode = false;
   beaconCooldown = 0;
+  /** Cooldown in seconds for the "Crush All Ants" action (60s)! */
+  crushCooldown = 0;
   /** Remaining seconds of ×1.6 Sugar Dust Rush fever! */
   sugarRushTimer = 0;
   /** Elapsed active seconds in the current level run (for personal speed records!) */
@@ -133,6 +137,7 @@ export class GameEngine {
       this.camera = { ...restored.camera };
       this.beacon = restored.beacon ? { ...restored.beacon } : null;
       this.beaconCooldown = restored.beaconCooldown;
+      this.crushCooldown = restored.crushCooldown;
       this.runElapsedSec = restored.runElapsedSec;
       this.bonusSpTimerSec = restored.bonusSpTimerSec;
       this.hasActiveRun = true;
@@ -162,6 +167,7 @@ export class GameEngine {
     camera: Camera;
     beacon: PheromoneBeacon | null;
     beaconCooldown: number;
+    crushCooldown: number;
     runElapsedSec: number;
     bonusSpTimerSec: number;
   } | null {
@@ -214,6 +220,10 @@ export class GameEngine {
           typeof snap.beaconCooldown === 'number' && Number.isFinite(snap.beaconCooldown)
             ? Math.max(0, Math.min(BEACON_COOLDOWN_SEC, snap.beaconCooldown))
             : 0,
+        crushCooldown:
+          typeof snap.crushCooldown === 'number' && Number.isFinite(snap.crushCooldown)
+            ? Math.max(0, Math.min(CRUSH_COOLDOWN_SEC, snap.crushCooldown))
+            : 0,
         runElapsedSec: typeof snap.runElapsedSec === 'number' && Number.isFinite(snap.runElapsedSec) ? snap.runElapsedSec : 0,
         bonusSpTimerSec:
           typeof snap.bonusSpTimerSec === 'number' && Number.isFinite(snap.bonusSpTimerSec) && snap.bonusSpTimerSec > 0
@@ -242,6 +252,7 @@ export class GameEngine {
         camera: { ...this.camera },
         beacon: this.beacon ? { ...this.beacon } : null,
         beaconCooldown: this.beaconCooldown,
+        crushCooldown: this.crushCooldown,
         runElapsedSec: this.runElapsedSec,
         bonusSpTimerSec: this.bonusSpTimerSec
       };
@@ -322,6 +333,29 @@ export class GameEngine {
     this.callbacks.onHudSync();
   }
 
+  /** Squashes every active ant on the map with a 60-second cooldown! */
+  crushAllAnts(): { ok: boolean; count: number; cooldown?: number } {
+    if (this.crushCooldown > 0) {
+      const sec = Math.ceil(this.crushCooldown);
+      const time = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+      this.callbacks.onToast(t('toastCrushCd', { time }));
+      return { ok: false, count: 0, cooldown: this.crushCooldown };
+    }
+    const count = this.ants.crushAllAnts(this.particles);
+    if (count === 0) {
+      this.callbacks.onToast(t('toastCrushEmpty'));
+      return { ok: false, count: 0 };
+    }
+    this.crushCooldown = CRUSH_COOLDOWN_SEC;
+    this.cameraShake = Math.max(this.cameraShake, 4.5);
+    this.audio.ensureStarted();
+    this.audio.playCrushAll();
+    this.saveRunProgress();
+    this.callbacks.onToast(t('toastCrushed', { n: count }));
+    this.callbacks.onHudSync();
+    return { ok: true, count };
+  }
+
   /** Applies dynamic world-level colony upgrades (such as "Чутьё колонии" vision radius)! */
   syncWorldUpgrades() {
     const stats = this.skillTree.getColonyStats();
@@ -357,6 +391,7 @@ export class GameEngine {
       if (rawDt > 60) {
         const extra = rawDt - 60;
         this.ants.compassCooldown = Math.max(0, this.ants.compassCooldown - extra);
+        this.crushCooldown = Math.max(0, this.crushCooldown - extra);
         if (!this.world.stats.mapCleared) {
           this.bonusSpTimerSec -= extra;
           let extraSp = 0;
@@ -482,6 +517,7 @@ export class GameEngine {
     this.beacon = null;
     this.beaconMode = false;
     this.beaconCooldown = 0;
+    this.crushCooldown = 0;
     this.sugarRushTimer = 0;
     this.runElapsedSec = 0;
     this.bonusSpTimerSec = BONUS_SP_INTERVAL_SEC;
@@ -1021,6 +1057,9 @@ export class GameEngine {
     if (this.sugarRushTimer > 0) {
       this.sugarRushTimer = Math.max(0, this.sugarRushTimer - dt);
     }
+    if (this.crushCooldown > 0) {
+      this.crushCooldown = Math.max(0, this.crushCooldown - dt);
+    }
 
     const stats = this.skillTree.getColonyStats();
 
@@ -1148,6 +1187,18 @@ export class GameEngine {
       this.audio.playSporeBlast();
       this.callbacks.onToast(t('toastSporeBlast'));
       this.callbacks.onHudSync();
+    }
+    if (events.poisonBlasts.length > 0) {
+      const pInt = this.computeAntAudioIntensity(events.poisonBlasts);
+      if (pInt > 0.04) {
+        this.audio.playPoisonBlast(pInt);
+      }
+    }
+    if (events.beetleBlasts.length > 0) {
+      const bInt = this.computeAntAudioIntensity(events.beetleBlasts);
+      if (bInt > 0.04) {
+        this.audio.playSporeBlast();
+      }
     }
     if (events.sugarDustHits.length > 0) {
       this.skillTree.recordCareer({ sugarDustFound: events.sugarDustHits.length });
@@ -1287,7 +1338,12 @@ export class GameEngine {
       sugarBurst,
       this.ants.scentTrail,
       this.beacon,
-      this.skillTree.getRank('worker_evo') > 0
+      {
+        worker: this.skillTree.getRank('worker_evo') > 0,
+        warrior: this.skillTree.getRank('warrior_evo') > 0,
+        scout: this.skillTree.getRank('scout_evo') > 0,
+        queen: this.skillTree.getRank('queen_evo') > 0
+      }
     );
   }
 
@@ -1511,6 +1567,9 @@ export class GameEngine {
       if (e.key === '-' || e.key === '_') this.zoomBy(0.84);
       if (e.key === 'b' || e.key === 'B' || e.key === 'и' || e.key === 'И') {
         this.toggleBeaconMode();
+      }
+      if (e.key === 'x' || e.key === 'X' || e.key === 'ч' || e.key === 'Ч') {
+        this.crushAllAnts();
       }
       if (e.key === 'r' || e.key === 'R' || e.key === 'к' || e.key === 'К') {
         this.resetCamera();

@@ -1266,4 +1266,31 @@ export class MeditativeAudio {
     this.playToneInternal(493.88, 0.22, 0.07, 'sine', 0);
     this.playToneInternal(739.99, 0.32, 0.06, 'sine', 0.045);
   }
+
+  /** Juicy soft squish + scatter sweep when crushing all active ants */
+  playCrushAll() {
+    this.ensureStarted();
+    if (!this.ctx || !this.sfxBus || !this.settings.sfxEnabled) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(52, t + 0.16);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    osc.connect(g);
+    g.connect(this.sfxBus);
+    osc.start(t);
+    osc.stop(t + 0.22);
+    this.playToneInternal(145, 0.16, 0.09, 'triangle', 0.03);
+  }
+
+  /** Bubbly toxic-lime burst when an Evolved Scout triggers a poison collision blast */
+  playPoisonBlast(intensity = 0.7) {
+    if (intensity <= 0.04) return;
+    this.playToneInternal(310, 0.14, 0.055 * intensity, 'triangle', 0);
+    this.playToneInternal(620, 0.18, 0.04 * intensity, 'sine', 0.03);
+  }
 }

@@ -702,6 +702,9 @@ export class MultiplayerEngine {
     const r = (id: string) => this.getSkillRank(id);
     const achSpd = this.achievementSpeedMult * (1 + r('all_speed') * 0.1);
     const workerEvo = r('worker_evo') > 0;
+    const warriorEvo = r('warrior_evo') > 0;
+    const scoutEvo = r('scout_evo') > 0;
+    const queenEvo = r('queen_evo') > 0;
     return {
       globalLifeMult: (1 + r('colony_life') * 0.25) * (1 + r('all_life') * 0.15),
       globalSpeedMult: achSpd,
@@ -717,30 +720,33 @@ export class MultiplayerEngine {
       compassCooldownSec: 120,
       compassDuration: 6.5,
       worker: {
-        speedMult: (1 + r('worker_spd') * 0.22) * (workerEvo ? 1.25 : 1) * achSpd,
-        dmgBonus: r('worker_dmg') + (workerEvo ? 2 : 0),
+        speedMult: (1 + r('worker_spd') * 0.22) * (workerEvo ? 1.12 : 1) * achSpd,
+        dmgBonus: r('worker_dmg') + (workerEvo ? 1 : 0),
         lifeMult: 1 + r('worker_life') * 0.35,
-        maxActive: 6 + r('worker_cap') * 3 + (workerEvo ? 2 : 0),
+        maxActive: 6 + r('worker_cap') * 3 + (workerEvo ? 1 : 0),
         evolved: workerEvo
       },
       warrior: {
         speedMult: (1 + r('warrior_spd') * 0.2) * achSpd,
         dmgBonus: r('warrior_dmg'),
-        radiusBonus: r('warrior_cleave') * 0.45,
-        maxActive: 2 + r('warrior_cap')
+        radiusBonus: r('warrior_cleave') * 0.85,
+        maxActive: 2 + r('warrior_cap'),
+        evolved: warriorEvo
       },
       scout: {
         speedMult: (1 + r('scout_spd') * 0.25) * achSpd,
         dmgBonus: r('scout_dmg'),
         lifeMult: 1 + r('scout_life') * 0.4,
         maxActive: 4 + r('scout_cap') * 3,
-        poisonRank: r('scout_poison')
+        poisonRank: r('scout_poison'),
+        evolved: scoutEvo
       },
       queen: {
         spawnRateMult: (1 + r('queen_rate') * 0.25) * achSpd,
         broodDmgBonus: r('queen_brood_dmg'),
         broodLifeMult: 1 + r('queen_brood_life') * 0.35,
-        maxActive: 1 + r('queen_brood_life')
+        maxActive: 1 + r('queen_brood_life'),
+        evolved: queenEvo
       }
     };
   }

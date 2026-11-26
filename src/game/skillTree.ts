@@ -158,11 +158,12 @@ export const SKILL_NODES: SkillNodeDef[] = [
     categoryEn: 'Worker Evolution',
     title: 'Эволюция: Титан-труженик',
     titleEn: 'Evolution: Titan Worker',
-    description: 'Высшая эволюция Рабочих: +25% к скорости, +2 к урону, +2 к лимиту, широкий проход и 25% шанс изумрудного импульса по соседним блокам!',
-    descriptionEn: 'Apex Worker evolution: +25% speed, +2 damage, +2 cap, wider tunnel cleave, and 25% emerald seismic pulse on nearby blocks!',
+    description: 'Эволюция Рабочих: +12% к скорости, +1 к урону, +1 к лимиту, чуть шире проход и 15% шанс изумрудного микро-импульса по соседним блокам. (Открывается после 1-го уровня)',
+    descriptionEn: 'Worker evolution: +12% speed, +1 damage, +1 cap, slightly wider tunnel, and 15% emerald micro-pulse on nearby blocks. (Unlocks after Level 1)',
     cost: 10,
     maxRank: 1,
-    requires: ['worker_cap']
+    requires: ['worker_cap'],
+    requiredLevelIndex: 0
   },
 
   // LEFT — Warrior (Orange/Red — balanced heavy line-breaker!)
@@ -211,11 +212,29 @@ export const SKILL_NODES: SkillNodeDef[] = [
     categoryEn: 'Warrior',
     title: 'Широкий захват',
     titleEn: 'Wide Cleave',
-    description: 'Увеличивает зону удара Воина, позволяя задевать больше блоков за раз.',
-    descriptionEn: 'Expands Warrior strike radius to carve wider passages.',
+    description: 'Заметно расширяет зону удара Воина (+0.85 радиуса за ранг), пробивая широкие коридоры.',
+    descriptionEn: 'Significantly expands Warrior strike radius (+0.85 radius per rank) to carve wide corridors.',
     cost: 4,
     maxRank: 3,
     requires: ['warrior_dmg']
+  },
+  {
+    id: 'warrior_evo',
+    gx: -3,
+    gy: 1,
+    branch: 'warrior',
+    shape: 'square',
+    icon: 'evo',
+    category: 'Эволюция Воина',
+    categoryEn: 'Warrior Evolution',
+    title: 'Эволюция: Дублирующий таран',
+    titleEn: 'Evolution: Phalanx Ram',
+    description: 'При столкновении с нерушимым блоком Воин порождает обычную версию Воина (до 2 порождений одновременно). (Открывается после 2-го уровня)',
+    descriptionEn: 'On hitting an indestructible wall, Evolved Warriors spawn a regular Warrior copy (up to 2 active copies at once). (Unlocks after Level 2)',
+    cost: 20,
+    maxRank: 1,
+    requires: ['warrior_cleave'],
+    requiredLevelIndex: 1
   },
   {
     id: 'warrior_cap',
@@ -303,6 +322,24 @@ export const SKILL_NODES: SkillNodeDef[] = [
     cost: 3,
     maxRank: 3,
     requires: ['scout_spd']
+  },
+  {
+    id: 'scout_evo',
+    gx: 3,
+    gy: 2,
+    branch: 'scout',
+    shape: 'square',
+    icon: 'evo',
+    category: 'Эволюция Разведчика',
+    categoryEn: 'Scout Evolution',
+    title: 'Эволюция: Токсичный импульс',
+    titleEn: 'Evolution: Toxic Detonator',
+    description: 'При столкновении с другим муравьём Разведчик создаёт небольшой ядовитый взрыв вокруг, повреждая и отравляя породу. (Открывается после 3-го уровня)',
+    descriptionEn: 'When colliding with another ant, Evolved Scouts unleash a small toxic blast around them, damaging and corroding nearby rock. (Unlocks after Level 3)',
+    cost: 20,
+    maxRank: 1,
+    requires: ['scout_poison'],
+    requiredLevelIndex: 2
   },
   {
     id: 'scout_dmg',
@@ -425,6 +462,24 @@ export const SKILL_NODES: SkillNodeDef[] = [
     maxRank: 3,
     requires: ['queen_rate', 'queen_brood_dmg']
   },
+  {
+    id: 'queen_evo',
+    gx: 0,
+    gy: 4,
+    branch: 'queen',
+    shape: 'square',
+    icon: 'evo',
+    category: 'Эволюция Матки',
+    categoryEn: 'Queen Evolution',
+    title: 'Эволюция: Императрица роя',
+    titleEn: 'Evolution: Swarm Empress',
+    description: 'Удваивает радиус ауры Матки (×2) и даёт 5% шанс породить взрывного жучка, который детонирует при столкновении с блоком. (Открывается после 4-го уровня)',
+    descriptionEn: 'Doubles the Queen aura radius (×2) and grants a 5% chance to hatch an Exploding Beetle that detonates on block impact. (Unlocks after Level 4)',
+    cost: 25,
+    maxRank: 1,
+    requires: ['queen_brood_life'],
+    requiredLevelIndex: 3
+  },
 
   // SIDE PANEL — General Colony Upgrades (Displayed as Matching Glowing Skill Cells!)
   {
@@ -534,9 +589,9 @@ export interface ColonyStats {
   compassCooldownSec: number;
   compassDuration: number;
   worker: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number; evolved: boolean };
-  warrior: { speedMult: number; dmgBonus: number; radiusBonus: number; maxActive: number };
-  scout: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number; poisonRank: number };
-  queen: { spawnRateMult: number; broodDmgBonus: number; broodLifeMult: number; maxActive: number };
+  warrior: { speedMult: number; dmgBonus: number; radiusBonus: number; maxActive: number; evolved: boolean };
+  scout: { speedMult: number; dmgBonus: number; lifeMult: number; maxActive: number; poisonRank: number; evolved: boolean };
+  queen: { spawnRateMult: number; broodDmgBonus: number; broodLifeMult: number; maxActive: number; evolved: boolean };
 }
 
 export function createDefaultAutoSummonTypes(): Record<PlayableAntId, boolean> {
@@ -964,6 +1019,13 @@ export class SkillTreeManager {
     return this.state.nodeRanks[nodeId] || 0;
   }
 
+  isNodeLevelUnlocked(node: SkillNodeDef): boolean {
+    if (node.requiredLevelIndex === undefined) return true;
+    const reqLvl = LEVELS[node.requiredLevelIndex];
+    if (!reqLvl) return true;
+    return this.state.completedLevels.includes(reqLvl.id);
+  }
+
   isNodeVisible(node: SkillNodeDef): boolean {
     if (node.requires.length === 0) return true;
     if (this.getRank(node.id) > 0) return true;
@@ -971,6 +1033,7 @@ export class SkillTreeManager {
   }
 
   isNodeUnlockedForPurchase(node: SkillNodeDef): boolean {
+    if (!this.isNodeLevelUnlocked(node)) return false;
     if (node.requires.length === 0) return true;
     return node.requires.some((reqId) => this.getRank(reqId) > 0);
   }
@@ -1029,6 +1092,9 @@ export class SkillTreeManager {
     const twinBonus = this.hasMutation('twin_workers') ? 2 : 0;
     const hasCompassMut = this.hasMutation('compass_cd');
     const workerEvo = r('worker_evo') > 0;
+    const warriorEvo = r('warrior_evo') > 0;
+    const scoutEvo = r('scout_evo') > 0;
+    const queenEvo = r('queen_evo') > 0;
     const beaconRank = r('all_beacon');
 
     return {
@@ -1046,30 +1112,33 @@ export class SkillTreeManager {
       compassCooldownSec: hasCompassMut ? 78 : 120,
       compassDuration: hasCompassMut ? 9.0 : 6.5,
       worker: {
-        speedMult: (1 + r('worker_spd') * 0.22) * (workerEvo ? 1.25 : 1) * totalGlobalSpeed,
-        dmgBonus: r('worker_dmg') + (workerEvo ? 2 : 0),
+        speedMult: (1 + r('worker_spd') * 0.22) * (workerEvo ? 1.12 : 1) * totalGlobalSpeed,
+        dmgBonus: r('worker_dmg') + (workerEvo ? 1 : 0),
         lifeMult: 1 + r('worker_life') * 0.35,
-        maxActive: 6 + twinBonus + r('worker_cap') * 3 + (workerEvo ? 2 : 0),
+        maxActive: 6 + twinBonus + r('worker_cap') * 3 + (workerEvo ? 1 : 0),
         evolved: workerEvo
       },
       warrior: {
         speedMult: (1 + r('warrior_spd') * 0.2) * totalGlobalSpeed,
         dmgBonus: r('warrior_dmg'),
-        radiusBonus: r('warrior_cleave') * 0.45,
-        maxActive: 2 + r('warrior_cap')
+        radiusBonus: r('warrior_cleave') * 0.85,
+        maxActive: 2 + r('warrior_cap'),
+        evolved: warriorEvo
       },
       scout: {
         speedMult: (1 + r('scout_spd') * 0.25) * totalGlobalSpeed,
         dmgBonus: r('scout_dmg'),
         lifeMult: 1 + r('scout_life') * 0.4,
         maxActive: 4 + r('scout_cap') * 3,
-        poisonRank: r('scout_poison')
+        poisonRank: r('scout_poison'),
+        evolved: scoutEvo
       },
       queen: {
         spawnRateMult: (1 + r('queen_rate') * 0.25) * totalGlobalSpeed,
         broodDmgBonus: r('queen_brood_dmg'),
         broodLifeMult: 1 + r('queen_brood_life') * 0.35,
-        maxActive: 1 + r('queen_brood_life')
+        maxActive: 1 + r('queen_brood_life'),
+        evolved: queenEvo
       }
     };
   }

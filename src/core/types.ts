@@ -16,7 +16,7 @@ export const enum CellType {
 export type Language = 'ru' | 'en';
 
 export type PlayableAntId = 'worker' | 'warrior' | 'scout' | 'queen' | 'compass';
-export type AntTypeId = PlayableAntId | 'brood';
+export type AntTypeId = PlayableAntId | 'brood' | 'beetle';
 export type AntSkinId = 'classic' | 'cyber' | 'royal';
 
 export interface PlayerColorDef {
@@ -82,6 +82,10 @@ export interface Ant {
   wallSlideDir?: number;
   /** True when currently inside a Queen's tiny royal buff aura */
   queenBuffed?: boolean;
+  /** True for regular Warrior copies spawned by Evolved Warriors (capped at 2 active, do not self-replicate) */
+  isWarriorClone?: boolean;
+  /** Per-ant cooldown timer for evolution triggers (e.g. Scout poison collision blast / Warrior wall clone) */
+  evoCooldown?: number;
 }
 
 export interface ScentPoint {
@@ -149,6 +153,8 @@ export interface SkillNodeDef {
   cost: number;
   maxRank: number;
   requires: string[];
+  /** Optional 0-based level index that must be completed before this evolution can be purchased */
+  requiredLevelIndex?: number;
 }
 
 export type MutationId =

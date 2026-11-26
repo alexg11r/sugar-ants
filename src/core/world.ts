@@ -100,6 +100,9 @@ export const BLOCK_HP: Record<number, number> = {
 };
 
 export class World {
+  /** Tracks last Sugar spawn bearing per level so every fresh start puts Sugar in a genuinely DIFFERENT far sector! */
+  private static lastSugarAngle = new Map<string, number>();
+
   readonly width: number;
   readonly height: number;
   readonly level: LevelDefinition;
@@ -421,10 +424,11 @@ export class World {
     this.interiorMask = computeInteriorMask(this.cells, w, h, [{ x: this.nestX, y: this.nestY }]);
     const distMap = reach.dist;
 
-    // 4. Place the Sugar Cube DEEP in the far outer reaches (top 22% BFS path distance & far from nest!)
-    // so levels require genuine colony growth & exploration instead of being beaten in 5 minutes!
-    const validSugarSpots: { x: number; y: number; bfsDist: number; euclid: number }[] = [];
+    // 4. Place the Sugar Cube RANDOMLY across different far compass sectors on EVERY map start,
+    // strictly FAR from the Nest (high Euclidean & BFS path distance!) and avoiding the previous run's direction!
+    const validSugarSpots: { x: number; y: number; bfsDist: number; euclid: number; angle: number }[] = [];
     let maxSpotBfs = 0;
+    let maxSpotEuclid = 0;
     for (let y = 8; y < h - 8; y += 2) {
       for (let x = 8; x < w - 8; x += 2) {
         if (!isReachableTerrainSquare(this.cells, this.reachableMask, w, h, x, y, 4)) continue;
@@ -432,24 +436,62 @@ export class World {
         if (bd <= 0) continue;
         const euclid = Math.hypot(x - this.nestX, y - this.nestY);
         if (bd > maxSpotBfs) maxSpotBfs = bd;
-        validSugarSpots.push({ x, y, bfsDist: bd, euclid });
+        if (euclid > maxSpotEuclid) maxSpotEuclid = euclid;
+        validSugarSpots.push({
+          x,
+          y,
+          bfsDist: bd,
+          euclid,
+          angle: Math.atan2(y - this.nestY, x - this.nestX)
+        });
       }
     }
 
-    const minEuclid = Math.min(w, h) * 0.48; // >= 134px straight-line on 440x280
-    let deepPool = validSugarSpots.filter((p) => p.bfsDist >= maxSpotBfs * 0.78 && p.euclid >= minEuclid);
+    const minEuclid = Math.max(Math.min(w, h) * 0.50, maxSpotEuclid * 0.68);
+    let deepPool = validSugarSpots.filter((p) => p.euclid >= minEuclid && p.bfsDist >= maxSpotBfs * 0.64);
+    if (deepPool.length < 12) {
+      deepPool = validSugarSpots.filter((p) => p.euclid >= maxSpotEuclid * 0.60 && p.bfsDist >= maxSpotBfs * 0.58);
+    }
     if (deepPool.length === 0) {
-      deepPool = validSugarSpots.filter((p) => p.bfsDist >= maxSpotBfs * 0.68);
+      deepPool = validSugarSpots.filter((p) => p.bfsDist >= maxSpotBfs * 0.65);
     }
 
     if (deepPool.length > 0) {
-      const pick = deepPool[Math.floor(Math.random() * deepPool.length)];
+      // Bucket far spots into 8 compass sectors so every map start picks a varied direction!
+      const SECTOR_COUNT = 8;
+      const buckets: typeof deepPool[] = Array.from({ length: SECTOR_COUNT }, () => []);
+      for (const spot of deepPool) {
+        const norm = ((spot.angle + Math.PI) / (Math.PI * 2)) % 1;
+        const sIdx = Math.min(SECTOR_COUNT - 1, Math.floor(norm * SECTOR_COUNT));
+        buckets[sIdx].push(spot);
+      }
+      const prevAngle = World.lastSugarAngle.get(this.level.id);
+      const nonEmptySectors = buckets
+        .map((spots, idx) => ({ idx, spots, centerAng: ((idx + 0.5) / SECTOR_COUNT) * Math.PI * 2 - Math.PI }))
+        .filter((b) => b.spots.length > 0);
+
+      let freshSectors = nonEmptySectors;
+      if (prevAngle !== undefined && nonEmptySectors.length > 1) {
+        const filtered = nonEmptySectors.filter((b) => {
+          let d = Math.abs(b.centerAng - prevAngle);
+          if (d > Math.PI) d = Math.PI * 2 - d;
+          return d >= Math.PI / 3; // >= 60 deg away from previous run!
+        });
+        if (filtered.length > 0) freshSectors = filtered;
+      }
+
+      const chosenBucket = freshSectors[Math.floor(Math.random() * freshSectors.length)];
+      const pick = chosenBucket.spots[Math.floor(Math.random() * chosenBucket.spots.length)];
       this.sugarX = pick.x;
       this.sugarY = pick.y;
+      World.lastSugarAngle.set(this.level.id, pick.angle);
     } else if (validSugarSpots.length > 0) {
-      validSugarSpots.sort((a, b) => b.bfsDist - a.bfsDist);
-      this.sugarX = validSugarSpots[0].x;
-      this.sugarY = validSugarSpots[0].y;
+      validSugarSpots.sort((a, b) => b.euclid - a.euclid);
+      const topSlice = validSugarSpots.slice(0, Math.min(20, validSugarSpots.length));
+      const pick = topSlice[Math.floor(Math.random() * topSlice.length)];
+      this.sugarX = pick.x;
+      this.sugarY = pick.y;
+      World.lastSugarAngle.set(this.level.id, pick.angle);
     } else {
       // Absolute last-resort reachable fallback
       let bestX = this.nestX;
@@ -599,8 +641,9 @@ export class World {
     }
     this.stats.totalCrystals = placedCrystals;
 
-    // 5b. Place Hidden Underground Finds (scaled gently on larger high-difficulty maps!)
-    const extraFinds = Math.round((diff - 1) * 3.5);
+    // 5b. Place Hidden Underground Finds (scaled gently with map area & difficulty!)
+    const areaScale = Math.max(1, Math.sqrt((w * h) / (440 * 280)));
+    const extraFinds = Math.round((diff - 1) * 3.5 + (areaScale - 1) * 7);
     this.placeSpecialFinds(CellType.ExplosiveSpore, 9 + extraFinds, 24);
     this.placeSpecialFinds(CellType.SugarDust, 7 + Math.floor(extraFinds * 0.8), 26);
     this.placeSpecialFinds(CellType.AncientCocoon, 6 + Math.floor(extraFinds * 0.8), 28);

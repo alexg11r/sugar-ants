@@ -38,14 +38,61 @@ export function drawDetailedAnt(
   // Scale smoothly up to 28x close-up zoom while staying crisp and proportional to individual pixel blocks!
   const zoomScale = zoom <= 8 ? zoom * 0.62 : 4.96 + (zoom - 8) * 0.24;
   const s = Math.max(1.8, zoomScale) * cfg.scale * (evolved ? 1.12 : 1);
-  const [r, g, b] = colorOverride || (evolved ? [115, 255, 165] : cfg.rgb);
+  const [r, g, b] = colorOverride || (evolved && type === 'worker' ? [115, 255, 165] : cfg.rgb);
 
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(angle);
 
-  // Soft colored underglow (golden-emerald halo for Evolved Titan Workers!)
-  ctx.fillStyle = evolved ? 'rgba(255, 228, 110, 0.28)' : `rgba(${r}, ${g}, ${b}, 0.2)`;
+  // Distinct fiery armored Exploding Beetle silhouette (Queen Evolution 5% spawn!)
+  if (type === 'beetle') {
+    const pulse = 0.72 + 0.28 * Math.sin(legPhase * 1.4);
+    ctx.fillStyle = `rgba(255, 110, 40, ${0.32 * pulse})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, s * 3.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 6 stubby legs
+    ctx.strokeStyle = 'rgba(255, 155, 90, 0.9)';
+    ctx.lineWidth = Math.max(1.0, s * 0.28);
+    ctx.beginPath();
+    for (let i = -1; i <= 1; i++) {
+      const lx = i * 0.75 * s;
+      const sw = Math.sin(legPhase + i * 1.6) * 0.35 * s;
+      ctx.moveTo(lx, -0.7 * s);
+      ctx.lineTo(lx + sw, -1.75 * s);
+      ctx.moveTo(lx, 0.7 * s);
+      ctx.lineTo(lx - sw, 1.75 * s);
+    }
+    ctx.stroke();
+
+    // Round crimson-amber explosive carapace
+    ctx.fillStyle = '#c8261a';
+    ctx.beginPath();
+    ctx.ellipse(-0.15 * s, 0, 1.65 * s, 1.28 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Glowing molten magma fissure down the shell
+    ctx.strokeStyle = `rgba(255, 232, 110, ${pulse})`;
+    ctx.lineWidth = Math.max(1.2, s * 0.34);
+    ctx.beginPath();
+    ctx.moveTo(-1.5 * s, 0);
+    ctx.lineTo(0.85 * s, 0);
+    ctx.stroke();
+    // Glowing head & antennae
+    ctx.fillStyle = '#ff9848';
+    ctx.beginPath();
+    ctx.arc(1.35 * s, 0, 0.65 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff9cc';
+    ctx.beginPath();
+    ctx.arc(-0.25 * s, 0, 0.42 * s * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  // Soft colored underglow (golden-prismatic halo for Evolved ants!)
+  ctx.fillStyle = evolved ? 'rgba(255, 228, 110, 0.32)' : `rgba(${r}, ${g}, ${b}, 0.2)`;
   ctx.beginPath();
   ctx.arc(0, 0, s * (evolved ? 3.8 : 3.2), 0, Math.PI * 2);
   ctx.fill();
@@ -661,8 +708,12 @@ export class WorldRenderer {
     sugarBurst: { x: number; y: number; progress: number } | null = null,
     scentTrail: ScentPoint[] = [],
     beacon: PheromoneBeacon | null = null,
-    workerEvolved = false
+    evos: boolean | { worker?: boolean; warrior?: boolean; scout?: boolean; queen?: boolean } = false
   ) {
+    const workerEvo = typeof evos === 'boolean' ? evos : Boolean(evos.worker);
+    const warriorEvo = typeof evos === 'boolean' ? false : Boolean(evos.warrior);
+    const scoutEvo = typeof evos === 'boolean' ? false : Boolean(evos.scout);
+    const queenEvo = typeof evos === 'boolean' ? false : Boolean(evos.queen);
     if (world.width !== this.width || world.height !== this.height) {
       this.resizeWorld(world.width, world.height);
     }
@@ -1012,21 +1063,21 @@ export class WorldRenderer {
       ctx.fill();
     }
 
-    // Queen tiny royal buff aura rings (visualizes exact 13px buff radius!)
+    // Queen royal buff aura rings (visualizes exact 13px or 26px Evolved Queen buff radius!)
     for (let i = 0; i < ants.length; i++) {
       const ant = ants[i];
       if (ant.type !== 'queen') continue;
       const qx = drawX + ant.x * camera.zoom;
       const qy = drawY + ant.y * camera.zoom;
-      const auraR = QUEEN_AURA_RADIUS * camera.zoom;
+      const auraR = (queenEvo ? QUEEN_AURA_RADIUS * 2 : QUEEN_AURA_RADIUS) * camera.zoom;
       if (qx + auraR < -10 || qx - auraR > viewW + 10 || qy + auraR < -10 || qy - auraR > viewH + 10) continue;
       const pulse = 0.22 + 0.12 * Math.sin(time * 3.4 + ant.id);
-      ctx.fillStyle = `rgba(224, 75, 255, ${pulse * 0.28})`;
+      ctx.fillStyle = queenEvo ? `rgba(240, 105, 255, ${pulse * 0.34})` : `rgba(224, 75, 255, ${pulse * 0.28})`;
       ctx.beginPath();
       ctx.arc(qx, qy, auraR, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = `rgba(255, 200, 120, ${pulse + 0.14})`;
-      ctx.lineWidth = Math.max(1.1, camera.zoom * 0.22);
+      ctx.strokeStyle = queenEvo ? `rgba(255, 224, 120, ${pulse + 0.22})` : `rgba(255, 200, 120, ${pulse + 0.14})`;
+      ctx.lineWidth = Math.max(1.1, camera.zoom * (queenEvo ? 0.26 : 0.22));
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
       ctx.arc(qx, qy, auraR, 0, Math.PI * 2);
@@ -1061,8 +1112,12 @@ export class WorldRenderer {
       const sx = drawX + ant.x * camera.zoom;
       const sy = drawY + ant.y * camera.zoom;
       if (sx < -36 || sx > viewW + 36 || sy < -36 || sy > viewH + 36) continue;
-      const isEvoWorker = ant.type === 'worker' && workerEvolved;
-      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, camera.zoom, 'classic', undefined, isEvoWorker);
+      const isEvo =
+        (ant.type === 'worker' && workerEvo) ||
+        (ant.type === 'warrior' && warriorEvo && !ant.isWarriorClone) ||
+        (ant.type === 'scout' && scoutEvo) ||
+        (ant.type === 'queen' && queenEvo);
+      drawDetailedAnt(ctx, ant.type, sx, sy, ant.angle, ant.legPhase, ant.biteFlash, camera.zoom, 'classic', undefined, isEvo);
     }
 
     // Warrior directional aiming preview
