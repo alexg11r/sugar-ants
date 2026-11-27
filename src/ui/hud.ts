@@ -662,7 +662,8 @@ export class HudController {
     if (!this.skillTreeOpen) {
       this.stTtCatEl.textContent = t('stTitle');
       this.stTtTitleEl.textContent = t('stSelectNode');
-      this.stTtDescEl.textContent = isMobileDevice() ? t('stDefaultDescTouch') : t('stDefaultDesc');
+      const isCoarsePointer = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    this.stTtDescEl.textContent = isCoarsePointer ? t('stDefaultDescTouch') : t('stDefaultDesc');
     } else {
       this.renderSkillTree(false);
     }
@@ -4141,7 +4142,7 @@ export class HudController {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const pType = (e as PointerEvent).pointerType || this.lastSkillPointerType;
-        const isTouch = isMobileDevice() || pType === 'touch' || pType === 'pen';
+        const isTouch = pType === 'touch' || pType === 'pen' || (pType !== 'mouse' && isMobileDevice());
         if (isTouch) {
           this.selectedNodeId = node.id;
           this.updateInspector(node);
@@ -4229,7 +4230,7 @@ export class HudController {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const pType = (e as PointerEvent).pointerType || this.lastSkillPointerType;
-        const isTouch = isMobileDevice() || pType === 'touch' || pType === 'pen';
+        const isTouch = pType === 'touch' || pType === 'pen' || (pType !== 'mouse' && isMobileDevice());
         if (isTouch) {
           this.selectedNodeId = node.id;
           this.updateInspector(node);
